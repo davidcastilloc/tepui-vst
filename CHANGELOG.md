@@ -2,6 +2,16 @@
 
 Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
 
+## [1.3.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.2.0...v1.3.0) (2026-11-02)
+
+### Nuevas Funcionalidades (Features)
+
+* **ui:** aplicar mejoras de diseno hardware, iconografia SVG, matriz interactiva y telemetria ODD ([fb688e2](https://github.com/davidcastilloc/tepui-vst/commit/fb688e233a4a09b5406f0faf26f9369c6171a9c8))
+
+# Changelog
+
+Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
+
 ## [1.2.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.1.0...v1.2.0) (2026-11-02)
 
 ### Nuevas Funcionalidades (Features)
