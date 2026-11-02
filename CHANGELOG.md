@@ -1,5 +1,19 @@
 # Changelog
 
+Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
+
+## 1.0.0 (2026-11-02)
+
+### Nuevas Funcionalidades (Features)
+
+* **dsp:** motor polifonico TEPUI VST3/CLAP con modelado fisico venezolano, reverb canon, arpegiador 6/8-5/8 y grabadora master ([ac787c5](https://github.com/davidcastilloc/tepui-vst/commit/ac787c5e4e0e0d54ea0709a35b874b6223f01022))
+
+### Correcciones de Errores (Bug Fixes)
+
+* **ci:** aislar sondeo WASAPI/WinMM en runners headless y compatibilidad Clippy 1.99 ([58fe399](https://github.com/davidcastilloc/tepui-vst/commit/58fe399c58c14417c644c4b8fb682a2f6f8b5f38))
+
+# Changelog
+
 Todos los cambios notables en este proyecto serán documentados en este archivo.
 
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/),
