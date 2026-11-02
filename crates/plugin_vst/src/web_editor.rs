@@ -236,17 +236,77 @@ mod win32_pump {
     }
 
     pub type TIMERPROC = Option<unsafe extern "system" fn(HWND, UINT, UINT_PTR, DWORD)>;
+    pub type HICON = *mut c_void;
 
     extern "system" {
-        pub fn SetTimer(hwnd: HWND, id_event: UINT_PTR, elapse: UINT, timer_func: TIMERPROC) -> UINT_PTR;
+        pub fn SetTimer(
+            hwnd: HWND,
+            id_event: UINT_PTR,
+            elapse: UINT,
+            timer_func: TIMERPROC,
+        ) -> UINT_PTR;
         pub fn KillTimer(hwnd: HWND, id_event: UINT_PTR) -> BOOL;
-        pub fn PeekMessageW(msg: *mut MSG, hwnd: HWND, msg_filter_min: UINT, msg_filter_max: UINT, remove_msg: UINT) -> BOOL;
+        pub fn PeekMessageW(
+            msg: *mut MSG,
+            hwnd: HWND,
+            msg_filter_min: UINT,
+            msg_filter_max: UINT,
+            remove_msg: UINT,
+        ) -> BOOL;
         pub fn TranslateMessage(msg: *const MSG) -> BOOL;
         pub fn DispatchMessageW(msg: *const MSG) -> isize;
+        pub fn GetAncestor(hwnd: HWND, ga_flags: UINT) -> HWND;
+        pub fn SendMessageW(hwnd: HWND, msg: UINT, wparam: usize, lparam: isize) -> isize;
+        pub fn CreateIconFromResourceEx(
+            presbits: *const u8,
+            dwres_size: DWORD,
+            f_icon: BOOL,
+            dw_ver: DWORD,
+            cx_desired: i32,
+            cy_desired: i32,
+            flags: UINT,
+        ) -> HICON;
     }
 
     pub const PM_REMOVE: UINT = 0x0001;
     pub const TIMER_ID: UINT_PTR = 0xAE87A;
+    pub const GA_ROOT: UINT = 2;
+    pub const WM_SETICON: UINT = 0x0080;
+    pub const ICON_SMALL: usize = 0;
+    pub const ICON_BIG: usize = 1;
+
+    pub unsafe fn apply_window_icon(hwnd: HWND) {
+        let png_bytes = include_bytes!("../ui/tepui-icon.png");
+        let hicon_big = CreateIconFromResourceEx(
+            png_bytes.as_ptr(),
+            png_bytes.len() as DWORD,
+            1,
+            0x00030000,
+            64,
+            64,
+            0,
+        );
+        let hicon_small = CreateIconFromResourceEx(
+            png_bytes.as_ptr(),
+            png_bytes.len() as DWORD,
+            1,
+            0x00030000,
+            32,
+            32,
+            0,
+        );
+        let root_hwnd = GetAncestor(hwnd, GA_ROOT);
+        for target in [hwnd, root_hwnd] {
+            if !target.is_null() {
+                if !hicon_small.is_null() {
+                    SendMessageW(target, WM_SETICON, ICON_SMALL, hicon_small as isize);
+                }
+                if !hicon_big.is_null() {
+                    SendMessageW(target, WM_SETICON, ICON_BIG, hicon_big as isize);
+                }
+            }
+        }
+    }
 
     pub unsafe extern "system" fn timer_pump_proc(
         _hwnd: HWND,
@@ -288,7 +348,10 @@ unsafe impl Send for WebEditorHandle {}
 
 fn load_asset_bytes(filename: &str, embedded: &'static [u8]) -> Cow<'static, [u8]> {
     let candidates = [
-        format!("C:/Users/pc911/plugin_vst/crates/plugin_vst/ui/{}", filename),
+        format!(
+            "C:/Users/pc911/plugin_vst/crates/plugin_vst/ui/{}",
+            filename
+        ),
         format!("crates/plugin_vst/ui/{}", filename),
         format!("ui/{}", filename),
     ];
@@ -391,7 +454,9 @@ pub fn build_init_state_json(
             sustain: params.sustain.preview_normalized(live_params.get_sustain()),
             release: params.release.preview_normalized(live_params.get_release()),
             cutoff: params.cutoff.preview_normalized(live_params.get_cutoff()),
-            resonance: params.resonance.preview_normalized(live_params.get_resonance()),
+            resonance: params
+                .resonance
+                .preview_normalized(live_params.get_resonance()),
             gain: params.gain.preview_normalized(live_params.get_gain()),
             space_mix: params
                 .space_mix
@@ -460,7 +525,9 @@ pub fn build_telemetry_json(
             sustain: params.sustain.preview_normalized(live_params.get_sustain()),
             release: params.release.preview_normalized(live_params.get_release()),
             cutoff: params.cutoff.preview_normalized(live_params.get_cutoff()),
-            resonance: params.resonance.preview_normalized(live_params.get_resonance()),
+            resonance: params
+                .resonance
+                .preview_normalized(live_params.get_resonance()),
             gain: params.gain.preview_normalized(live_params.get_gain()),
             space_mix: params
                 .space_mix
@@ -571,12 +638,27 @@ try {{
 
     let inlined_css = format!("<style>\n{}\n</style>", css_str);
     let inlined_js = format!("<script>\n{}\n</script>", js_str);
+    let icon_data_uri = format!(
+        "data:image/png;base64,{}",
+        synth_core::base64_encode(include_bytes!("../ui/tepui-icon.png"))
+    );
+
+    // Inyectar el icono en Base64 para renderizado instantáneo sin latencia
+    let html_with_icon = html_str
+        .replace(
+            r#"href="tepui-icon.png""#,
+            &format!(r#"href="{}""#, icon_data_uri),
+        )
+        .replace(
+            r#"src="tepui-icon.png""#,
+            &format!(r#"src="{}""#, icon_data_uri),
+        );
 
     // Inyectar el CSS directamente
-    let html_with_css = if html_str.contains(r#"<link rel="stylesheet" href="style.css">"#) {
-        html_str.replace(r#"<link rel="stylesheet" href="style.css">"#, &inlined_css)
+    let html_with_css = if html_with_icon.contains(r#"<link rel="stylesheet" href="style.css">"#) {
+        html_with_icon.replace(r#"<link rel="stylesheet" href="style.css">"#, &inlined_css)
     } else {
-        html_str.replace("</head>", &format!("{}\n</head>", inlined_css))
+        html_with_icon.replace("</head>", &format!("{}\n</head>", inlined_css))
     };
 
     // Inyectar el script con estado pre-inicializado
@@ -586,7 +668,10 @@ try {{
             &format!("{}\n{}", state_injection, inlined_js),
         )
     } else {
-        html_with_css.replace("</body>", &format!("{}\n{}\n</body>", state_injection, inlined_js))
+        html_with_css.replace(
+            "</body>",
+            &format!("{}\n{}\n</body>", state_injection, inlined_js),
+        )
     };
 
     full_html
@@ -824,25 +909,30 @@ fn handle_native_ipc_message(
 
     if let Some(cfg_json) = trimmed.strip_prefix("save_audio_config:") {
         let clean_json = cfg_json.trim();
-        let parsed = serde_json::from_str::<crate::audio_devices::StandaloneAudioConfig>(clean_json)
-            .or_else(|_| {
-                serde_json::from_str::<String>(clean_json)
-                    .and_then(|unescaped| serde_json::from_str::<crate::audio_devices::StandaloneAudioConfig>(&unescaped))
-            })
-            .or_else(|_| {
-                let unescaped = clean_json.replace(r#"\""#, r#"""#);
-                serde_json::from_str::<crate::audio_devices::StandaloneAudioConfig>(&unescaped)
-            });
+        let parsed =
+            serde_json::from_str::<crate::audio_devices::StandaloneAudioConfig>(clean_json)
+                .or_else(|_| {
+                    serde_json::from_str::<String>(clean_json).and_then(|unescaped| {
+                        serde_json::from_str::<crate::audio_devices::StandaloneAudioConfig>(
+                            &unescaped,
+                        )
+                    })
+                })
+                .or_else(|_| {
+                    let unescaped = clean_json.replace(r#"\""#, r#"""#);
+                    serde_json::from_str::<crate::audio_devices::StandaloneAudioConfig>(&unescaped)
+                });
 
         match parsed {
-            Ok(config) => {
-                match crate::audio_devices::save_config(&config) {
-                    Ok(_) => println!("[TEPUI CONFIG] Guardado via IPC exitosamente: {:?}", config),
-                    Err(e) => eprintln!("[TEPUI CONFIG ERROR] Fallo al escribir archivo: {}", e),
-                }
-            }
+            Ok(config) => match crate::audio_devices::save_config(&config) {
+                Ok(_) => println!("[TEPUI CONFIG] Guardado via IPC exitosamente: {:?}", config),
+                Err(e) => eprintln!("[TEPUI CONFIG ERROR] Fallo al escribir archivo: {}", e),
+            },
             Err(e) => {
-                eprintln!("[TEPUI CONFIG ERROR] JSON inválido en IPC '{}': {}", clean_json, e);
+                eprintln!(
+                    "[TEPUI CONFIG ERROR] JSON inválido en IPC '{}': {}",
+                    clean_json, e
+                );
             }
         }
         return;
@@ -859,7 +949,9 @@ fn handle_native_ipc_message(
         let delimiter = if rest.contains(',') { ',' } else { ':' };
         let mut parts = rest.split(delimiter);
         if let (Some(note_str), Some(vel_str)) = (parts.next(), parts.next()) {
-            if let (Ok(note), Ok(vel)) = (note_str.trim().parse::<u8>(), vel_str.trim().parse::<f32>()) {
+            if let (Ok(note), Ok(vel)) =
+                (note_str.trim().parse::<u8>(), vel_str.trim().parse::<f32>())
+            {
                 let _ = gui_midi_tx.try_send(GuiMidiEvent::NoteOn(note, vel.clamp(0.0, 1.0)));
                 return;
             }
@@ -1093,10 +1185,14 @@ impl Editor for WebViewEditor {
                 let hwnd_isize = hwnd as isize;
                 let native_window = NativeHwnd(hwnd_isize);
                 let (w, h) = self.size();
-                println!("[TEPUI WEBVIEW] Incrustando WebView2 Serverless (tepui://app/) en HWND {:?}", hwnd);
+                println!(
+                    "[TEPUI WEBVIEW] Incrustando WebView2 Serverless (tepui://app/) en HWND {:?}",
+                    hwnd
+                );
 
                 #[cfg(windows)]
                 unsafe {
+                    win32_pump::apply_window_icon(hwnd as win32_pump::HWND);
                     win32_pump::SetTimer(
                         hwnd as win32_pump::HWND,
                         win32_pump::TIMER_ID,
@@ -1117,8 +1213,7 @@ impl Editor for WebViewEditor {
                 let ai_worker_proto = self.ai_worker.clone();
                 let gui_param_tx_proto = self.gui_param_tx.clone();
 
-                let builder = WebViewBuilder::new()
-                    .with_background_color((12, 14, 18, 255));
+                let builder = WebViewBuilder::new().with_background_color((12, 14, 18, 255));
 
                 let builder = builder
                     .with_custom_protocol("tepui".into(), move |_webview_id, req: Request<Vec<u8>>| {
@@ -1131,13 +1226,21 @@ impl Editor for WebViewEditor {
                             println!("[TEPUI PROTO REQ] uri: {:?}, method: {:?}", req.uri(), req.method());
                         }
 
-                        if method == "OPTIONS" || path.ends_with("favicon.ico") {
+                        if method == "OPTIONS" {
                             return Response::builder()
                                 .status(StatusCode::NO_CONTENT)
                                 .header("Access-Control-Allow-Origin", "*")
                                 .header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
                                 .header("Access-Control-Allow-Headers", "Content-Type")
                                 .body(Cow::Borrowed(&[] as &'static [u8]))
+                                .unwrap();
+                        }
+
+                        if path.ends_with("favicon.ico") || path.ends_with("tepui-icon.png") {
+                            return Response::builder()
+                                .header(CONTENT_TYPE, "image/png")
+                                .header("Access-Control-Allow-Origin", "*")
+                                .body(Cow::Borrowed(include_bytes!("../ui/tepui-icon.png") as &'static [u8]))
                                 .unwrap();
                         }
 
@@ -1371,7 +1474,14 @@ impl Editor for WebViewEditor {
                         #[cfg(windows)]
                         unsafe {
                             let mut msg: win32_pump::MSG = std::mem::zeroed();
-                            while win32_pump::PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, win32_pump::PM_REMOVE) != 0 {
+                            while win32_pump::PeekMessageW(
+                                &mut msg,
+                                std::ptr::null_mut(),
+                                0,
+                                0,
+                                win32_pump::PM_REMOVE,
+                            ) != 0
+                            {
                                 win32_pump::TranslateMessage(&msg);
                                 win32_pump::DispatchMessageW(&msg);
                             }
@@ -1384,7 +1494,10 @@ impl Editor for WebViewEditor {
                         })
                     }
                     Err(e) => {
-                        eprintln!("[TEPUI WEBVIEW] Error creando WebView2 hijo en DAW: {:?}", e);
+                        eprintln!(
+                            "[TEPUI WEBVIEW] Error creando WebView2 hijo en DAW: {:?}",
+                            e
+                        );
                         Box::new(())
                     }
                 }
@@ -1411,14 +1524,20 @@ impl Editor for WebViewEditor {
         self.live_params.set_sustain(self.params.sustain.value());
         self.live_params.set_release(self.params.release.value());
         self.live_params.set_cutoff(self.params.cutoff.value());
-        self.live_params.set_resonance(self.params.resonance.value());
-        self.live_params.set_filter_mode(self.params.filter_mode.value());
+        self.live_params
+            .set_resonance(self.params.resonance.value());
+        self.live_params
+            .set_filter_mode(self.params.filter_mode.value());
         self.live_params.set_gain(self.params.gain.value());
-        self.live_params.set_space_mix(self.params.space_mix.value());
-        self.live_params.set_root_note(self.params.root_note.value());
+        self.live_params
+            .set_space_mix(self.params.space_mix.value());
+        self.live_params
+            .set_root_note(self.params.root_note.value());
         self.live_params.set_lfo_rate(self.params.lfo_rate.value());
-        self.live_params.set_lfo_depth(self.params.lfo_depth.value());
-        self.live_params.set_lfo_target(self.params.lfo_target.value());
+        self.live_params
+            .set_lfo_depth(self.params.lfo_depth.value());
+        self.live_params
+            .set_lfo_target(self.params.lfo_target.value());
         self.live_params.bump_revision();
     }
 
@@ -1563,7 +1682,10 @@ mod tests {
             &sample_rate,
             &None,
         );
-        assert_eq!(live_params.get_filter_mode(), synth_core::FilterMode::Bandpass);
+        assert_eq!(
+            live_params.get_filter_mode(),
+            synth_core::FilterMode::Bandpass
+        );
 
         // 8. Save Audio Config IPC (direct & escaped JSON)
         handle_native_ipc_message(
@@ -1610,7 +1732,9 @@ mod tests {
         assert_eq!(live_params.get_root_note(), 48);
         assert!(live_params.get_revision() > initial_rev);
 
-        let evt = gui_param_rx.try_recv().expect("Expected SetParam for root_note");
+        let evt = gui_param_rx
+            .try_recv()
+            .expect("Expected SetParam for root_note");
         match evt {
             WebGuiEvent::SetParam { id, normalized } => {
                 assert_eq!(id, GuiParamId::RootNote);

@@ -100,30 +100,61 @@ pub fn generate_grand_piano_c4(sample_rate: f32) -> SampleBuffer {
 }
 
 /// Genera una muestra procedural o neural-espectral según el prompt recibido, retornando también el nombre del backend ODD.
-pub fn generate_sample_from_prompt_with_backend(prompt: &str, sample_rate: f32) -> (SampleBuffer, &'static str) {
+pub fn generate_sample_from_prompt_with_backend(
+    prompt: &str,
+    sample_rate: f32,
+) -> (SampleBuffer, &'static str) {
     let lower = prompt.trim().to_lowercase();
     let explicit_note = crate::npu_synth::extract_midi_note_from_prompt(prompt);
 
-    let (mut buf, backend) = if lower.is_empty() || lower.contains("piano") || lower.contains("grand") {
+    let (mut buf, backend) = if lower.is_empty()
+        || lower.contains("piano")
+        || lower.contains("grand")
+    {
         (generate_grand_piano_c4(sample_rate), "Physical-Modal-Piano")
-    } else if lower.contains("cuatro") || lower.contains("camburpinton") || lower.contains("camburpintón") {
-        (generate_cuatro_venezolano(sample_rate), "Physical-Model-Preset")
+    } else if lower.contains("cuatro")
+        || lower.contains("camburpinton")
+        || lower.contains("camburpintón")
+    {
+        (
+            generate_cuatro_venezolano(sample_rate),
+            "Physical-Model-Preset",
+        )
     } else if lower.contains("arpa llanera") || lower.contains("joropo") {
         (generate_arpa_llanera(sample_rate), "Physical-Model-Preset")
     } else if lower.contains("bandola") {
-        (generate_bandola_llanera(sample_rate), "Physical-Model-Preset")
+        (
+            generate_bandola_llanera(sample_rate),
+            "Physical-Model-Preset",
+        )
     } else if lower.contains("maraca") || lower.contains("capacho") {
-        (generate_maracas_llaneras(sample_rate), "Physical-Model-Preset")
+        (
+            generate_maracas_llaneras(sample_rate),
+            "Physical-Model-Preset",
+        )
     } else if lower.contains("cumaco") || lower.contains("tambor") {
         (generate_tambor_cumaco(sample_rate), "Physical-Model-Preset")
-    } else if lower.contains("quitiplas") || lower.contains("quitiplás") || lower.contains("bambu") || lower.contains("bambú") {
-        (generate_quitiplas_barlovento(sample_rate), "Physical-Model-Preset")
+    } else if lower.contains("quitiplas")
+        || lower.contains("quitiplás")
+        || lower.contains("bambu")
+        || lower.contains("bambú")
+    {
+        (
+            generate_quitiplas_barlovento(sample_rate),
+            "Physical-Model-Preset",
+        )
     } else if lower.contains("furruco") || lower.contains("gaita") {
-        (generate_furruco_zuliano(sample_rate), "Physical-Model-Preset")
+        (
+            generate_furruco_zuliano(sample_rate),
+            "Physical-Model-Preset",
+        )
     } else if lower.contains("brass") || lower.contains("horn") || lower.contains("trumpet") {
         (generate_vintage_brass(sample_rate), "Physical-Model-Preset")
     } else if lower.contains("cyber") || (lower.contains("pluck") && lower.contains("lead")) {
-        (generate_cyber_pluck_lead(sample_rate), "Physical-Model-Preset")
+        (
+            generate_cyber_pluck_lead(sample_rate),
+            "Physical-Model-Preset",
+        )
     } else if lower.contains("warm analog") || (lower.contains("pad") && lower.contains("analog")) {
         (generate_warm_pad(sample_rate), "Physical-Model-Preset")
     } else if lower.contains("fm bell") || (lower.contains("bell") && lower.contains("chime")) {
@@ -345,10 +376,9 @@ fn generate_cyber_pluck_lead(sample_rate: f32) -> SampleBuffer {
         let mod_sig = (2.0 * PI * (f0 * 2.0) * t).sin() * fm_index;
 
         // Supersaw estéreo desafinada
-        let saw_l = 2.0 * ((f0 * 0.996 * t).fract() - 0.5)
-            + (2.0 * PI * f0 * t + mod_sig).sin();
-        let saw_r = 2.0 * ((f0 * 1.004 * t).fract() - 0.5)
-            + (2.0 * PI * (f0 * 1.001) * t + mod_sig).sin();
+        let saw_l = 2.0 * ((f0 * 0.996 * t).fract() - 0.5) + (2.0 * PI * f0 * t + mod_sig).sin();
+        let saw_r =
+            2.0 * ((f0 * 1.004 * t).fract() - 0.5) + (2.0 * PI * (f0 * 1.001) * t + mod_sig).sin();
 
         left[i] = (saw_l * 0.55 * env).tanh() * 0.88;
         right[i] = (saw_r * 0.55 * env).tanh() * 0.88;
@@ -573,7 +603,8 @@ pub fn generate_tambor_cumaco(sample_rate: f32) -> SampleBuffer {
         // Golpe de "laures" (palos sobre el costado de madera del cumaco)
         wood_seed = wood_seed.wrapping_mul(1664525).wrapping_add(1013904223);
         let noise = ((wood_seed >> 16) as f32 / 32768.0) - 1.0;
-        let laures_click = ((2.0 * PI * 980.0 * t).sin() * 0.6 + noise * 0.4) * (-55.0 * t).exp() * 0.42;
+        let laures_click =
+            ((2.0 * PI * 980.0 * t).sin() * 0.6 + noise * 0.4) * (-55.0 * t).exp() * 0.42;
 
         left[i] = ((membrane + laures_click * 1.08) * 1.15).tanh() * 0.90;
         right[i] = ((membrane + laures_click * 0.92) * 1.15).tanh() * 0.90;
@@ -611,11 +642,12 @@ pub fn generate_quitiplas_barlovento(sample_rate: f32) -> SampleBuffer {
         let tube_pujao = (2.0 * PI * f0 * t).sin() * 0.65
             + (2.0 * PI * (f0 * 3.0) * t).sin() * (-24.0 * t).exp() * 0.28
             + (2.0 * PI * (f0 * 5.0) * t).sin() * (-38.0 * t).exp() * 0.14;
-        let tube_prima = (2.0 * PI * (f0 * 1.498) * t).sin() * 0.55
-            + (2.0 * PI * (f0 * 4.49) * t).sin() * 0.25;
+        let tube_prima =
+            (2.0 * PI * (f0 * 1.498) * t).sin() * 0.55 + (2.0 * PI * (f0 * 4.49) * t).sin() * 0.25;
 
         let l_raw = tube_pujao * ground_env + tube_prima * clack_env * 0.85 + bamboo_noise;
-        let r_raw = tube_pujao * ground_env * 0.90 + tube_prima * clack_env * 1.05 + bamboo_noise * 0.95;
+        let r_raw =
+            tube_pujao * ground_env * 0.90 + tube_prima * clack_env * 1.05 + bamboo_noise * 0.95;
 
         left[i] = (l_raw * 1.25).tanh() * 0.89;
         right[i] = (r_raw * 1.25).tanh() * 0.89;

@@ -39,22 +39,25 @@ impl SampleRegionOverride {
 
         let s_norm = self.start_norm.clamp(0.0, 0.99);
         let e_norm = self.end_norm.clamp(s_norm + 0.01, 1.0);
-        let start_idx = ((s_norm * raw_total as f32).round() as usize)
-            .min(raw_total.saturating_sub(1));
-        let end_idx = ((e_norm * raw_total as f32).round() as usize)
-            .clamp(start_idx + 1, raw_total);
+        let start_idx =
+            ((s_norm * raw_total as f32).round() as usize).min(raw_total.saturating_sub(1));
+        let end_idx =
+            ((e_norm * raw_total as f32).round() as usize).clamp(start_idx + 1, raw_total);
 
         let loop_on = self.loop_enabled.unwrap_or(buffer.loop_enabled);
         let (loop_start_idx, loop_end_idx) = if self.loop_enabled.is_some() {
-            let ls_norm = self.loop_start_norm.clamp(s_norm, (e_norm - 0.01).max(s_norm));
+            let ls_norm = self
+                .loop_start_norm
+                .clamp(s_norm, (e_norm - 0.01).max(s_norm));
             let le_norm = self.loop_end_norm.clamp(ls_norm + 0.01, e_norm);
             let ls = ((ls_norm * raw_total as f32).round() as usize)
                 .clamp(start_idx, end_idx.saturating_sub(1));
-            let le = ((le_norm * raw_total as f32).round() as usize)
-                .clamp(ls + 1, end_idx);
+            let le = ((le_norm * raw_total as f32).round() as usize).clamp(ls + 1, end_idx);
             (ls, le)
         } else {
-            let ls = buffer.loop_start.clamp(start_idx, end_idx.saturating_sub(1));
+            let ls = buffer
+                .loop_start
+                .clamp(start_idx, end_idx.saturating_sub(1));
             let le = buffer.loop_end.clamp(ls + 1, end_idx);
             (ls, le)
         };
@@ -69,7 +72,7 @@ pub struct Voice {
     pub velocity: f32,
     pub is_active: bool,
     pub note_on_time: u64, // Contador secuencial para política LRU de robo de voz
-    pub zone_slot: u8,    // 0 = Primary, 1 = Low (0..=55), 2 = Mid (56..=76), 3 = High (77..=127)
+    pub zone_slot: u8,     // 0 = Primary, 1 = Low (0..=55), 2 = Mid (56..=76), 3 = High (77..=127)
 
     playback_pos: f64,
     pub base_ratio: f64,
@@ -112,13 +115,7 @@ impl Voice {
     }
 
     /// Inicia una nueva nota MIDI usando el `root_note` propio del buffer.
-    pub fn note_on(
-        &mut self,
-        note: u8,
-        velocity: f32,
-        buffer: &SampleBuffer,
-        time_tag: u64,
-    ) {
+    pub fn note_on(&mut self, note: u8, velocity: f32, buffer: &SampleBuffer, time_tag: u64) {
         self.note_on_with_root(note, velocity, buffer, buffer.root_note, time_tag);
     }
 
@@ -153,12 +150,7 @@ impl Voice {
 
     /// Recalcula el ratio base ante un cambio de `root_note` en vivo manteniendo el pitch bend actual.
     #[inline]
-    pub fn update_root_note(
-        &mut self,
-        root_note: u8,
-        buffer: &SampleBuffer,
-        bend_multiplier: f64,
-    ) {
+    pub fn update_root_note(&mut self, root_note: u8, buffer: &SampleBuffer, bend_multiplier: f64) {
         self.base_ratio = calculate_playback_ratio(
             self.note,
             root_note,
@@ -199,16 +191,21 @@ impl Voice {
         }
 
         // Manejo de recorte (trim) y bucles (looping) con crossfade suave anti-click
-        let (_, end_limit, loop_enabled, loop_start, loop_end) = self.region_override.resolve(buffer);
+        let (_, end_limit, loop_enabled, loop_start, loop_end) =
+            self.region_override.resolve(buffer);
 
         let (raw_left, raw_right) = if loop_enabled && loop_end > loop_start {
             let loop_len = (loop_end - loop_start) as f64;
             let xfade_len = (buffer.loop_crossfade as f64).min(loop_len * 0.5);
 
-            if xfade_len > 0.0 && self.playback_pos >= (loop_end as f64 - xfade_len) && self.playback_pos < loop_end as f64 {
+            if xfade_len > 0.0
+                && self.playback_pos >= (loop_end as f64 - xfade_len)
+                && self.playback_pos < loop_end as f64
+            {
                 // Crossfade en el límite final del bucle
                 let progress = (self.playback_pos - (loop_end as f64 - xfade_len)) / xfade_len;
-                let wrap_pos = loop_start as f64 + (self.playback_pos - (loop_end as f64 - xfade_len));
+                let wrap_pos =
+                    loop_start as f64 + (self.playback_pos - (loop_end as f64 - xfade_len));
 
                 let l1 = read_interpolated_sample(buffer, 0, self.playback_pos, self.quality);
                 let r1 = read_interpolated_sample(buffer, 1, self.playback_pos, self.quality);

@@ -54,7 +54,11 @@ pub fn read_interpolated_sample(
     pos: f64,
     quality: ResamplingQuality,
 ) -> f32 {
-    let chan = if channel == 0 { &buffer.left } else { &buffer.right };
+    let chan = if channel == 0 {
+        &buffer.left
+    } else {
+        &buffer.right
+    };
     let len = buffer.len();
     if len == 0 || pos < 0.0 || pos >= len as f64 || chan.len() < len + 2 {
         return 0.0;

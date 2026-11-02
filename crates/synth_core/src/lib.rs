@@ -1,7 +1,11 @@
 //! Núcleo de DSP en tiempo real para el Sampler Cromático Polifónico.
 //!
 //! Arquitectura lock-free, zero-allocation y desacoplada del framework de plugins.
-#![allow(unknown_lints, clippy::chunks_exact_to_as_chunks, clippy::approx_constant)]
+#![allow(
+    unknown_lints,
+    clippy::chunks_exact_to_as_chunks,
+    clippy::approx_constant
+)]
 
 pub mod arp;
 pub mod buffer;
@@ -47,13 +51,16 @@ mod tests {
         assert_eq!(buf.left[5], 0.0);
 
         // Lectura en bordes (inicio, penúltima y última muestra fraccionaria) sin pánico
-        let s_start = resampler::read_interpolated_sample(&buf, 0, 0.0, ResamplingQuality::HermiteCubic);
+        let s_start =
+            resampler::read_interpolated_sample(&buf, 0, 0.0, ResamplingQuality::HermiteCubic);
         assert!((s_start - 0.25).abs() < 1e-6);
 
-        let s_last = resampler::read_interpolated_sample(&buf, 0, 3.5, ResamplingQuality::HermiteCubic);
+        let s_last =
+            resampler::read_interpolated_sample(&buf, 0, 3.5, ResamplingQuality::HermiteCubic);
         assert!(!s_last.is_nan() && !s_last.is_infinite());
 
-        let s_oob = resampler::read_interpolated_sample(&buf, 0, 4.0, ResamplingQuality::HermiteCubic);
+        let s_oob =
+            resampler::read_interpolated_sample(&buf, 0, 4.0, ResamplingQuality::HermiteCubic);
         assert_eq!(s_oob, 0.0);
     }
 
@@ -298,7 +305,10 @@ mod tests {
             assert!(right[i].is_finite() && !right[i].is_subnormal());
             diff_energy += (left[i] - dry_left[i]).abs();
         }
-        assert!(diff_energy > 0.1, "StereoFxRack should modulate signal when mix > 0");
+        assert!(
+            diff_energy > 0.1,
+            "StereoFxRack should modulate signal when mix > 0"
+        );
 
         // Verificar cola de reverberación "Cañón del Tepui" (4-Comb + 2-AllPass) tras cesar la señal de entrada
         let mut silence_l = vec![0.0_f32; 4096];
@@ -336,7 +346,11 @@ mod tests {
         let mut out_l = vec![0.0; 80];
         let mut out_r = vec![0.0; 80];
         vm.process_block(&buffer, &mut out_l, &mut out_r);
-        assert_eq!(vm.active_voice_count(), 0, "Voice should stop at trimmed end_norm=0.50");
+        assert_eq!(
+            vm.active_voice_count(),
+            0,
+            "Voice should stop at trimmed end_norm=0.50"
+        );
 
         // 2. Con loop activado entre 0.10 y 0.40, la voz debe seguir sonando indefinidamente más allá de 200 muestras
         vm.set_region_override(SampleRegionOverride {
@@ -350,7 +364,11 @@ mod tests {
         let mut loop_l = vec![0.0; 250];
         let mut loop_r = vec![0.0; 250];
         vm.process_block(&buffer, &mut loop_l, &mut loop_r);
-        assert_eq!(vm.active_voice_count(), 1, "Voice should remain active when loop_enabled=Some(true)");
+        assert_eq!(
+            vm.active_voice_count(),
+            1,
+            "Voice should remain active when loop_enabled=Some(true)"
+        );
         assert!(loop_l[240].abs() > 0.1);
     }
 
@@ -391,7 +409,10 @@ mod tests {
         let mut out_l = vec![0.0; 512];
         let mut out_r = vec![0.0; 512];
         vm.process_block_with_zones(&primary, &zones, &mut out_l, &mut out_r);
-        assert!(vm.lfo_last_value().abs() > 0.0, "LFO should advance and produce modulation");
+        assert!(
+            vm.lfo_last_value().abs() > 0.0,
+            "LFO should advance and produce modulation"
+        );
 
         // Cambiar a LFO Pitch (Vibrato) y luego a Tremolo Estéreo
         vm.update_lfo_params(5.0, 0.8, LfoTarget::Pitch);
@@ -406,7 +427,10 @@ mod tests {
             .zip(trem_r.iter())
             .map(|(l, r)| (l - r).abs())
             .sum();
-        assert!(diff_lr > 0.01, "Quadrature stereo tremolo should differentiate L and R");
+        assert!(
+            diff_lr > 0.01,
+            "Quadrature stereo tremolo should differentiate L and R"
+        );
     }
 
     #[test]
@@ -456,4 +480,3 @@ mod tests {
         assert_eq!(vm.arp_steps_triggered(), steps_after_release);
     }
 }
-

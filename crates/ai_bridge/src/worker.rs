@@ -128,7 +128,9 @@ impl AiWorker {
         while self.zone_update_tx.is_full() {
             let _ = self.zone_update_rx.try_recv();
         }
-        let _ = self.zone_update_tx.try_send((zone_idx, Some(sample.clone())));
+        let _ = self
+            .zone_update_tx
+            .try_send((zone_idx, Some(sample.clone())));
         Some(sample)
     }
 
@@ -225,7 +227,12 @@ impl AiWorker {
     }
 
     /// Envía una solicitud de generación de sample sin bloquear el hilo que llama.
-    pub fn request_generation(&self, prompt: String, sample_rate: f32, endpoint_url: Option<String>) {
+    pub fn request_generation(
+        &self,
+        prompt: String,
+        sample_rate: f32,
+        endpoint_url: Option<String>,
+    ) {
         self.active_prompt.store(Arc::new(prompt.clone()));
         self.custom_wav_b64.store(Arc::new(None));
         let _ = self.request_tx.send(GenerateRequest {
@@ -257,8 +264,10 @@ impl AiWorker {
             .store(Arc::new(Some(base64_encode(bytes))));
         self.last_backend
             .store(Arc::new("Custom-WAV-Memory".to_string()));
-        self.last_generation_duration_us
-            .store(t0.elapsed().as_micros().min(u32::MAX as u128) as u32, Ordering::Relaxed);
+        self.last_generation_duration_us.store(
+            t0.elapsed().as_micros().min(u32::MAX as u128) as u32,
+            Ordering::Relaxed,
+        );
         self.generation_count.fetch_add(1, Ordering::Relaxed);
 
         while self.sample_update_tx.is_full() {
@@ -337,7 +346,10 @@ impl AiWorker {
     }
 
     fn try_load_from_endpoint(endpoint: &str, prompt: &str) -> Option<SampleBuffer> {
-        let clean = endpoint.trim().strip_prefix("file://").unwrap_or(endpoint.trim());
+        let clean = endpoint
+            .trim()
+            .strip_prefix("file://")
+            .unwrap_or(endpoint.trim());
         let path = std::path::Path::new(clean);
         if path.exists() && path.is_file() {
             if let Ok(bytes) = std::fs::read(path) {

@@ -223,9 +223,9 @@ impl TepuiArpeggiator {
                     0 => (if root >= 24 { root - 12 } else { root }, 0.98), // Bordón grave acentuado
                     1 => (high, 0.78),                                      // Floreo agudo
                     2 => (mid, 0.84),                                       // Cuerda media
-                    3 => (fifth, 0.95),                                     // Acento de Trancao (pulso 4)
-                    4 => ((high + 12).min(108), 0.80),                      // Tiple octavado
-                    _ => (root, 0.88),                                      // Cierre de bordón
+                    3 => (fifth, 0.95), // Acento de Trancao (pulso 4)
+                    4 => ((high + 12).min(108), 0.80), // Tiple octavado
+                    _ => (root, 0.88),  // Cierre de bordón
                 }
             }
             ArpMode::Merengue => {
@@ -239,11 +239,11 @@ impl TepuiArpeggiator {
                     (root + 4).min(108)
                 };
                 match step % 5 {
-                    0 => (root, 0.98),                        // Pulso 1 (Fuerte)
-                    1 => (second, 0.74),                      // Pulso 2
-                    2 => (mid, 0.92),                         // Pulso 3 (Acento interno)
-                    3 => (high, 0.76),                        // Pulso 4
-                    _ => ((high + 12).min(108), 0.96),        // Pulso 5 (Quinto asincopado venezolano)
+                    0 => (root, 0.98),                 // Pulso 1 (Fuerte)
+                    1 => (second, 0.74),               // Pulso 2
+                    2 => (mid, 0.92),                  // Pulso 3 (Acento interno)
+                    3 => (high, 0.76),                 // Pulso 4
+                    _ => ((high + 12).min(108), 0.96), // Pulso 5 (Quinto asincopado venezolano)
                 }
             }
         }

@@ -1,5 +1,9 @@
 //! Puente asíncrono para generación de samples por IA.
-#![allow(unknown_lints, clippy::chunks_exact_to_as_chunks, clippy::approx_constant)]
+#![allow(
+    unknown_lints,
+    clippy::chunks_exact_to_as_chunks,
+    clippy::approx_constant
+)]
 
 pub mod fallback_synth;
 pub mod npu_synth;
@@ -27,7 +31,10 @@ mod tests {
         assert_eq!(sample.root_note, 60); // C4
         assert_eq!(sample.name, "Concert Grand Piano");
         assert!(sample.duration_seconds() > 3.0);
-        assert!(!sample.loop_enabled, "Acoustic piano decays naturally without loop");
+        assert!(
+            !sample.loop_enabled,
+            "Acoustic piano decays naturally without loop"
+        );
         assert!(!sample.is_empty());
 
         // Comprobar que no hay clipping (pico <= 1.0)
@@ -48,17 +55,45 @@ mod tests {
     fn test_all_seven_presets_generation() {
         let cases = [
             ("Concert Grand Piano C4", "Concert Grand Piano", 60u8),
-            ("Cuatro Venezolano Camburpinton C4", "Cuatro Venezolano", 60u8),
-            ("Arpa Llanera Venezolana C4", "Arpa Llanera Venezolana", 60u8),
-            ("Bandola Llanera Venezolana A3", "Bandola Llanera Venezolana", 57u8),
-            ("Maracas Llaneras Capachos C4", "Maracas Llaneras Capachos", 60u8),
-            ("Tambor Cumaco Venezolano C3", "Tambor Cumaco Venezolano", 48u8),
-            ("Quitiplas de Barlovento C4", "Quitiplas de Barlovento", 60u8),
+            (
+                "Cuatro Venezolano Camburpinton C4",
+                "Cuatro Venezolano",
+                60u8,
+            ),
+            (
+                "Arpa Llanera Venezolana C4",
+                "Arpa Llanera Venezolana",
+                60u8,
+            ),
+            (
+                "Bandola Llanera Venezolana A3",
+                "Bandola Llanera Venezolana",
+                57u8,
+            ),
+            (
+                "Maracas Llaneras Capachos C4",
+                "Maracas Llaneras Capachos",
+                60u8,
+            ),
+            (
+                "Tambor Cumaco Venezolano C3",
+                "Tambor Cumaco Venezolano",
+                48u8,
+            ),
+            (
+                "Quitiplas de Barlovento C4",
+                "Quitiplas de Barlovento",
+                60u8,
+            ),
             ("Furruco Zuliano Sub C2", "Furruco Zuliano Sub", 36u8),
             ("Warm Analog Synth Pad", "Warm Analog Pad", 60u8),
             ("Metallic FM Bell Chime", "Metallic FM Bell", 72u8),
             ("Deep 808 Sub Bass", "Deep 808 Sub Bass", 36u8),
-            ("Acoustic Solo Cello Expression", "Solo Acoustic Cello", 48u8),
+            (
+                "Acoustic Solo Cello Expression",
+                "Solo Acoustic Cello",
+                48u8,
+            ),
             ("Vintage Brass Ensemble Horns", "Vintage Brass Horns", 60u8),
             ("Cyberpunk Pluck Lead Synth", "Cyberpunk Pluck Lead", 60u8),
         ];
@@ -67,9 +102,18 @@ mod tests {
             let buf = generate_sample_from_prompt(prompt, 44100.0);
             assert!(!buf.is_empty(), "Preset '{}' produced empty buffer", prompt);
             assert_eq!(buf.name, expected_name, "Mismatch for prompt '{}'", prompt);
-            assert_eq!(buf.root_note, expected_root, "Root note mismatch for '{}'", prompt);
+            assert_eq!(
+                buf.root_note, expected_root,
+                "Root note mismatch for '{}'",
+                prompt
+            );
             let peak = buf.left.iter().fold(0.0f32, |acc, &x| acc.max(x.abs()));
-            assert!(peak > 0.1 && peak <= 1.0, "Invalid peak {} for '{}'", peak, prompt);
+            assert!(
+                peak > 0.1 && peak <= 1.0,
+                "Invalid peak {} for '{}'",
+                peak,
+                prompt
+            );
         }
     }
 
@@ -89,7 +133,9 @@ mod tests {
         assert_eq!(loaded.len(), 4);
         assert_eq!(loaded.sample_rate, 48000.0);
 
-        let from_rx = rx.try_recv().expect("Expected sample in audio thread channel");
+        let from_rx = rx
+            .try_recv()
+            .expect("Expected sample in audio thread channel");
         assert_eq!(from_rx.name, "Custom Synth Shot.wav");
     }
 
@@ -114,17 +160,34 @@ mod tests {
 
     #[test]
     fn test_npu_neural_spectral_open_prompts_and_note_extraction() {
-        assert_eq!(extract_midi_note_from_prompt("Dark Dystopian Sub Drone C2"), Some(36));
-        assert_eq!(extract_midi_note_from_prompt("Crystal Glass Harp E4"), Some(64));
-        assert_eq!(extract_midi_note_from_prompt("Shimmering Choir F#3"), Some(54));
+        assert_eq!(
+            extract_midi_note_from_prompt("Dark Dystopian Sub Drone C2"),
+            Some(36)
+        );
+        assert_eq!(
+            extract_midi_note_from_prompt("Crystal Glass Harp E4"),
+            Some(64)
+        );
+        assert_eq!(
+            extract_midi_note_from_prompt("Shimmering Choir F#3"),
+            Some(54)
+        );
 
-        let (dark_drone, backend1) = generate_sample_from_prompt_with_backend("Dark Dystopian Drone C2", 44100.0);
+        let (dark_drone, backend1) =
+            generate_sample_from_prompt_with_backend("Dark Dystopian Drone C2", 44100.0);
         assert_eq!(dark_drone.root_note, 36);
-        assert!(dark_drone.loop_enabled, "Drone should automatically enable sustain loop");
+        assert!(
+            dark_drone.loop_enabled,
+            "Drone should automatically enable sustain loop"
+        );
         assert!(backend1 == "Neural-Spectral-DSP" || backend1 == "OpenVINO-NPU");
 
-        let (crystal_harp, _) = generate_sample_from_prompt_with_backend("Bright Crystal Harp Pluck E4", 44100.0);
+        let (crystal_harp, _) =
+            generate_sample_from_prompt_with_backend("Bright Crystal Harp Pluck E4", 44100.0);
         assert_eq!(crystal_harp.root_note, 64);
-        assert!(!crystal_harp.loop_enabled, "Pluck harp should have percussive non-looped envelope");
+        assert!(
+            !crystal_harp.loop_enabled,
+            "Pluck harp should have percussive non-looped envelope"
+        );
     }
 }

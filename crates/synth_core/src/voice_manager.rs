@@ -253,14 +253,22 @@ impl VoiceManager {
     }
 
     /// Actualiza los parámetros de envolvente de todas las voces
-    pub fn update_envelope_params(&mut self, attack_s: f32, decay_s: f32, sustain: f32, release_s: f32) {
+    pub fn update_envelope_params(
+        &mut self,
+        attack_s: f32,
+        decay_s: f32,
+        sustain: f32,
+        release_s: f32,
+    ) {
         self.attack_s = attack_s;
         self.decay_s = decay_s;
         self.sustain = sustain;
         self.release_s = release_s;
 
         for voice in &mut self.voices {
-            voice.adsr.set_parameters(attack_s, decay_s, sustain, release_s);
+            voice
+                .adsr
+                .set_parameters(attack_s, decay_s, sustain, release_s);
         }
     }
 
@@ -388,7 +396,8 @@ impl VoiceManager {
             let mut found_release = false;
 
             for (i, voice) in self.voices.iter().enumerate() {
-                if voice.adsr.stage == AdsrStage::Release || voice.adsr.stage == AdsrStage::FastKill {
+                if voice.adsr.stage == AdsrStage::Release || voice.adsr.stage == AdsrStage::FastKill
+                {
                     found_release = true;
                     let gain = voice.adsr.current_value();
                     if gain < lowest_gain {
@@ -415,7 +424,11 @@ impl VoiceManager {
         let zone_idx = Self::zone_index_for_note(note);
         let (zone_slot, target_buf, eff_root) = match zones[zone_idx] {
             Some(zbuf) if !zbuf.is_empty() => ((zone_idx as u8) + 1, zbuf, zbuf.root_note),
-            _ => (0u8, primary_buffer, self.effective_root_note(primary_buffer)),
+            _ => (
+                0u8,
+                primary_buffer,
+                self.effective_root_note(primary_buffer),
+            ),
         };
 
         // 4. Asignar la nota a la voz elegida
@@ -423,7 +436,9 @@ impl VoiceManager {
             let eff_cut = self.effective_cutoff_hz();
             let voice = &mut self.voices[idx];
             voice.zone_slot = zone_slot;
-            voice.adsr.set_parameters(self.attack_s, self.decay_s, self.sustain, self.release_s);
+            voice
+                .adsr
+                .set_parameters(self.attack_s, self.decay_s, self.sustain, self.release_s);
             voice.filter_l.set_cutoff(eff_cut);
             voice.filter_l.set_resonance(self.resonance);
             voice.filter_l.mode = self.filter_mode;
@@ -531,7 +546,8 @@ impl VoiceManager {
                 match lfo_target {
                     LfoTarget::Cutoff => {
                         let base_cut = self.effective_cutoff_hz();
-                        let mod_cutoff = (base_cut * 2.0_f32.powf(lfo_sin * 2.0)).clamp(20.0, 20000.0);
+                        let mod_cutoff =
+                            (base_cut * 2.0_f32.powf(lfo_sin * 2.0)).clamp(20.0, 20000.0);
                         for voice in &mut self.voices {
                             if voice.is_active() {
                                 voice.filter_l.set_cutoff(mod_cutoff);

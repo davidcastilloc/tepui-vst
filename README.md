@@ -1,10 +1,18 @@
-# TEPUI // Gran Sabana Sonic Lab
+<p align="center">
+  <img src="assets/tepui-banner.png" alt="TEPUI // Gran Sabana Sonic Lab Banner" width="100%">
+</p>
 
-[![CI](https://github.com/davidcastilloc/tepui-vst/actions/workflows/ci.yml/badge.svg)](https://github.com/davidcastilloc/tepui-vst/actions/workflows/ci.yml)
-[![Release](https://github.com/davidcastilloc/tepui-vst/actions/workflows/release.yml/badge.svg)](https://github.com/davidcastilloc/tepui-vst/actions/workflows/release.yml)
-[![Rust 2021](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org/)
-[![Formats](https://img.shields.io/badge/formats-VST3%20%7C%20CLAP%20%7C%20Standalone-00ebff.svg)](#compilación-e-instalación)
-[![License: MIT](https://img.shields.io/badge/License-MIT-emerald.svg)](LICENSE)
+<h1 align="center">
+  <img src="assets/tepui-icon.png" alt="TEPUI Icon" width="38" align="absmiddle">&nbsp;TEPUI // Gran Sabana Sonic Lab
+</h1>
+
+<p align="center">
+  <a href="https://github.com/davidcastilloc/tepui-vst/actions/workflows/ci.yml"><img src="https://github.com/davidcastilloc/tepui-vst/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/davidcastilloc/tepui-vst/actions/workflows/release.yml"><img src="https://github.com/davidcastilloc/tepui-vst/actions/workflows/release.yml/badge.svg" alt="Release"></a>
+  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021-orange.svg" alt="Rust 2021"></a>
+  <a href="#compilación-e-instalación"><img src="https://img.shields.io/badge/formats-VST3%20%7C%20CLAP%20%7C%20Standalone-00ebff.svg" alt="Formats"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-emerald.svg" alt="License: MIT"></a>
+</p>
 
 **TEPUI** es un sintetizador y sampler cromático polifónico de 16 voces desarrollado íntegramente en **Rust**, disponible como plugin **VST3**, **CLAP** y estación de trabajo **Standalone (`tepui_studio.exe`)** para Windows x64.
 

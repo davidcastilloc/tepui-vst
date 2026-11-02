@@ -49,7 +49,11 @@ fn ensure_tepui_bundles(bundled_dir: &Path) {
     }
 }
 
-fn install_vst3_bundle(src_vst3: &Path, preferred_dir: &Path, fallback_dir: &Path) -> std::io::Result<PathBuf> {
+fn install_vst3_bundle(
+    src_vst3: &Path,
+    preferred_dir: &Path,
+    fallback_dir: &Path,
+) -> std::io::Result<PathBuf> {
     let try_install = |base_dir: &Path| -> std::io::Result<PathBuf> {
         fs::create_dir_all(base_dir)?;
         let dst = base_dir.join("TEPUI.vst3");
@@ -63,7 +67,11 @@ fn install_vst3_bundle(src_vst3: &Path, preferred_dir: &Path, fallback_dir: &Pat
     try_install(preferred_dir).or_else(|_| try_install(fallback_dir))
 }
 
-fn install_clap_bundle(src_clap: &Path, preferred_dir: &Path, fallback_dir: &Path) -> std::io::Result<PathBuf> {
+fn install_clap_bundle(
+    src_clap: &Path,
+    preferred_dir: &Path,
+    fallback_dir: &Path,
+) -> std::io::Result<PathBuf> {
     let try_install = |base_dir: &Path| -> std::io::Result<PathBuf> {
         fs::create_dir_all(base_dir)?;
         let dst = base_dir.join("TEPUI.clap");
@@ -80,7 +88,9 @@ fn run_install() -> nih_plug_xtask::Result<()> {
     let dst_clap = bundled_dir.join("TEPUI.clap");
 
     if !dst_vst3.exists() || !dst_clap.exists() {
-        println!("[TEPUI INSTALLER] Bundles no encontrados en target/bundled; compilando release...");
+        println!(
+            "[TEPUI INSTALLER] Bundles no encontrados en target/bundled; compilando release..."
+        );
         nih_plug_xtask::main_with_args(
             "cargo xtask",
             vec![
@@ -207,7 +217,10 @@ mod tests {
         let _ = fs::remove_dir_all(&temp_root);
 
         let src_root = temp_root.join("src");
-        let src_vst3 = src_root.join("plugin_vst.vst3").join("Contents").join("x86_64-win");
+        let src_vst3 = src_root
+            .join("plugin_vst.vst3")
+            .join("Contents")
+            .join("x86_64-win");
         fs::create_dir_all(&src_vst3).expect("create src_vst3 failed");
         fs::write(src_vst3.join("plugin_vst.vst3"), b"MOCK_VST3_BIN").expect("write vst3 failed");
 
@@ -215,12 +228,24 @@ mod tests {
         fs::write(&src_clap, b"MOCK_CLAP_BIN").expect("write clap failed");
 
         let dst_root = temp_root.join("dst");
-        let vst3_out = install_vst3_bundle(&src_root.join("plugin_vst.vst3"), &dst_root.join("VST3"), &dst_root.join("FallbackVST3"))
-            .expect("install_vst3_bundle failed");
-        assert!(vst3_out.join("Contents").join("x86_64-win").join("TEPUI.vst3").exists());
+        let vst3_out = install_vst3_bundle(
+            &src_root.join("plugin_vst.vst3"),
+            &dst_root.join("VST3"),
+            &dst_root.join("FallbackVST3"),
+        )
+        .expect("install_vst3_bundle failed");
+        assert!(vst3_out
+            .join("Contents")
+            .join("x86_64-win")
+            .join("TEPUI.vst3")
+            .exists());
 
-        let clap_out = install_clap_bundle(&src_clap, &dst_root.join("CLAP"), &dst_root.join("FallbackCLAP"))
-            .expect("install_clap_bundle failed");
+        let clap_out = install_clap_bundle(
+            &src_clap,
+            &dst_root.join("CLAP"),
+            &dst_root.join("FallbackCLAP"),
+        )
+        .expect("install_clap_bundle failed");
         assert!(clap_out.exists());
 
         let _ = fs::remove_dir_all(&temp_root);

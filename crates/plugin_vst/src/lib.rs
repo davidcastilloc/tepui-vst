@@ -16,8 +16,8 @@ use crossbeam_channel::{bounded, Receiver, Sender};
 use nih_plug::prelude::*;
 use synth_core::{StereoFxRack, VoiceManager};
 
-mod params;
 pub mod audio_devices;
+mod params;
 pub mod web_editor;
 
 use params::{LiveParamStore, SamplerParams};
@@ -283,7 +283,8 @@ impl Plugin for AiSamplerPlugin {
         _context: &mut impl InitContext<Self>,
     ) -> bool {
         self.sample_rate = buffer_config.sample_rate;
-        self.sample_rate_atomic.store(buffer_config.sample_rate.to_bits(), Ordering::Relaxed);
+        self.sample_rate_atomic
+            .store(buffer_config.sample_rate.to_bits(), Ordering::Relaxed);
         self.voice_manager.set_sample_rate(self.sample_rate);
         self.fx_rack.set_sample_rate(self.sample_rate);
         self.mono_scratch_buffer
@@ -468,10 +469,8 @@ impl Plugin for AiSamplerPlugin {
         self.voice_manager
             .update_arp_params(self.live_params.get_arp_mode(), host_bpm);
 
-        self.voice_manager.set_root_note_override(
-            Some(self.live_params.get_root_note() as u8),
-            active_sample,
-        );
+        self.voice_manager
+            .set_root_note_override(Some(self.live_params.get_root_note() as u8), active_sample);
 
         self.voice_manager
             .set_region_override(self.live_params.get_region_override());
@@ -482,9 +481,16 @@ impl Plugin for AiSamplerPlugin {
             match gui_event {
                 GuiMidiEvent::NoteOn(note, velocity) => {
                     #[cfg(debug_assertions)]
-                    eprintln!("[TEPUI AUDIO THREAD] NoteOn note={}, vel={:.2}", note, velocity);
-                    self.voice_manager
-                        .note_on_with_zones(note, velocity, active_sample, &zone_refs);
+                    eprintln!(
+                        "[TEPUI AUDIO THREAD] NoteOn note={}, vel={:.2}",
+                        note, velocity
+                    );
+                    self.voice_manager.note_on_with_zones(
+                        note,
+                        velocity,
+                        active_sample,
+                        &zone_refs,
+                    );
                 }
                 GuiMidiEvent::NoteOff(note) => {
                     self.voice_manager.note_off(note);
@@ -527,8 +533,12 @@ impl Plugin for AiSamplerPlugin {
                 if (event.timing() as usize) <= block_start {
                     match event {
                         NoteEvent::NoteOn { note, velocity, .. } => {
-                            self.voice_manager
-                                .note_on_with_zones(note, velocity, active_sample, &zone_refs);
+                            self.voice_manager.note_on_with_zones(
+                                note,
+                                velocity,
+                                active_sample,
+                                &zone_refs,
+                            );
                         }
                         NoteEvent::NoteOff { note, .. } => {
                             self.voice_manager.note_off(note);
@@ -591,19 +601,21 @@ impl Plugin for AiSamplerPlugin {
         while let Some(event) = next_event {
             match event {
                 NoteEvent::NoteOn { note, velocity, .. } => {
-                    self.voice_manager
-                        .note_on_with_zones(note, velocity, active_sample, &zone_refs);
+                    self.voice_manager.note_on_with_zones(
+                        note,
+                        velocity,
+                        active_sample,
+                        &zone_refs,
+                    );
                 }
                 NoteEvent::NoteOff { note, .. } => {
                     self.voice_manager.note_off(note);
                 }
-                NoteEvent::MidiCC { cc, value, .. } => {
-                    match cc {
-                        64 => self.voice_manager.set_sustain_pedal(value >= 0.5),
-                        120 | 123 => self.voice_manager.kill_all(),
-                        _ => {}
-                    }
-                }
+                NoteEvent::MidiCC { cc, value, .. } => match cc {
+                    64 => self.voice_manager.set_sustain_pedal(value >= 0.5),
+                    120 | 123 => self.voice_manager.kill_all(),
+                    _ => {}
+                },
                 NoteEvent::MidiPitchBend { value, .. } => {
                     self.voice_manager.set_pitch_bend(value * 2.0);
                 }
@@ -737,7 +749,8 @@ impl Plugin for AiSamplerPlugin {
         {
             let max_val = left_channel.iter().fold(0.0f32, |acc, &s| acc.max(s.abs()));
             if max_val > 0.005 {
-                static PEAK_LOG_TICK: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+                static PEAK_LOG_TICK: std::sync::atomic::AtomicU32 =
+                    std::sync::atomic::AtomicU32::new(0);
                 let tick = PEAK_LOG_TICK.fetch_add(1, Ordering::Relaxed);
                 if tick.is_multiple_of(20) {
                     eprintln!(
@@ -756,9 +769,12 @@ impl Plugin for AiSamplerPlugin {
 
 impl ClapPlugin for AiSamplerPlugin {
     const CLAP_ID: &'static str = "ve.gransabana.tepui-chromatic-sampler";
-    const CLAP_DESCRIPTION: Option<&'static str> = Some("TEPUI // Gran Sabana Sonic Lab — AI Chromatic Polyphonic Sampler & Synthesizer");
-    const CLAP_MANUAL_URL: Option<&'static str> = Some("https://github.com/davidcastilloc/tepui-vst");
-    const CLAP_SUPPORT_URL: Option<&'static str> = Some("https://github.com/davidcastilloc/tepui-vst");
+    const CLAP_DESCRIPTION: Option<&'static str> =
+        Some("TEPUI // Gran Sabana Sonic Lab — AI Chromatic Polyphonic Sampler & Synthesizer");
+    const CLAP_MANUAL_URL: Option<&'static str> =
+        Some("https://github.com/davidcastilloc/tepui-vst");
+    const CLAP_SUPPORT_URL: Option<&'static str> =
+        Some("https://github.com/davidcastilloc/tepui-vst");
     const CLAP_FEATURES: &'static [ClapFeature] = &[
         ClapFeature::Instrument,
         ClapFeature::Synthesizer,
@@ -798,7 +814,10 @@ mod tests {
         let mut plugin = AiSamplerPlugin::default();
 
         // 1. Enviar NoteOn desde GUI / IPC nativo
-        plugin.gui_midi_tx.send(GuiMidiEvent::NoteOn(60, 0.9)).expect("send failed");
+        plugin
+            .gui_midi_tx
+            .send(GuiMidiEvent::NoteOn(60, 0.9))
+            .expect("send failed");
 
         // Simular consumo de eventos en el hilo de audio
         let active_sample = plugin.ai_worker.get_sample();
@@ -819,7 +838,10 @@ mod tests {
         assert_eq!(plugin.voice_manager.active_voice_count(), 1);
 
         // 2. Enviar NoteOff
-        plugin.gui_midi_tx.send(GuiMidiEvent::NoteOff(60)).expect("send failed");
+        plugin
+            .gui_midi_tx
+            .send(GuiMidiEvent::NoteOff(60))
+            .expect("send failed");
         while let Ok(gui_event) = plugin.gui_midi_rx.try_recv() {
             match gui_event {
                 GuiMidiEvent::NoteOn(note, velocity) => {
@@ -841,7 +863,9 @@ mod tests {
         plugin.voice_manager.kill_all();
         let mut left = vec![0.0; 512];
         let mut right = vec![0.0; 512];
-        plugin.voice_manager.process_block(&active_sample, &mut left, &mut right);
+        plugin
+            .voice_manager
+            .process_block(&active_sample, &mut left, &mut right);
         assert_eq!(plugin.voice_manager.active_voice_count(), 0);
     }
 
@@ -851,13 +875,24 @@ mod tests {
         let active_sample = plugin.ai_worker.get_sample();
 
         // Tocar varias notas simultáneas
-        plugin.gui_midi_tx.send(GuiMidiEvent::NoteOn(60, 0.8)).unwrap();
-        plugin.gui_midi_tx.send(GuiMidiEvent::NoteOn(64, 0.8)).unwrap();
-        plugin.gui_midi_tx.send(GuiMidiEvent::NoteOn(67, 0.8)).unwrap();
+        plugin
+            .gui_midi_tx
+            .send(GuiMidiEvent::NoteOn(60, 0.8))
+            .unwrap();
+        plugin
+            .gui_midi_tx
+            .send(GuiMidiEvent::NoteOn(64, 0.8))
+            .unwrap();
+        plugin
+            .gui_midi_tx
+            .send(GuiMidiEvent::NoteOn(67, 0.8))
+            .unwrap();
 
         while let Ok(gui_event) = plugin.gui_midi_rx.try_recv() {
             match gui_event {
-                GuiMidiEvent::NoteOn(note, velocity) => plugin.voice_manager.note_on(note, velocity, &active_sample),
+                GuiMidiEvent::NoteOn(note, velocity) => {
+                    plugin.voice_manager.note_on(note, velocity, &active_sample)
+                }
                 GuiMidiEvent::NoteOff(note) => plugin.voice_manager.note_off(note),
                 GuiMidiEvent::AllNotesOff => plugin.voice_manager.kill_all(),
             }
@@ -868,7 +903,9 @@ mod tests {
         plugin.gui_midi_tx.send(GuiMidiEvent::AllNotesOff).unwrap();
         while let Ok(gui_event) = plugin.gui_midi_rx.try_recv() {
             match gui_event {
-                GuiMidiEvent::NoteOn(note, velocity) => plugin.voice_manager.note_on(note, velocity, &active_sample),
+                GuiMidiEvent::NoteOn(note, velocity) => {
+                    plugin.voice_manager.note_on(note, velocity, &active_sample)
+                }
                 GuiMidiEvent::NoteOff(note) => plugin.voice_manager.note_off(note),
                 GuiMidiEvent::AllNotesOff => plugin.voice_manager.kill_all(),
             }
@@ -876,7 +913,9 @@ mod tests {
         // Todas las voces silenciadas
         let mut left = vec![0.0; 256];
         let mut right = vec![0.0; 256];
-        plugin.voice_manager.process_block(&active_sample, &mut left, &mut right);
+        plugin
+            .voice_manager
+            .process_block(&active_sample, &mut left, &mut right);
         assert_eq!(plugin.voice_manager.active_voice_count(), 0);
     }
 
@@ -894,14 +933,27 @@ mod tests {
 
         let mut left = vec![0.0; 1024];
         let mut right = vec![0.0; 1024];
-        plugin.voice_manager.process_block(&active_sample, &mut left, &mut right);
+        plugin
+            .voice_manager
+            .process_block(&active_sample, &mut left, &mut right);
 
         let max_left = left.iter().fold(0.0_f32, |acc, &x| acc.max(x.abs()));
         let max_right = right.iter().fold(0.0_f32, |acc, &x| acc.max(x.abs()));
 
-        println!("DIAGNOSTIC: max_left = {}, max_right = {}", max_left, max_right);
-        assert!(max_left > 0.01, "Audio signal too weak or silent! max_left: {}", max_left);
-        assert!(max_right > 0.01, "Audio signal too weak or silent! max_right: {}", max_right);
+        println!(
+            "DIAGNOSTIC: max_left = {}, max_right = {}",
+            max_left, max_right
+        );
+        assert!(
+            max_left > 0.01,
+            "Audio signal too weak or silent! max_left: {}",
+            max_left
+        );
+        assert!(
+            max_right > 0.01,
+            "Audio signal too weak or silent! max_right: {}",
+            max_right
+        );
     }
 
     #[test]
@@ -926,7 +978,9 @@ mod tests {
         for _ in 0..total_blocks {
             out_l.fill(0.0);
             out_r.fill(0.0);
-            plugin.voice_manager.process_block(&buffer, &mut out_l, &mut out_r);
+            plugin
+                .voice_manager
+                .process_block(&buffer, &mut out_l, &mut out_r);
 
             for &s in &out_l {
                 let diff = (s - prev_l).abs();
@@ -941,7 +995,10 @@ mod tests {
             }
         }
 
-        println!("DIAGNOSTIC PIANO: max_peak = {}, max_jump = {}", max_peak, max_jump);
+        println!(
+            "DIAGNOSTIC PIANO: max_peak = {}, max_jump = {}",
+            max_peak, max_jump
+        );
     }
 
     #[test]
@@ -994,7 +1051,11 @@ mod tests {
                 if let Ok(name) = dev.name() {
                     println!("\nTesting stream creation for: {}", name);
                     if let Ok(config) = dev.default_output_config() {
-                        println!("  Config: {} channels, {} Hz", config.channels(), config.sample_rate().0);
+                        println!(
+                            "  Config: {} channels, {} Hz",
+                            config.channels(),
+                            config.sample_rate().0
+                        );
                         let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
                         let channels = config.channels() as usize;
                         let sample_rate = config.sample_rate().0 as f32;
@@ -1006,7 +1067,11 @@ mod tests {
                                 move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
                                     for frame in data.chunks_mut(channels) {
                                         sample_clock = (sample_clock + 1.0) % sample_rate;
-                                        let value = (sample_clock * 440.0 * 2.0 * std::f32::consts::PI / sample_rate).sin() * 0.25;
+                                        let value =
+                                            (sample_clock * 440.0 * 2.0 * std::f32::consts::PI
+                                                / sample_rate)
+                                                .sin()
+                                                * 0.25;
                                         for sample in frame.iter_mut() {
                                             *sample = value;
                                         }
@@ -1087,7 +1152,9 @@ mod tests {
 
         let mut left = vec![0.0_f32; 512];
         let mut right = vec![0.0_f32; 512];
-        plugin.voice_manager.process_block(&sample, &mut left, &mut right);
+        plugin
+            .voice_manager
+            .process_block(&sample, &mut left, &mut right);
 
         let peak_l = left.iter().fold(0.0_f32, |acc, &s| acc.max(s.abs()));
         let peak_r = right.iter().fold(0.0_f32, |acc, &s| acc.max(s.abs()));
@@ -1144,12 +1211,21 @@ mod tests {
         assert_eq!(restored_plugin.live_params.get_root_note(), 52);
         assert!((restored_plugin.live_params.get_trim_start_norm() - 0.12).abs() < 1e-4);
         assert!((restored_plugin.live_params.get_trim_end_norm() - 0.88).abs() < 1e-4);
-        assert_eq!(restored_plugin.live_params.get_loop_enabled_override(), Some(true));
+        assert_eq!(
+            restored_plugin.live_params.get_loop_enabled_override(),
+            Some(true)
+        );
         assert!((restored_plugin.live_params.get_loop_start_norm() - 0.25).abs() < 1e-4);
         assert!((restored_plugin.live_params.get_loop_end_norm() - 0.75).abs() < 1e-4);
-        assert_eq!(restored_plugin.ai_worker.get_sample().name, "DAW Persisted Synth");
+        assert_eq!(
+            restored_plugin.ai_worker.get_sample().name,
+            "DAW Persisted Synth"
+        );
         assert_eq!(restored_plugin.ai_worker.active_zones_mask(), 0b011);
-        assert_eq!(restored_plugin.live_params.get_active_keyzones_mask(), 0b011);
+        assert_eq!(
+            restored_plugin.live_params.get_active_keyzones_mask(),
+            0b011
+        );
         assert_eq!(
             restored_plugin.ai_worker.zone_names()[0].as_deref(),
             Some("DAW Persisted Synth")
@@ -1182,7 +1258,9 @@ mod tests {
 
         let mut left = vec![0.0_f32; 512];
         let mut right = vec![0.0_f32; 512];
-        plugin.voice_manager.process_block(&sample, &mut left, &mut right);
+        plugin
+            .voice_manager
+            .process_block(&sample, &mut left, &mut right);
 
         plugin.fx_rack.set_mix(plugin.live_params.get_space_mix());
         plugin.fx_rack.process_block(&mut left, &mut right);
@@ -1287,11 +1365,9 @@ mod tests {
     fn test_midi_cc_expression_modwheel_cc74_aftertouch_and_odd() {
         let mut plugin = AiSamplerPlugin::default();
         plugin.voice_manager.set_sample_rate(44100.0);
-        plugin.voice_manager.update_filter_params(
-            1200.0,
-            1.2,
-            synth_core::FilterMode::Lowpass,
-        );
+        plugin
+            .voice_manager
+            .update_filter_params(1200.0, 1.2, synth_core::FilterMode::Lowpass);
         plugin
             .voice_manager
             .update_lfo_params(5.0, 0.0, synth_core::LfoTarget::Pitch);
@@ -1355,4 +1431,3 @@ mod tests {
         assert!((decoded.sample_rate - 44100.0).abs() < 1e-4);
     }
 }
-

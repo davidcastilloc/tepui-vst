@@ -12,7 +12,10 @@ fn main() {
     // 1. Diagnóstico y selección de dispositivo de salida de audio
     let host = cpal::default_host();
     let default_name = host.default_output_device().and_then(|d| d.name().ok());
-    println!("[TEPUI AUDIO] Dispositivo de salida por defecto del sistema: {:?}", default_name);
+    println!(
+        "[TEPUI AUDIO] Dispositivo de salida por defecto del sistema: {:?}",
+        default_name
+    );
 
     let mut available_output_names = Vec::new();
     if let Ok(devices) = host.output_devices() {

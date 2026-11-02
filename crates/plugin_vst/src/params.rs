@@ -110,9 +110,8 @@ impl LiveMasterRecorder {
         let sr = f32::from_bits(self.sample_rate_bits.load(Ordering::Relaxed)).max(8000.0);
         if let Ok(guard) = self.buffers.lock() {
             if !guard.0.is_empty() {
-                let sample =
-                    SampleBuffer::new_stereo(guard.0.clone(), guard.1.clone(), sr, 60)
-                        .with_name("TEPUI Live Master Session");
+                let sample = SampleBuffer::new_stereo(guard.0.clone(), guard.1.clone(), sr, 60)
+                    .with_name("TEPUI Live Master Session");
                 return encode_wav_f32(&sample);
             }
         }
@@ -322,11 +321,13 @@ impl SessionPersistField {
 impl<'a> PersistentField<'a, PersistedSamplerSession> for SessionPersistField {
     fn set(&self, new_value: PersistedSamplerSession) {
         self.live_params.set_root_note(new_value.root_note);
-        self.live_params.set_trim_start_norm(new_value.trim_start_norm);
+        self.live_params
+            .set_trim_start_norm(new_value.trim_start_norm);
         self.live_params.set_trim_end_norm(new_value.trim_end_norm);
         self.live_params
             .set_loop_enabled_override(new_value.loop_enabled);
-        self.live_params.set_loop_start_norm(new_value.loop_start_norm);
+        self.live_params
+            .set_loop_start_norm(new_value.loop_start_norm);
         self.live_params.set_loop_end_norm(new_value.loop_end_norm);
         self.live_params.set_arp_mode(new_value.arp_mode);
         self.live_params.bump_persistence_restores();
@@ -338,11 +339,8 @@ impl<'a> PersistentField<'a, PersistedSamplerSession> for SessionPersistField {
                 .as_ref()
                 .map(|a| f32::from_bits(a.load(Ordering::Relaxed)))
                 .unwrap_or(44100.0);
-            let _ = worker.restore_session(
-                &new_value.prompt,
-                new_value.custom_wav_b64.as_deref(),
-                sr,
-            );
+            let _ =
+                worker.restore_session(&new_value.prompt, new_value.custom_wav_b64.as_deref(), sr);
             let _ = worker.restore_zones_b64(&new_value.zone_wavs_b64, &new_value.zone_names);
             self.live_params
                 .set_active_keyzones_mask(worker.active_zones_mask());
@@ -436,11 +434,7 @@ impl SamplerParams {
         sample_rate_atomic: Option<Arc<AtomicU32>>,
     ) -> Self {
         Self {
-            session_state: SessionPersistField::new(
-                live_params,
-                ai_worker,
-                sample_rate_atomic,
-            ),
+            session_state: SessionPersistField::new(live_params, ai_worker, sample_rate_atomic),
 
             attack: FloatParam::new(
                 "Attack",
@@ -466,13 +460,9 @@ impl SamplerParams {
             .with_unit(" s")
             .with_smoother(SmoothingStyle::Linear(10.0)),
 
-            sustain: FloatParam::new(
-                "Sustain",
-                0.8,
-                FloatRange::Linear { min: 0.0, max: 1.0 },
-            )
-            .with_unit(" %")
-            .with_smoother(SmoothingStyle::Linear(10.0)),
+            sustain: FloatParam::new("Sustain", 0.8, FloatRange::Linear { min: 0.0, max: 1.0 })
+                .with_unit(" %")
+                .with_smoother(SmoothingStyle::Linear(10.0)),
 
             release: FloatParam::new(
                 "Release",
@@ -501,7 +491,10 @@ impl SamplerParams {
             resonance: FloatParam::new(
                 "Resonance",
                 0.707,
-                FloatRange::Linear { min: 0.1, max: 10.0 },
+                FloatRange::Linear {
+                    min: 0.1,
+                    max: 10.0,
+                },
             )
             .with_smoother(SmoothingStyle::Linear(15.0)),
 
@@ -529,13 +522,9 @@ impl SamplerParams {
                 IntRange::Linear { min: 0, max: 127 },
             ),
 
-            space_mix: FloatParam::new(
-                "Space FX",
-                0.15,
-                FloatRange::Linear { min: 0.0, max: 1.0 },
-            )
-            .with_unit(" %")
-            .with_smoother(SmoothingStyle::Linear(15.0)),
+            space_mix: FloatParam::new("Space FX", 0.15, FloatRange::Linear { min: 0.0, max: 1.0 })
+                .with_unit(" %")
+                .with_smoother(SmoothingStyle::Linear(15.0)),
 
             lfo_rate: FloatParam::new(
                 "LFO Rate",
@@ -549,13 +538,9 @@ impl SamplerParams {
             .with_unit(" Hz")
             .with_smoother(SmoothingStyle::Linear(10.0)),
 
-            lfo_depth: FloatParam::new(
-                "LFO Depth",
-                0.0,
-                FloatRange::Linear { min: 0.0, max: 1.0 },
-            )
-            .with_unit(" %")
-            .with_smoother(SmoothingStyle::Linear(10.0)),
+            lfo_depth: FloatParam::new("LFO Depth", 0.0, FloatRange::Linear { min: 0.0, max: 1.0 })
+                .with_unit(" %")
+                .with_smoother(SmoothingStyle::Linear(10.0)),
 
             lfo_target: IntParam::new(
                 "LFO Target",
@@ -732,7 +717,11 @@ impl LiveParamStore {
 
     #[inline]
     pub fn set_space_mix(&self, val: f32) {
-        let clamped = if val.is_finite() { val.clamp(0.0, 1.0) } else { 0.0 };
+        let clamped = if val.is_finite() {
+            val.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
         self.space_mix.store(clamped.to_bits(), Ordering::Relaxed);
     }
     #[inline]
@@ -742,7 +731,11 @@ impl LiveParamStore {
 
     #[inline]
     pub fn set_lfo_rate(&self, val: f32) {
-        let clamped = if val.is_finite() { val.clamp(0.1, 20.0) } else { 3.5 };
+        let clamped = if val.is_finite() {
+            val.clamp(0.1, 20.0)
+        } else {
+            3.5
+        };
         self.lfo_rate.store(clamped.to_bits(), Ordering::Relaxed);
     }
     #[inline]
@@ -752,7 +745,11 @@ impl LiveParamStore {
 
     #[inline]
     pub fn set_lfo_depth(&self, val: f32) {
-        let clamped = if val.is_finite() { val.clamp(0.0, 1.0) } else { 0.0 };
+        let clamped = if val.is_finite() {
+            val.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
         self.lfo_depth.store(clamped.to_bits(), Ordering::Relaxed);
     }
     #[inline]
@@ -826,7 +823,11 @@ impl LiveParamStore {
 
     #[inline]
     pub fn set_trim_start_norm(&self, val: f32) {
-        let c = if val.is_finite() { val.clamp(0.0, 0.98) } else { 0.0 };
+        let c = if val.is_finite() {
+            val.clamp(0.0, 0.98)
+        } else {
+            0.0
+        };
         self.trim_start_norm.store(c.to_bits(), Ordering::Relaxed);
     }
     #[inline]
@@ -836,7 +837,11 @@ impl LiveParamStore {
 
     #[inline]
     pub fn set_trim_end_norm(&self, val: f32) {
-        let c = if val.is_finite() { val.clamp(0.02, 1.0) } else { 1.0 };
+        let c = if val.is_finite() {
+            val.clamp(0.02, 1.0)
+        } else {
+            1.0
+        };
         self.trim_end_norm.store(c.to_bits(), Ordering::Relaxed);
     }
     #[inline]
@@ -864,7 +869,11 @@ impl LiveParamStore {
 
     #[inline]
     pub fn set_loop_start_norm(&self, val: f32) {
-        let c = if val.is_finite() { val.clamp(0.0, 0.98) } else { 0.20 };
+        let c = if val.is_finite() {
+            val.clamp(0.0, 0.98)
+        } else {
+            0.20
+        };
         self.loop_start_norm.store(c.to_bits(), Ordering::Relaxed);
     }
     #[inline]
@@ -874,7 +883,11 @@ impl LiveParamStore {
 
     #[inline]
     pub fn set_loop_end_norm(&self, val: f32) {
-        let c = if val.is_finite() { val.clamp(0.02, 1.0) } else { 0.85 };
+        let c = if val.is_finite() {
+            val.clamp(0.02, 1.0)
+        } else {
+            0.85
+        };
         self.loop_end_norm.store(c.to_bits(), Ordering::Relaxed);
     }
     #[inline]
@@ -895,8 +908,16 @@ impl LiveParamStore {
 
     #[inline]
     pub fn set_peaks(&self, left: f32, right: f32) {
-        let l = if left.is_finite() { left.clamp(0.0, 1.0) } else { 0.0 };
-        let r = if right.is_finite() { right.clamp(0.0, 1.0) } else { 0.0 };
+        let l = if left.is_finite() {
+            left.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let r = if right.is_finite() {
+            right.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
         self.peak_l.store(l.to_bits(), Ordering::Relaxed);
         self.peak_r.store(r.to_bits(), Ordering::Relaxed);
     }
@@ -940,7 +961,8 @@ impl LiveParamStore {
     #[inline]
     pub fn add_limiter_activations(&self, count: u32) {
         if count > 0 {
-            self.dsp_limiter_activations.fetch_add(count, Ordering::Relaxed);
+            self.dsp_limiter_activations
+                .fetch_add(count, Ordering::Relaxed);
         }
     }
     #[inline]
@@ -951,7 +973,8 @@ impl LiveParamStore {
     #[inline]
     pub fn add_nan_sanitized(&self, count: u32) {
         if count > 0 {
-            self.dsp_nan_sanitized_count.fetch_add(count, Ordering::Relaxed);
+            self.dsp_nan_sanitized_count
+                .fetch_add(count, Ordering::Relaxed);
         }
     }
     #[inline]
@@ -1008,7 +1031,11 @@ impl LiveParamStore {
 
     #[inline]
     pub fn set_lfo_mod_value(&self, val: f32) {
-        let c = if val.is_finite() { val.clamp(-1.0, 1.0) } else { 0.0 };
+        let c = if val.is_finite() {
+            val.clamp(-1.0, 1.0)
+        } else {
+            0.0
+        };
         self.lfo_mod_value.store(c.to_bits(), Ordering::Relaxed);
     }
     #[inline]
@@ -1018,7 +1045,11 @@ impl LiveParamStore {
 
     #[inline]
     pub fn set_playhead_norm(&self, val: f32) {
-        let c = if val.is_finite() { val.clamp(0.0, 1.0) } else { 0.0 };
+        let c = if val.is_finite() {
+            val.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
         self.playhead_norm.store(c.to_bits(), Ordering::Relaxed);
     }
     #[inline]

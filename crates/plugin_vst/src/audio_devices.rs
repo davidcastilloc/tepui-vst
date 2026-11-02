@@ -3,11 +3,11 @@
 //! Permite detectar tarjetas de sonido físicas y virtuales, puertos MIDI y persistir
 //! la configuración del usuario (dispositivo, frecuencia de muestreo, buffer size).
 
-use std::fs;
-use std::path::PathBuf;
 use cpal::traits::{DeviceTrait, HostTrait};
 use midir::MidiInput;
 use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioDeviceInfo {
@@ -116,7 +116,10 @@ pub fn save_config(config: &StandaloneAudioConfig) -> std::io::Result<()> {
     let local_path = PathBuf::from("standalone_config.json");
     let _ = fs::write(&local_path, &json);
 
-    println!("[TEPUI CONFIG] Configuración guardada en disco exitosamente: {:?}", config);
+    println!(
+        "[TEPUI CONFIG] Configuración guardada en disco exitosamente: {:?}",
+        config
+    );
     Ok(())
 }
 
@@ -222,7 +225,10 @@ pub fn enumerate_audio_system(active_config: &StandaloneAudioConfig) -> AudioSys
 pub fn restart_standalone_app() -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    println!("[TEPUI RESTART] Programando relanzamiento de instancia standalone: {:?}", exe);
+    println!(
+        "[TEPUI RESTART] Programando relanzamiento de instancia standalone: {:?}",
+        exe
+    );
 
     // Lanzar un runner que espere a que el proceso actual muera por completo antes de iniciar el nuevo,
     // garantizando que el hardware WASAPI quede 100% liberado y sin conflictos de puerto o de dispositivo.

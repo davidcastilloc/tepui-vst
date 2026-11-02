@@ -35,10 +35,10 @@ impl Default for AdsrEnvelope {
             stage: AdsrStage::Idle,
             current_value: 0.0,
             sample_rate: 44100.0,
-            attack_s: 0.01,   // 10ms
-            decay_s: 0.2,     // 200ms
+            attack_s: 0.01, // 10ms
+            decay_s: 0.2,   // 200ms
             sustain_level: 0.8,
-            release_s: 0.3,   // 300ms
+            release_s: 0.3, // 300ms
             attack_step: 0.0,
             decay_coeff: 0.0,
             release_coeff: 0.0,

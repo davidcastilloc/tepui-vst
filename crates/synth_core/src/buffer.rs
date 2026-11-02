@@ -55,7 +55,12 @@ impl SampleBuffer {
     /// Crea un nuevo buffer de audio estéreo a partir de canales planares.
     /// Incluye 2 muestras de guarda (sentinel padding) al final de cada canal
     /// para permitir interpolación Hermite de 4 puntos sin bifurcaciones condicionales.
-    pub fn new_stereo(mut left: Vec<f32>, mut right: Vec<f32>, sample_rate: f32, root_note: u8) -> Self {
+    pub fn new_stereo(
+        mut left: Vec<f32>,
+        mut right: Vec<f32>,
+        sample_rate: f32,
+        root_note: u8,
+    ) -> Self {
         let len = left.len().min(right.len());
         left.truncate(len);
         right.truncate(len);
@@ -145,7 +150,11 @@ impl SampleBuffer {
     /// Obtiene una muestra leída de forma segura sin peligro de pánico.
     #[inline(always)]
     pub fn get_sample(&self, channel: usize, index: usize) -> f32 {
-        let chan = if channel == 0 { &self.left } else { &self.right };
+        let chan = if channel == 0 {
+            &self.left
+        } else {
+            &self.right
+        };
         if index < chan.len() {
             chan[index]
         } else {

@@ -37,8 +37,8 @@ struct CombFilter {
 impl CombFilter {
     fn new(base_len_44k: usize, sample_rate: f32) -> Self {
         let max_len = (base_len_44k * MAX_SR_SCALE).max(64);
-        let active_len = ((base_len_44k as f32 * (sample_rate / 44100.0)).round() as usize)
-            .clamp(32, max_len);
+        let active_len =
+            ((base_len_44k as f32 * (sample_rate / 44100.0)).round() as usize).clamp(32, max_len);
         Self {
             buf: vec![0.0; max_len],
             active_len,
@@ -49,8 +49,8 @@ impl CombFilter {
 
     fn set_sample_rate(&mut self, base_len_44k: usize, sample_rate: f32) {
         let max_len = self.buf.len();
-        self.active_len = ((base_len_44k as f32 * (sample_rate / 44100.0)).round() as usize)
-            .clamp(32, max_len);
+        self.active_len =
+            ((base_len_44k as f32 * (sample_rate / 44100.0)).round() as usize).clamp(32, max_len);
         if self.idx >= self.active_len {
             self.idx = 0;
         }
@@ -85,8 +85,8 @@ struct AllPassFilter {
 impl AllPassFilter {
     fn new(base_len_44k: usize, sample_rate: f32) -> Self {
         let max_len = (base_len_44k * MAX_SR_SCALE).max(32);
-        let active_len = ((base_len_44k as f32 * (sample_rate / 44100.0)).round() as usize)
-            .clamp(16, max_len);
+        let active_len =
+            ((base_len_44k as f32 * (sample_rate / 44100.0)).round() as usize).clamp(16, max_len);
         Self {
             buf: vec![0.0; max_len],
             active_len,
@@ -96,8 +96,8 @@ impl AllPassFilter {
 
     fn set_sample_rate(&mut self, base_len_44k: usize, sample_rate: f32) {
         let max_len = self.buf.len();
-        self.active_len = ((base_len_44k as f32 * (sample_rate / 44100.0)).round() as usize)
-            .clamp(16, max_len);
+        self.active_len =
+            ((base_len_44k as f32 * (sample_rate / 44100.0)).round() as usize).clamp(16, max_len);
         if self.idx >= self.active_len {
             self.idx = 0;
         }
@@ -248,7 +248,12 @@ impl StereoFxRack {
     }
 
     #[inline(always)]
-    fn read_ring_interpolated(buf: &[f32], mask: usize, write_idx: usize, delay_samples: f32) -> f32 {
+    fn read_ring_interpolated(
+        buf: &[f32],
+        mask: usize,
+        write_idx: usize,
+        delay_samples: f32,
+    ) -> f32 {
         let clamped_delay = delay_samples.clamp(1.0, (mask - 2) as f32);
         let int_delay = clamped_delay.floor() as usize;
         let frac = clamped_delay - (int_delay as f32);
@@ -325,8 +330,10 @@ impl StereoFxRack {
 
             // 2. Space Cross-Delay Difuso con Damping Analógico
             let dw = self.delay_write;
-            let tap_l = Self::read_ring_interpolated(&self.delay_buf_l, DELAY_MASK, dw, delay_l_samples);
-            let tap_r = Self::read_ring_interpolated(&self.delay_buf_r, DELAY_MASK, dw, delay_r_samples);
+            let tap_l =
+                Self::read_ring_interpolated(&self.delay_buf_l, DELAY_MASK, dw, delay_l_samples);
+            let tap_r =
+                Self::read_ring_interpolated(&self.delay_buf_r, DELAY_MASK, dw, delay_r_samples);
 
             self.lp_state_l = flush_denormal(tap_l * (1.0 - damp) + self.lp_state_l * damp);
             self.lp_state_r = flush_denormal(tap_r * (1.0 - damp) + self.lp_state_r * damp);

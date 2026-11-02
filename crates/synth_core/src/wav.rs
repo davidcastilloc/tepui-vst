@@ -99,10 +99,18 @@ pub fn decode_wav(bytes: &[u8]) -> Result<SampleBuffer, String> {
 
     for frame_idx in 0..num_frames {
         let base = frame_idx * frame_stride;
-        let l = decode_sample(&data[base..base + bytes_per_sample], format_tag, bits_per_sample)?;
+        let l = decode_sample(
+            &data[base..base + bytes_per_sample],
+            format_tag,
+            bits_per_sample,
+        )?;
         let r = if channels >= 2 {
             let r_base = base + bytes_per_sample;
-            decode_sample(&data[r_base..r_base + bytes_per_sample], format_tag, bits_per_sample)?
+            decode_sample(
+                &data[r_base..r_base + bytes_per_sample],
+                format_tag,
+                bits_per_sample,
+            )?
         } else {
             l
         };
@@ -267,10 +275,7 @@ pub fn base64_encode(input: &[u8]) -> String {
 
 /// Decodifica una cadena Base64 estándar (RFC 4648) hacia bytes binarios.
 pub fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
-    let clean: Vec<u8> = input
-        .bytes()
-        .filter(|b| !b.is_ascii_whitespace())
-        .collect();
+    let clean: Vec<u8> = input.bytes().filter(|b| !b.is_ascii_whitespace()).collect();
     if clean.is_empty() {
         return Ok(Vec::new());
     }
@@ -293,8 +298,16 @@ pub fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
     for chunk in clean.chunks_exact(4) {
         let v0 = decode_val(chunk[0])?;
         let v1 = decode_val(chunk[1])?;
-        let v2 = if chunk[2] == b'=' { 0 } else { decode_val(chunk[2])? };
-        let v3 = if chunk[3] == b'=' { 0 } else { decode_val(chunk[3])? };
+        let v2 = if chunk[2] == b'=' {
+            0
+        } else {
+            decode_val(chunk[2])?
+        };
+        let v3 = if chunk[3] == b'=' {
+            0
+        } else {
+            decode_val(chunk[3])?
+        };
 
         let triple = (v0 << 18) | (v1 << 12) | (v2 << 6) | v3;
         out.push(((triple >> 16) & 0xFF) as u8);
