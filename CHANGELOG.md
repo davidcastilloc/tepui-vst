@@ -2,6 +2,16 @@
 
 Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
 
+## [1.4.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.3.0...v1.4.0) (2026-11-02)
+
+### Nuevas Funcionalidades (Features)
+
+* **dsp:** implementar matriz 5x5 multirruta, cache NPU de samples, persistencia de presets y telemetria ODD ([cb093fe](https://github.com/davidcastilloc/tepui-vst/commit/cb093fee069c89ffd94a303bd335f12bf9c76e34))
+
+# Changelog
+
+Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
+
 ## [1.3.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.2.0...v1.3.0) (2026-11-02)
 
 ### Nuevas Funcionalidades (Features)
