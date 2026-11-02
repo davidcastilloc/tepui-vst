@@ -2,6 +2,20 @@
 
 Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
 
+## [1.1.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.0.0...v1.1.0) (2026-11-02)
+
+### Nuevas Funcionalidades (Features)
+
+* **ui:** implementar consola Eurorack de 6 pantallas OLED, barra de Prompt IA y buscador de 1,250+ presets por packs ([5c4d4f3](https://github.com/davidcastilloc/tepui-vst/commit/5c4d4f32472f2b9a8e29b1145da8045f7f2477f7))
+
+### Documentación
+
+* **brand:** integrar banner oficial e icono del proyecto en repositorio, UI y ejecutable Windows ([573507f](https://github.com/davidcastilloc/tepui-vst/commit/573507f2243248f5799e1c534d0221e8a1203d4f))
+
+# Changelog
+
+Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
+
 ## 1.0.0 (2026-11-02)
 
 ### Nuevas Funcionalidades (Features)
