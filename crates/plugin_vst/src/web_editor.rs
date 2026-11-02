@@ -1564,6 +1564,12 @@ mod tests {
         assert!(bundle.contains("window.__TEPUI_INIT_STATE__"));
         assert!(bundle.contains("window.__TEPUI_AUDIO_STATUS__"));
         assert!(bundle.contains("TEPUI"));
+        assert!(bundle.contains("EURORACK MATRIX"));
+        assert!(bundle.contains("PRESET BROWSER"));
+        assert!(bundle.contains("SOUND PACK CARDS"));
+        assert!(bundle.contains("oled-svf"));
+        assert!(bundle.contains("oled-adsr"));
+        assert!(bundle.contains("oled-arp"));
     }
 
     #[test]

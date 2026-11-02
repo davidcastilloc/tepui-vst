@@ -1,7 +1,7 @@
-//! Plugin Principal VST3 y CLAP de Sampler Cromático con Generación de IA.
+//! Plugin Principal VST3 y CLAP de Sampler CromÃ¡tico con GeneraciÃ³n de IA.
 //!
 //! Desarrollado en Rust con nih-plug, garantizando seguridad en tiempo real
-//! y cero asignaciones dinámicas en el ciclo de audio.
+//! y cero asignaciones dinÃ¡micas en el ciclo de audio.
 #![allow(
     unknown_lints,
     semicolon_in_expressions_from_non_local_macros,
@@ -228,7 +228,7 @@ impl Plugin for AiSamplerPlugin {
 
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
-    // Configuración de buses de audio: instrumento virtual con salida estéreo y entrada MIDI,
+    // ConfiguraciÃ³n de buses de audio: instrumento virtual con salida estÃ©reo y entrada MIDI,
     // y compatibilidad con hardware multicanal (7.1 THX Spatial / 8 canales, 5.1 / 6 canales, y mono).
     const AUDIO_IO_LAYOUTS: &'static [AudioIOLayout] = &[
         AudioIOLayout {
@@ -265,8 +265,8 @@ impl Plugin for AiSamplerPlugin {
 
     fn editor(&mut self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
         Some(Box::new(web_editor::WebViewEditor::new(
-            840,
-            640,
+            980,
+            720,
             self.gui_midi_tx.clone(),
             self.params.clone(),
             self.live_params.clone(),
@@ -330,7 +330,7 @@ impl Plugin for AiSamplerPlugin {
             }
         }
 
-        // 2. Sincronizar parámetros host/DAW -> LiveParamStore en caso de automatización en el DAW
+        // 2. Sincronizar parÃ¡metros host/DAW -> LiveParamStore en caso de automatizaciÃ³n en el DAW
         let mut daw_changed = false;
 
         let p_attack = self.params.attack.value();
@@ -428,7 +428,7 @@ impl Plugin for AiSamplerPlugin {
             self.live_params.bump_revision();
         }
 
-        // 2b. Drenar y aplicar eventos de parámetros desde la GUI WebView2 (100% Copy, zero-alloc)
+        // 2b. Drenar y aplicar eventos de parÃ¡metros desde la GUI WebView2 (100% Copy, zero-alloc)
         while let Ok(evt) = self.web_gui_rx.try_recv() {
             self.apply_web_gui_event(evt);
         }
@@ -440,7 +440,7 @@ impl Plugin for AiSamplerPlugin {
             self.active_zones[2].as_deref(),
         ];
 
-        // 3. Actualizar parámetros en el gestor de voces antes de disparar notas nuevas
+        // 3. Actualizar parÃ¡metros en el gestor de voces antes de disparar notas nuevas
         self.voice_manager.update_envelope_params(
             self.live_params.get_attack(),
             self.live_params.get_decay(),
@@ -476,7 +476,7 @@ impl Plugin for AiSamplerPlugin {
             .set_region_override(self.live_params.get_region_override());
 
         // 4. Procesar notas tocadas interactivamente desde la GUI / Teclado QWERTY nativo
-        //    (Máxima prioridad interactiva sin jitter: entran en el sample 0 del bloque)
+        //    (MÃ¡xima prioridad interactiva sin jitter: entran en el sample 0 del bloque)
         while let Ok(gui_event) = self.gui_midi_rx.try_recv() {
             match gui_event {
                 GuiMidiEvent::NoteOn(note, velocity) => {
@@ -523,7 +523,7 @@ impl Plugin for AiSamplerPlugin {
             (scratch, false)
         };
 
-        // 6. Renderizar con precisión de muestra exacta (Sample-Accurate MIDI)
+        // 6. Renderizar con precisiÃ³n de muestra exacta (Sample-Accurate MIDI)
         let mut next_event = context.next_event();
         let mut block_start = 0;
 
@@ -583,7 +583,7 @@ impl Plugin for AiSamplerPlugin {
                 );
                 block_start = block_end;
             } else if next_event.is_some() {
-                // Safeguard contra timestamps no monótonos o repetidos: forzar avance de 1 muestra
+                // Safeguard contra timestamps no monÃ³tonos o repetidos: forzar avance de 1 muestra
                 let next_step = (block_start + 1).min(num_samples);
                 self.voice_manager.process_block_with_zones(
                     active_sample,
@@ -628,7 +628,7 @@ impl Plugin for AiSamplerPlugin {
         self.fx_rack.set_mix(self.live_params.get_space_mix());
         self.fx_rack.process_block(left_channel, right_channel);
 
-        // 7b. Aplicar Master Gain suavizado, saturación analógica suave anti-clipping, sanitización NaN y medir pico L/R + métricas ODD
+        // 7b. Aplicar Master Gain suavizado, saturaciÃ³n analÃ³gica suave anti-clipping, sanitizaciÃ³n NaN y medir pico L/R + mÃ©tricas ODD
         let gain = self.live_params.get_gain();
         let mut block_peak_l = 0.0_f32;
         let mut limiter_hits: u32 = 0;
@@ -685,12 +685,12 @@ impl Plugin for AiSamplerPlugin {
             }
         }
 
-        // 7c. Capturar salida Master post-FX en la Grabadora Master en Vivo si está activa (0 allocs, try_lock)
+        // 7c. Capturar salida Master post-FX en la Grabadora Master en Vivo si estÃ¡ activa (0 allocs, try_lock)
         self.live_params
             .recorder
             .push_stereo_block_rt(left_channel, right_channel, is_stereo);
 
-        // Publicar telemetría atómica lock-free y contadores ODD
+        // Publicar telemetrÃ­a atÃ³mica lock-free y contadores ODD
         let smooth_l = block_peak_l.max(self.live_params.get_peak_l() * 0.85);
         let smooth_r = block_peak_r.max(self.live_params.get_peak_r() * 0.85);
         self.live_params.set_peaks(smooth_l, smooth_r);
@@ -708,7 +708,7 @@ impl Plugin for AiSamplerPlugin {
         self.live_params.add_nan_sanitized(nan_count);
         self.live_params.bump_dsp_blocks();
 
-        // 8. Si el hardware opera en modo multicanal (7.1 THX / 5.1), mapear acústicamente el par estéreo a todos los altavoces
+        // 8. Si el hardware opera en modo multicanal (7.1 THX / 5.1), mapear acÃºsticamente el par estÃ©reo a todos los altavoces
         let _total_channels = 1 + out_right.len();
         if out_right.len() >= 3 && is_stereo {
             let fl = &left_channel[..];
@@ -744,7 +744,7 @@ impl Plugin for AiSamplerPlugin {
             }
         }
 
-        // Diagnóstico en vivo de picos de audio renderizados
+        // DiagnÃ³stico en vivo de picos de audio renderizados
         #[cfg(debug_assertions)]
         {
             let max_val = left_channel.iter().fold(0.0f32, |acc, &s| acc.max(s.abs()));
@@ -770,7 +770,7 @@ impl Plugin for AiSamplerPlugin {
 impl ClapPlugin for AiSamplerPlugin {
     const CLAP_ID: &'static str = "ve.gransabana.tepui-chromatic-sampler";
     const CLAP_DESCRIPTION: Option<&'static str> =
-        Some("TEPUI // Gran Sabana Sonic Lab — AI Chromatic Polyphonic Sampler & Synthesizer");
+        Some("TEPUI // Gran Sabana Sonic Lab â€” AI Chromatic Polyphonic Sampler & Synthesizer");
     const CLAP_MANUAL_URL: Option<&'static str> =
         Some("https://github.com/davidcastilloc/tepui-vst");
     const CLAP_SUPPORT_URL: Option<&'static str> =
@@ -874,7 +874,7 @@ mod tests {
         let mut plugin = AiSamplerPlugin::default();
         let active_sample = plugin.ai_worker.get_sample();
 
-        // Tocar varias notas simultáneas
+        // Tocar varias notas simultÃ¡neas
         plugin
             .gui_midi_tx
             .send(GuiMidiEvent::NoteOn(60, 0.8))
@@ -899,7 +899,7 @@ mod tests {
         }
         assert_eq!(plugin.voice_manager.active_voice_count(), 3);
 
-        // Enviar evento de Pánico
+        // Enviar evento de PÃ¡nico
         plugin.gui_midi_tx.send(GuiMidiEvent::AllNotesOff).unwrap();
         while let Ok(gui_event) = plugin.gui_midi_rx.try_recv() {
             match gui_event {
@@ -1104,7 +1104,7 @@ mod tests {
         let mut plugin = AiSamplerPlugin::default();
         assert_eq!(plugin.mono_scratch_buffer.len(), 4096);
 
-        // Simular configuración de DAW con tamaño de bloque grande (8192 muestras)
+        // Simular configuraciÃ³n de DAW con tamaÃ±o de bloque grande (8192 muestras)
         let large_block_size: usize = 8192;
         plugin
             .mono_scratch_buffer
@@ -1122,7 +1122,7 @@ mod tests {
             .voice_manager
             .process_block(&active_sample, &mut left_channel, right_scratch);
 
-        // Verificar que se renderizó audio válido hasta el final del bloque de 8192 muestras sin truncamiento ni NaNs
+        // Verificar que se renderizÃ³ audio vÃ¡lido hasta el final del bloque de 8192 muestras sin truncamiento ni NaNs
         let tail_energy: f32 = left_channel[4096..8192].iter().map(|s| s.abs()).sum();
         assert!(
             tail_energy > 0.0,
@@ -1175,7 +1175,7 @@ mod tests {
         let plugin = AiSamplerPlugin::default();
         assert_eq!(plugin.live_params.get_persistence_restores(), 0);
 
-        // 1. Configurar región personalizada y cargar WAV custom
+        // 1. Configurar regiÃ³n personalizada y cargar WAV custom
         plugin.live_params.set_trim_start_norm(0.12);
         plugin.live_params.set_trim_end_norm(0.88);
         plugin.live_params.set_loop_enabled_override(Some(true));
@@ -1192,7 +1192,7 @@ mod tests {
         plugin.ai_worker.assign_current_to_zone(0);
         plugin.ai_worker.assign_current_to_zone(1);
 
-        // 2. Serializar sesión como lo hace el DAW al guardar el proyecto
+        // 2. Serializar sesiÃ³n como lo hace el DAW al guardar el proyecto
         let serialized_session = plugin
             .params
             .session_state
@@ -1281,7 +1281,7 @@ mod tests {
         let mut plugin = AiSamplerPlugin::default();
         plugin.voice_manager.set_sample_rate(44100.0);
 
-        // Asignar el sample actual a la Keyzone Low (0) y verificar recepción en el hilo de audio
+        // Asignar el sample actual a la Keyzone Low (0) y verificar recepciÃ³n en el hilo de audio
         plugin.ai_worker.assign_current_to_zone(0);
         while let Ok((z_idx, z_buf)) = plugin.zone_update_rx.try_recv() {
             plugin.active_zones[z_idx] = z_buf;
@@ -1376,7 +1376,7 @@ mod tests {
         plugin.voice_manager.set_mod_wheel(0.85);
         plugin.live_params.bump_midi_cc_events();
 
-        // 2. Brightness CC#74 y Aftertouch abren el filtro SVF dinámicamente (> 1200 Hz)
+        // 2. Brightness CC#74 y Aftertouch abren el filtro SVF dinÃ¡micamente (> 1200 Hz)
         plugin.voice_manager.set_brightness_cc74(0.6);
         plugin.live_params.bump_midi_cc_events();
         plugin.voice_manager.set_aftertouch(0.4);
@@ -1401,7 +1401,7 @@ mod tests {
         let mut plugin = AiSamplerPlugin::default();
         plugin.voice_manager.set_sample_rate(44100.0);
 
-        // 1. Iniciar grabación Master en vivo
+        // 1. Iniciar grabaciÃ³n Master en vivo
         plugin.live_params.recorder.start_recording(44100.0);
         assert!(plugin.live_params.recorder.is_recording());
         assert_eq!(plugin.live_params.recorder.recorded_frames(), 0);

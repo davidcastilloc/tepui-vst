@@ -3,22 +3,30 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>TEPUI // Gran Sabana Sonic Lab — Neural Chromatic Sampler</title>
+  <title>TEPUI // Gran Sabana Sonic Lab — Eurorack Matrix &amp; Neural Sampler</title>
   <link rel="icon" type="image/png" href="tepui-icon.png">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div class="plugin-container">
-    <!-- 1. TOP HEADER BAR -->
+    <!-- 1. TOP CHASSIS HEADER & TELEMETRY BAR -->
     <header class="studio-header">
       <div class="brand">
         <img src="tepui-icon.png" alt="TEPUI" class="brand-logo">
         <span class="brand-title">TEPUI</span>
-        <span class="brand-separator">❘</span>
-        <span class="brand-subtitle">GRAN SABANA SONIC LAB • NEURAL SAMPLER</span>
+        <span class="brand-separator">//</span>
+        <span class="brand-subtitle">GRAN SABANA SONIC LAB — EURORACK MATRIX</span>
         <span class="brand-badge">VST3 / CLAP • 24-BIT</span>
       </div>
       <div class="header-right">
+        <div class="io-toolbar">
+          <button id="btn-import-wav" class="btn-io" title="Importar archivo WAV desde tu PC (o arrastra al osciloscopio)" type="button">📂 WAV</button>
+          <button id="btn-export-wav" class="btn-io" title="Exportar el sample actual como archivo WAV" type="button">💾 WAV</button>
+          <button id="btn-load-patch" class="btn-io" title="Cargar Patch completo .tepui" type="button">📦 LOAD</button>
+          <button id="btn-save-patch" class="btn-io" title="Guardar Patch completo .tepui" type="button">💎 SAVE</button>
+          <input type="file" id="wav-file-input" accept=".wav,audio/wav" class="hidden-file-input">
+          <input type="file" id="patch-file-input" accept=".tepui,.json,application/json" class="hidden-file-input">
+        </div>
         <button id="btn-audio-settings" class="btn-settings" title="Configuración de Audio y MIDI">
           <span class="settings-icon">⚙</span>
           <span class="settings-text">AUDIO &amp; MIDI</span>
@@ -32,7 +40,6 @@
           <span id="voice-count" class="voice-num">0</span>
           <span class="voice-max">/ 16</span>
           <div id="voice-leds" class="voice-leds">
-            <!-- 16 micro-leds -->
             <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
             <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
           </div>
@@ -40,246 +47,418 @@
       </div>
     </header>
 
-    <!-- 2. AI GENERATION HUB & PRESETS -->
-    <section class="studio-card ai-hub">
-      <div class="prompt-row">
-        <label for="prompt-input" class="label-tech">AI PROMPT:</label>
-        <div class="input-wrapper">
-          <input type="text" id="prompt-input" value="Concert Grand Piano C4" placeholder="Describe el timbre deseado...">
-        </div>
-        <button id="btn-generate" class="btn-primary" type="button">
-          <span class="btn-icon">✦</span>
-          <span class="btn-text">GENERAR SAMPLE</span>
+    <!-- 2. TOP AI PROMPT COMMAND BAR & PRESET BROWSER DOCK -->
+    <section class="studio-card command-dock">
+      <div class="command-row">
+        <button id="btn-preset-browser" class="btn-preset-browser" type="button" title="Abrir/Cerrar Explorador de Bancos de Sonido y Categorías">
+          <span class="browser-led"></span>
+          <span id="preset-browser-label">PRESET BROWSER (1,250+ PRESETS)</span>
+          <span class="browser-chevron">▾</span>
         </button>
-        <button id="btn-import-wav" class="btn-secondary-sm" title="Importar archivo WAV desde tu PC (o arrastra al osciloscopio)" type="button">
-          <span class="btn-icon">📂</span>
-          <span>WAV</span>
-        </button>
-        <button id="btn-export-wav" class="btn-secondary-sm" title="Exportar el sample actual como archivo WAV" type="button">
-          <span class="btn-icon">💾</span>
-          <span>WAV</span>
-        </button>
-        <button id="btn-load-patch" class="btn-secondary-sm" title="Cargar Patch completo .tepui (Sample + ADSR + Filtro + LFO + Loop)" type="button">
-          <span class="btn-icon">📦</span>
-          <span>LOAD .TEPUI</span>
-        </button>
-        <button id="btn-save-patch" class="btn-secondary-sm" title="Guardar Patch completo .tepui autocontenido" type="button">
-          <span class="btn-icon">💎</span>
-          <span>SAVE .TEPUI</span>
-        </button>
-        <input type="file" id="wav-file-input" accept=".wav,audio/wav" class="hidden-file-input">
-        <input type="file" id="patch-file-input" accept=".tepui,.json,application/json" class="hidden-file-input">
-      </div>
 
-      <div class="preset-row">
-        <span class="label-tech-muted">TIMBRES:</span>
-        <div class="preset-chips">
-          <button class="chip active" data-prompt="Concert Grand Piano C4">🎹 Grand Piano</button>
-          <button class="chip" data-prompt="Cuatro Venezolano Camburpinton C4">🪕 Cuatro Venezolano</button>
-          <button class="chip" data-prompt="Arpa Llanera Venezolana C4">🎶 Arpa Llanera</button>
-          <button class="chip" data-prompt="Bandola Llanera Venezolana A3">🎸 Bandola Llanera</button>
-          <button class="chip" data-prompt="Maracas Llaneras Capachos C4">🪇 Maracas Llaneras</button>
-          <button class="chip" data-prompt="Tambor Cumaco Venezolano C3">🥁 Tambor Cumaco</button>
-          <button class="chip" data-prompt="Quitiplas de Barlovento C4">🎋 Quitiplás</button>
-          <button class="chip" data-prompt="Furruco Zuliano Sub C2">🔊 Furruco Sub</button>
-          <button class="chip" data-prompt="Warm Analog Synth Pad">🌌 Analog Pad</button>
-          <button class="chip" data-prompt="Metallic FM Bell Chime">🔔 FM Bell</button>
-          <button class="chip" data-prompt="Deep 808 Sub Bass">⚡ 808 Sub Bass</button>
-          <button class="chip" data-prompt="Acoustic Solo Cello Expression">🎻 Solo Cello</button>
-          <button class="chip" data-prompt="Vintage Brass Ensemble Horns">🎺 Vintage Brass</button>
-          <button class="chip" data-prompt="Cyberpunk Pluck Lead Synth">🎸 Cyber Lead</button>
+        <div class="prompt-input-shell">
+          <span class="prompt-sparkle">✦</span>
+          <input
+            type="text"
+            id="prompt-input"
+            value="Concert Grand Piano C4"
+            placeholder="Describe un sonido o instrumento... ej. Arpa Llanera cristalina con eco del Roraima"
+          >
+        </div>
+
+        <button id="btn-generate" class="btn-generate-ia" type="button">
+          <span class="btn-text">[ GENERAR IA ]</span>
+        </button>
+
+        <div class="pack-pills-group" aria-label="Packs por Género">
+          <button class="pack-pill amber" data-pack="pack-01" type="button">Folklore Llanero</button>
+          <button class="pack-pill magenta" data-pack="pack-02" type="button">Afro-Venezolano</button>
+          <button class="pack-pill green" data-pack="pack-03" type="button">Cinematic Tepui</button>
+          <button class="pack-pill cyan" data-pack="pack-04" type="button">Synth &amp; Bass</button>
+          <button class="pack-pill purple" data-pack="pack-05" type="button">Gaita &amp; Sur</button>
         </div>
       </div>
     </section>
 
-    <!-- 3. OLED OSCILLOSCOPE SCREEN & STEREO METERS -->
-    <section class="studio-card screen-card">
-      <div class="screen-frame">
-        <div class="screen-telemetry">
-          <span id="telemetry-root">SAMPLE: GRAND PIANO • ROOT: C4 (60)</span>
-          <span class="divider">|</span>
-          <span id="telemetry-dur">DUR: 3.50s</span>
-          <span class="divider">|</span>
-          <span id="telemetry-samples">SAMPLES: 154,350</span>
-          <span class="divider">|</span>
-          <span id="telemetry-region" title="Arrastra los marcadores S / E / L1 / L2 en el osciloscopio">TRIM: 0%-100%</span>
-          <button id="btn-loop-toggle" class="loop-badge-btn active" title="Activar/Desactivar Loop Sostenido (Arrastra L1/L2 en la onda)" type="button">🔁 LOOP ON</button>
-          <div class="keyzone-bar" title="Asignar el sample actual a una Keyzone (Low: C0-G3, Mid: G#3-E5, High: F5-G9)">
-            <button id="btn-zone-low" class="zone-btn" type="button">Z-LOW</button>
-            <button id="btn-zone-mid" class="zone-btn" type="button">Z-MID</button>
-            <button id="btn-zone-high" class="zone-btn" type="button">Z-HIGH</button>
-            <button id="btn-zone-clear" class="zone-btn zone-clr" title="Limpiar zonas y usar sample cromático global" type="button">1-ZONE</button>
+    <!-- 3. MAIN EURORACK 6-MODULE MATRIX + COLLAPSIBLE PRESET BROWSER OVERLAY -->
+    <section class="eurorack-chassis">
+      <!-- COLLAPSIBLE PRESET PACK & CATEGORY EXPLORER (Spans Cols 1-2 when open, keeping ADSR & Reverb live on Col 3) -->
+      <div id="preset-browser-drawer" class="preset-browser-drawer hidden">
+        <!-- Left Column: Sound Pack Cards -->
+        <div class="browser-packs-col">
+          <div class="browser-col-header">
+            <span class="b-screw"></span>
+            <span class="b-title">SOUND PACK CARDS</span>
+            <span class="b-screw"></span>
           </div>
-          <span class="telemetry-highlight">HERMITE 24-BIT</span>
-        </div>
-        <div class="screen-body">
-          <canvas id="oscilloscope" width="710" height="96"></canvas>
-          <div class="meter-panel">
-            <div class="meter-column">
-              <span class="meter-channel">L</span>
-              <div class="vu-meter">
-                <div id="meter-fill-l" class="vu-fill"></div>
-              </div>
-            </div>
-            <div class="meter-column">
-              <span class="meter-channel">R</span>
-              <div class="vu-meter">
-                <div id="meter-fill-r" class="vu-fill"></div>
-              </div>
-            </div>
-            <div class="meter-scale">
-              <span>0</span>
-              <span>-6</span>
-              <span>-12</span>
-              <span>-24</span>
-              <span>-48</span>
-            </div>
+          <div id="sound-pack-list" class="sound-pack-list">
+            <!-- Populated dynamically by app.js -->
           </div>
         </div>
-      </div>
-    </section>
 
-    <!-- 4. DSP HARDWARE RACK -->
-    <section class="dsp-rack">
-      <!-- ADSR ENVELOPE -->
-      <div class="studio-card rack-col adsr-col">
-        <div class="card-header-bar">
-          <span class="card-title cyan">A M P L I T U D E &nbsp; E N V E L O P E</span>
-          <span class="card-tag">ANALOG ADSR</span>
-        </div>
-        <div class="knob-row">
-          <div class="knob-container" data-param="attack" data-unit="s" data-min="0.001" data-max="5.0" data-skew="-2.0">
-            <div class="knob-widget"></div>
-            <div class="knob-val" id="val-attack">0.01 s</div>
-            <div class="knob-label">ATTACK</div>
+        <!-- Center Column: Preset Search, Category Tags & Scrollable Preset Table -->
+        <div class="browser-table-col">
+          <div class="browser-col-header">
+            <span class="b-screw"></span>
+            <span class="b-title">PRESET SEARCH &amp; TABLE</span>
+            <button id="btn-close-browser" class="btn-close-browser" title="Cerrar explorador y volver a los módulos Eurorack" type="button">✕ MÓDULOS</button>
           </div>
-          <div class="knob-container" data-param="decay" data-unit="s" data-min="0.001" data-max="5.0" data-skew="-2.0">
-            <div class="knob-widget"></div>
-            <div class="knob-val" id="val-decay">0.20 s</div>
-            <div class="knob-label">DECAY</div>
+
+          <div class="browser-search-bar">
+            <span class="search-icon">🔍</span>
+            <input
+              type="text"
+              id="preset-search-input"
+              placeholder="Search 1,250+ presets por nombre, instrumento, género o compás..."
+            >
+            <span id="preset-count-badge" class="preset-count-badge">1,250</span>
           </div>
-          <div class="knob-container" data-param="sustain" data-unit="%" data-min="0.0" data-max="1.0" data-skew="1.0">
-            <div class="knob-widget"></div>
-            <div class="knob-val" id="val-sustain">80 %</div>
-            <div class="knob-label">SUSTAIN</div>
+
+          <div id="preset-category-pills" class="preset-category-pills">
+            <button class="cat-pill active" data-cat="ALL" type="button">All</button>
+            <button class="cat-pill" data-cat="FAV" type="button">★ Favs</button>
+            <button class="cat-pill" data-cat="Plucks" type="button">Plucks</button>
+            <button class="cat-pill" data-cat="Strings" type="button">Strings</button>
+            <button class="cat-pill" data-cat="Percussion" type="button">Percussion</button>
+            <button class="cat-pill" data-cat="Pads" type="button">Pads</button>
+            <button class="cat-pill" data-cat="Leads" type="button">Leads</button>
+            <button class="cat-pill" data-cat="Basses" type="button">Basses</button>
+            <button class="cat-pill" data-cat="Arps 6/8" type="button">Arps 6/8</button>
           </div>
-          <div class="knob-container" data-param="release" data-unit="s" data-min="0.001" data-max="10.0" data-skew="-2.0">
-            <div class="knob-widget"></div>
-            <div class="knob-val" id="val-release">0.30 s</div>
-            <div class="knob-label">RELEASE</div>
+
+          <div class="preset-table-head">
+            <span class="col-fav">★</span>
+            <span class="col-name">Preset</span>
+            <span class="col-genre">Genre / Category</span>
+            <span class="col-rhythm">Rhythm</span>
+          </div>
+
+          <div id="preset-table-body" class="preset-table-body">
+            <!-- Virtualized/Rendered rows by app.js -->
           </div>
         </div>
       </div>
 
-      <!-- RESONANT FILTER -->
-      <div class="studio-card rack-col filter-col">
-        <div class="card-header-bar">
-          <span class="card-title amber">R E S O N A N T &nbsp; F I L T E R</span>
-          <span class="card-tag">STATE-VARIABLE</span>
+      <!-- MODULE 1: WAVEFORM & LOOP (Top-Left) -->
+      <div class="eurorack-module mod-waveform" id="mod-waveform">
+        <i class="hex-screw tl"></i><i class="hex-screw tr"></i><i class="hex-screw bl"></i><i class="hex-screw br"></i>
+        <div class="mod-header">
+          <span class="mod-title">WAVEFORM &amp; LOOP</span>
+          <button id="btn-loop-toggle" class="oled-pill-btn active" title="Activar/Desactivar Loop Sostenido" type="button">🔁 LOOP ON</button>
         </div>
-        <div class="filter-controls">
+
+        <div class="oled-bezel cyan-bezel screen-body">
+          <div class="oled-hud-top">
+            <span id="telemetry-root">SAMPLE: GRAND PIANO • C4</span>
+            <span id="telemetry-dur">3.50s</span>
+            <span id="telemetry-samples" class="hud-dim">154,350 smp</span>
+          </div>
+          <canvas id="oscilloscope" width="310" height="82"></canvas>
+          <div class="oled-hud-bottom">
+            <span id="telemetry-region">TRIM: 0%-100%</span>
+            <div class="keyzone-bar">
+              <button id="btn-zone-low" class="zone-btn" type="button">Z-LOW</button>
+              <button id="btn-zone-mid" class="zone-btn" type="button">Z-MID</button>
+              <button id="btn-zone-high" class="zone-btn" type="button">Z-HIGH</button>
+              <button id="btn-zone-clear" class="zone-btn zone-clr" type="button">1-Z</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="mod-controls-row">
+          <div class="hw-btn-stack">
+            <button id="btn-root-down" class="hw-sq-btn cyan-led" title="Bajar nota raíz 1 semitono" type="button">ROOT -</button>
+            <span id="t-root-val" class="hw-readout">C4 (60)</span>
+            <button id="btn-root-up" class="hw-sq-btn cyan-led" title="Subir nota raíz 1 semitono" type="button">ROOT +</button>
+          </div>
+          <div class="encoder-pair">
+            <div class="mini-encoder" id="enc-trim-start" title="Arrastra verticalmente para ajustar Trim Start">
+              <div class="brushed-cap"><div class="cap-line"></div></div>
+              <span class="enc-label">TRIM START</span>
+            </div>
+            <div class="mini-encoder" id="enc-trim-end" title="Arrastra verticalmente para ajustar Trim End">
+              <div class="brushed-cap"><div class="cap-line"></div></div>
+              <span class="enc-label">TRIM END</span>
+            </div>
+          </div>
+          <div class="hw-btn-stack">
+            <span class="hw-tiny-lbl">ZONES</span>
+            <span id="t-zones-val" class="hw-readout cyan">GLOBAL</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- MODULE 2: SVF FILTER (Top-Center) -->
+      <div class="eurorack-module mod-filter" id="mod-filter">
+        <i class="hex-screw tl"></i><i class="hex-screw tr"></i><i class="hex-screw bl"></i><i class="hex-screw br"></i>
+        <div class="mod-header">
+          <span class="mod-title">SVF FILTER</span>
+          <span class="mod-sub-tag">CYTOMIC TPT</span>
+        </div>
+
+        <div class="oled-bezel cyan-bezel">
+          <canvas id="oled-svf" width="290" height="94"></canvas>
+        </div>
+
+        <div class="mod-controls-row filter-controls-row">
+          <div class="mode-buttons-col">
+            <button class="mode-btn active" data-mode="0" type="button">LOWPASS</button>
+            <button class="mode-btn" data-mode="1" type="button">HIGHPASS</button>
+            <button class="mode-btn" data-mode="2" type="button">BANDPASS</button>
+            <button class="mode-btn" data-mode="3" type="button">BYPASS</button>
+          </div>
           <div class="knob-row">
             <div class="knob-container" data-param="cutoff" data-unit="Hz" data-min="20.0" data-max="20000.0" data-skew="-2.0">
               <div class="knob-widget"></div>
-              <div class="knob-val" id="val-cutoff">20000 Hz</div>
+              <div class="knob-val" id="val-cutoff">20.0 kHz</div>
               <div class="knob-label">CUTOFF</div>
             </div>
             <div class="knob-container" data-param="resonance" data-unit="" data-min="0.1" data-max="10.0" data-skew="1.0">
               <div class="knob-widget"></div>
               <div class="knob-val" id="val-resonance">0.71</div>
-              <div class="knob-label">RES</div>
-            </div>
-          </div>
-
-          <div class="filter-modes">
-            <span class="label-tech-tiny">TOPOLOGY:</span>
-            <div class="mode-buttons">
-              <button class="mode-btn active" data-mode="0">LOWPASS</button>
-              <button class="mode-btn" data-mode="1">HIGHPASS</button>
-              <button class="mode-btn" data-mode="2">BANDPASS</button>
-              <button class="mode-btn" data-mode="3">BYPASS</button>
+              <div class="knob-label">RESONANCE</div>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- MASTER OUTPUT, LFO MODULATION & STEREO FX -->
-      <div class="studio-card rack-col master-col">
-        <div class="card-header-bar">
-          <span class="card-title green">L F O &nbsp; • &nbsp; F X &nbsp; • &nbsp; M A S T E R</span>
-          <button id="btn-lfo-target" class="card-tag lfo-target-btn" title="Cambiar destino de modulación LFO (Cutoff / Vibrato / Tremolo / Off)" type="button">LFO → CUTOFF</button>
+      <!-- MODULE 3: ADSR FADER BANK (Top-Right — remains visible when Preset Browser is open) -->
+      <div class="eurorack-module mod-adsr" id="mod-adsr">
+        <i class="hex-screw tl"></i><i class="hex-screw tr"></i><i class="hex-screw bl"></i><i class="hex-screw br"></i>
+        <div class="mod-header">
+          <span class="mod-title">ADSR FADER BANK</span>
+          <span class="mod-sub-tag amber">ENVELOPE</span>
         </div>
-        <div class="master-content">
-          <div class="knob-container" data-param="lfo_rate" data-unit="Hz" data-min="0.1" data-max="20.0" data-skew="-1.5">
-            <div class="knob-widget"></div>
-            <div class="knob-val" id="val-lfo_rate">3.5 Hz</div>
-            <div class="knob-label">LFO RATE</div>
-          </div>
-          <div class="knob-container" data-param="lfo_depth" data-unit="%" data-min="0.0" data-max="1.0" data-skew="1.0">
-            <div class="knob-widget"></div>
-            <div class="knob-val" id="val-lfo_depth">0 %</div>
-            <div class="knob-label">LFO MOD</div>
-          </div>
-          <div class="knob-container" data-param="space_mix" data-unit="%" data-min="0.0" data-max="1.0" data-skew="1.0">
-            <div class="knob-widget"></div>
-            <div class="knob-val" id="val-space_mix">15 %</div>
-            <div class="knob-label">SPACE FX</div>
-          </div>
-          <div class="knob-container" data-param="gain" data-unit="dB" data-min="-60.0" data-max="6.0" data-skew="1.0">
-            <div class="knob-widget"></div>
-            <div class="knob-val" id="val-gain">0.0 dB</div>
-            <div class="knob-label">LEVEL</div>
-          </div>
-          <div class="master-telemetry">
-            <div class="telem-item">
-              <span class="t-label">ROOT BASE</span>
-              <div class="root-stepper">
-                <button id="btn-root-down" class="root-step-btn" title="Bajar nota raíz 1 semitono" type="button">◄</button>
-                <span id="t-root-val" class="t-val">C4 (60)</span>
-                <button id="btn-root-up" class="root-step-btn" title="Subir nota raíz 1 semitono" type="button">►</button>
-              </div>
+
+        <div class="oled-bezel amber-bezel">
+          <canvas id="oled-adsr" width="290" height="94"></canvas>
+        </div>
+
+        <div class="fader-bank-row">
+          <div class="knob-container fader-unit" data-param="attack" data-unit="s" data-min="0.001" data-max="5.0" data-skew="-2.0">
+            <div class="fader-track">
+              <div class="fader-fill" id="fader-fill-attack"></div>
+              <div class="fader-thumb" id="fader-thumb-attack"></div>
             </div>
-            <div class="telem-item">
-              <span class="t-label">KEYZONES</span>
-              <span id="t-zones-val" class="t-val cyan">GLOBAL</span>
+            <div class="knob-widget hidden-knob"></div>
+            <div class="knob-val" id="val-attack">10 ms</div>
+            <div class="knob-label">Attack</div>
+          </div>
+          <div class="knob-container fader-unit" data-param="decay" data-unit="s" data-min="0.001" data-max="5.0" data-skew="-2.0">
+            <div class="fader-track">
+              <div class="fader-fill" id="fader-fill-decay"></div>
+              <div class="fader-thumb" id="fader-thumb-decay"></div>
             </div>
-            <div class="telem-item">
-              <span class="t-label">PRECISION</span>
-              <span class="t-val amber">24-BIT</span>
+            <div class="knob-widget hidden-knob"></div>
+            <div class="knob-val" id="val-decay">200 ms</div>
+            <div class="knob-label">Decay</div>
+          </div>
+          <div class="knob-container fader-unit" data-param="sustain" data-unit="%" data-min="0.0" data-max="1.0" data-skew="1.0">
+            <div class="fader-track">
+              <div class="fader-fill" id="fader-fill-sustain"></div>
+              <div class="fader-thumb" id="fader-thumb-sustain"></div>
             </div>
+            <div class="knob-widget hidden-knob"></div>
+            <div class="knob-val" id="val-sustain">80 %</div>
+            <div class="knob-label">Sustain</div>
+          </div>
+          <div class="knob-container fader-unit" data-param="release" data-unit="s" data-min="0.001" data-max="10.0" data-skew="-2.0">
+            <div class="fader-track">
+              <div class="fader-fill" id="fader-fill-release"></div>
+              <div class="fader-thumb" id="fader-thumb-release"></div>
+            </div>
+            <div class="knob-widget hidden-knob"></div>
+            <div class="knob-val" id="val-release">300 ms</div>
+            <div class="knob-label">Release</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MODULE 4: LFO & MOD MATRIX (Bottom-Left) -->
+      <div class="eurorack-module mod-lfo" id="mod-lfo">
+        <i class="hex-screw tl"></i><i class="hex-screw tr"></i><i class="hex-screw bl"></i><i class="hex-screw br"></i>
+        <div class="mod-header">
+          <span class="mod-title">LFO &amp; MOD MATRIX</span>
+          <button id="btn-lfo-target" class="oled-pill-btn green" title="Cambiar destino de modulación LFO" type="button">LFO → CUTOFF</button>
+        </div>
+
+        <div class="oled-bezel green-bezel">
+          <canvas id="oled-lfo" width="290" height="72"></canvas>
+        </div>
+
+        <div class="mod-controls-row lfo-matrix-row">
+          <div class="mod-matrix-mini">
+            <div class="matrix-row"><span class="m-lbl">CUATRO</span><i class="on"></i><i></i><i></i><i></i><i></i></div>
+            <div class="matrix-row"><span class="m-lbl">ARPA</span><i></i><i class="on"></i><i></i><i></i><i></i></div>
+            <div class="matrix-row"><span class="m-lbl">BANDOLA</span><i></i><i></i><i class="on"></i><i></i><i></i></div>
+            <div class="matrix-row"><span class="m-lbl">CUMACO</span><i></i><i></i><i></i><i class="on"></i><i></i></div>
+            <div class="matrix-row"><span class="m-lbl">FURRUCO</span><i></i><i></i><i></i><i></i><i class="on"></i></div>
+          </div>
+          <div class="knob-row">
+            <div class="knob-container" data-param="lfo_rate" data-unit="Hz" data-min="0.1" data-max="20.0" data-skew="-1.5">
+              <div class="knob-widget"></div>
+              <div class="knob-val" id="val-lfo_rate">3.5 Hz</div>
+              <div class="knob-label">LFO RATE</div>
+            </div>
+            <div class="knob-container" data-param="lfo_depth" data-unit="%" data-min="0.0" data-max="1.0" data-skew="1.0">
+              <div class="knob-widget"></div>
+              <div class="knob-val" id="val-lfo_depth">0 %</div>
+              <div class="knob-label">LFO MOD</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MODULE 5: 6/8 JOROPO ARP (Bottom-Center) -->
+      <div class="eurorack-module mod-arp" id="mod-arp">
+        <i class="hex-screw tl"></i><i class="hex-screw tr"></i><i class="hex-screw bl"></i><i class="hex-screw br"></i>
+        <div class="mod-header">
+          <span class="mod-title">6/8 JOROPO ARP</span>
+          <button id="btn-arp-mode" class="oled-pill-btn amber" title="Ciclar modo del Arpegiador Venezolano" type="button">🎵 ARP: OFF</button>
+        </div>
+
+        <div class="oled-bezel amber-bezel">
+          <canvas id="oled-arp" width="290" height="72"></canvas>
+        </div>
+
+        <div class="arp-controls-row">
+          <div class="arp-mode-buttons">
+            <button class="arp-mode-btn active" data-arp="0" type="button">OFF</button>
+            <button class="arp-mode-btn" data-arp="1" type="button">UP</button>
+            <button class="arp-mode-btn" data-arp="2" type="button">DOWN</button>
+            <button class="arp-mode-btn joropo-btn" data-arp="3" type="button">6/8 JOROPO</button>
+            <button class="arp-mode-btn merengue-btn" data-arp="4" type="button">5/8 MERENGUE</button>
+          </div>
+          <div class="arp-status-strip">
+            <span class="arp-stat">COMPÁS: <strong id="arp-meter-label">4/4 FREE</strong></span>
+            <span class="arp-stat">STEPS: <strong id="arp-steps-count">0</strong></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- MODULE 6: TEPUI CANYON REVERB & MASTER (Bottom-Right — remains visible when Preset Browser is open) -->
+      <div class="eurorack-module mod-reverb" id="mod-reverb">
+        <i class="hex-screw tl"></i><i class="hex-screw tr"></i><i class="hex-screw bl"></i><i class="hex-screw br"></i>
+        <div class="mod-header">
+          <span class="mod-title">TEPUI CANYON REVERB</span>
+          <span class="mod-sub-tag cyan">SPATIAL DSP</span>
+        </div>
+
+        <div class="reverb-oled-and-vu">
+          <div class="oled-bezel cyan-bezel reverb-bezel">
+            <canvas id="oled-reverb" width="230" height="72"></canvas>
+          </div>
+          <div class="meter-panel">
+            <div class="meter-column">
+              <span class="meter-channel">L</span>
+              <div class="vu-meter"><div id="meter-fill-l" class="vu-fill"></div></div>
+            </div>
+            <div class="meter-column">
+              <span class="meter-channel">R</span>
+              <div class="vu-meter"><div id="meter-fill-r" class="vu-fill"></div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="mod-controls-row reverb-controls-row">
+          <div class="knob-row">
+            <div class="knob-container" data-param="space_mix" data-unit="%" data-min="0.0" data-max="1.0" data-skew="1.0">
+              <div class="knob-widget"></div>
+              <div class="knob-val" id="val-space_mix">15 %</div>
+              <div class="knob-label">SPATIAL</div>
+            </div>
+            <div class="knob-container" data-param="gain" data-unit="dB" data-min="-60.0" data-max="6.0" data-skew="1.0">
+              <div class="knob-widget"></div>
+              <div class="knob-val" id="val-gain">0.0 dB</div>
+              <div class="knob-label">MASTER</div>
+            </div>
+          </div>
+          <div class="master-hw-btns">
+            <button id="btn-live-rec" class="hw-sq-btn rec-led" title="Grabar salida Master en vivo post-FX como WAV" type="button">🔴 REC LIVE</button>
+            <button id="btn-panic" class="hw-sq-btn amber-led" title="Silenciar todas las notas [ESC]" type="button">PANIC [ESC]</button>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- 5. VIRTUAL PIANO KEYBOARD & MUSICAL TYPING BAR -->
+    <!-- 4. 7 ILLUMINATED TACTILE FOLKLORE PADS + STUDIO TIMBRE CHIPS -->
+    <section class="pads-and-chips-deck">
+      <div class="folklore-pads-bay">
+        <button class="folklore-pad chip" data-prompt="Cuatro Venezolano Camburpinton C4" data-arp="3" type="button">
+          <span class="pad-led"></span>
+          <span class="pad-name">CUATRO</span>
+        </button>
+        <button class="folklore-pad chip" data-prompt="Arpa Llanera Venezolana C4" data-arp="3" type="button">
+          <span class="pad-led"></span>
+          <span class="pad-name">ARPA</span>
+        </button>
+        <button class="folklore-pad chip" data-prompt="Bandola Llanera Venezolana A3" data-arp="3" type="button">
+          <span class="pad-led"></span>
+          <span class="pad-name">BANDOLA</span>
+        </button>
+        <button class="folklore-pad chip" data-prompt="Maracas Llaneras Capachos C4" data-arp="3" type="button">
+          <span class="pad-led"></span>
+          <span class="pad-name">MARACAS</span>
+        </button>
+        <button class="folklore-pad chip" data-prompt="Tambor Cumaco Venezolano C3" data-arp="4" type="button">
+          <span class="pad-led"></span>
+          <span class="pad-name">CUMACO</span>
+        </button>
+        <button class="folklore-pad chip" data-prompt="Quitiplas de Barlovento C4" data-arp="4" type="button">
+          <span class="pad-led"></span>
+          <span class="pad-name">QUITIPLAS</span>
+        </button>
+        <button class="folklore-pad chip" data-prompt="Furruco Zuliano Sub C2" data-arp="0" type="button">
+          <span class="pad-led"></span>
+          <span class="pad-name">FURRUCO</span>
+        </button>
+      </div>
+
+      <div class="studio-chips-bay">
+        <button class="chip mini-chip active" data-prompt="Concert Grand Piano C4" type="button">🎹 Piano</button>
+        <button class="chip mini-chip" data-prompt="Warm Analog Synth Pad" type="button">🌌 Pad</button>
+        <button class="chip mini-chip" data-prompt="Metallic FM Bell Chime" type="button">🔔 Bell</button>
+        <button class="chip mini-chip" data-prompt="Deep 808 Sub Bass" type="button">⚡ 808</button>
+        <button class="chip mini-chip" data-prompt="Acoustic Solo Cello Expression" type="button">🎻 Cello</button>
+        <button class="chip mini-chip" data-prompt="Vintage Brass Ensemble Horns" type="button">🎺 Brass</button>
+        <button class="chip mini-chip" data-prompt="Cyberpunk Pluck Lead Synth" type="button">🎸 Lead</button>
+      </div>
+    </section>
+
+    <!-- 5. TRI-ZONE LED VELOCITY KEYBOARD & PERFORMANCE DECK -->
     <section class="studio-card keyboard-card">
       <div class="keyboard-toolbar">
         <div class="octave-controls">
           <span class="tb-label">OCTAVE:</span>
-          <button id="btn-oct-down" class="tb-btn" title="Octava abajo (Tecla Z)">◄ OCT - [Z]</button>
+          <button id="btn-oct-down" class="tb-btn" title="Octava abajo (Tecla Z)" type="button">◄ [Z]</button>
           <span id="octave-badge" class="tb-badge">OCT 3 (C3 - C5)</span>
-          <button id="btn-oct-up" class="tb-btn" title="Octava arriba (Tecla X)">OCT + [X] ►</button>
+          <button id="btn-oct-up" class="tb-btn" title="Octava arriba (Tecla X)" type="button">[X] ►</button>
         </div>
 
-        <div class="typing-info">
-          <span class="keyboard-icon">⌨</span>
-          <span class="typing-text">QWERTY: <strong class="hl">A-K</strong> blancas | <strong class="hl">W-U</strong> negras</span>
+        <div class="tri-zone-legend">
+          <span class="tz-dot cyan"></span><span class="tz-txt">LOW ZONE</span>
+          <span class="tz-dot green"></span><span class="tz-txt">MID ZONE</span>
+          <span class="tz-dot amber"></span><span class="tz-txt">HIGH ZONE</span>
+          <span class="typing-text">│ QWERTY: <strong class="hl">A-K</strong> / <strong class="hl">W-U</strong></span>
         </div>
 
         <div class="velocity-controls">
-          <button id="btn-live-rec" class="tb-btn" title="Grabar salida Master en vivo post-FX y exportar como archivo WAV estéreo" type="button">🔴 REC LIVE</button>
-          <button id="btn-arp-mode" class="tb-btn" title="Ciclar Modo de Arpegiador / Compás Venezolano (Off / Up / Down / Joropo 6/8 / Merengue 5/8)" type="button">🎵 ARP: OFF</button>
           <span class="tb-label">VEL:</span>
-          <button id="btn-vel-down" class="tb-btn" title="Bajar velocidad (Tecla C)">- [C]</button>
+          <button id="btn-vel-down" class="tb-btn" title="Bajar velocidad (Tecla C)" type="button">- [C]</button>
           <span id="vel-badge" class="tb-badge">95%</span>
-          <button id="btn-vel-up" class="tb-btn" title="Subir velocidad (Tecla V)">+ [V]</button>
-          <button id="btn-panic" class="tb-btn panic-btn" title="Silenciar todas las notas (Escape)">PANIC [ESC]</button>
+          <button id="btn-vel-up" class="tb-btn" title="Subir velocidad (Tecla V)" type="button">+ [V]</button>
         </div>
       </div>
 
-      <div id="piano-keyboard" class="piano-keyboard">
-        <!-- Generado dinámicamente con app.js (2 octavas interactivas) -->
+      <div class="keybed-assembly">
+        <div class="wheel-cheek">
+          <div class="hw-wheel" title="Pitch Bend"><div class="wheel-cap center"></div><span>PITCH</span></div>
+          <div class="hw-wheel" title="Modulation CC#1"><div class="wheel-cap low"></div><span>MOD</span></div>
+        </div>
+        <div class="keybed-main">
+          <div id="keyzone-led-strip" class="keyzone-led-strip"></div>
+          <div id="piano-keyboard" class="piano-keyboard"></div>
+        </div>
       </div>
     </section>
 
@@ -290,8 +469,8 @@
         <span id="footer-text">ODD // BACKEND: HYBRID-PHYSICAL • SYNTH: 0µs • DSP BLK: 0 • LIM: 0</span>
       </div>
       <div class="footer-actions">
-        <span class="shortcut-tip"><kbd>Shift</kbd> + Arrastre para ajuste fino</span>
-        <span class="shortcut-tip"><kbd>Doble Clic</kbd> para reset</span>
+        <span class="shortcut-tip"><kbd>Shift</kbd> + Arrastre fino</span>
+        <span class="shortcut-tip"><kbd>Doble Clic</kbd> reset</span>
       </div>
     </footer>
 
@@ -309,7 +488,6 @@
           <button id="btn-close-settings" class="btn-close" title="Cerrar ventana" type="button">✕</button>
         </div>
 
-        <!-- Banner informativo si corre en DAW -->
         <div id="daw-mode-banner" class="mode-banner hidden">
           <span class="banner-icon">ℹ</span>
           <div class="banner-text">
@@ -319,7 +497,6 @@
         </div>
 
         <div class="modal-body">
-          <!-- Dispositivo de Salida de Audio -->
           <div class="setting-field">
             <div class="field-label-group">
               <label for="select-output-device">DISPOSITIVO DE SALIDA (AUDIO OUTPUT):</label>
@@ -330,7 +507,6 @@
             </select>
           </div>
 
-          <!-- Dispositivo de Entrada de Audio -->
           <div class="setting-field">
             <div class="field-label-group">
               <label for="select-input-device">DISPOSITIVO DE ENTRADA (AUDIO INPUT):</label>
@@ -341,7 +517,6 @@
             </select>
           </div>
 
-          <!-- Sample Rate y Buffer Size en grid de 2 columnas -->
           <div class="setting-grid-2">
             <div class="setting-field">
               <div class="field-label-group">
@@ -371,7 +546,6 @@
             </div>
           </div>
 
-          <!-- Dispositivo de Entrada MIDI -->
           <div class="setting-field">
             <div class="field-label-group">
               <label for="select-midi-device">TECLADO / CONTROLADOR MIDI:</label>
@@ -382,7 +556,6 @@
             </select>
           </div>
 
-          <!-- Verificador de Sonido en Vivo -->
           <div class="test-tone-box">
             <div class="test-tone-info">
               <span class="test-tone-title">VERIFICADOR DE REPRODUCCIÓN EN VIVO</span>
