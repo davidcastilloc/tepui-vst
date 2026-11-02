@@ -2,6 +2,16 @@
 
 Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
 
+## [1.2.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.1.0...v1.2.0) (2026-11-02)
+
+### Nuevas Funcionalidades (Features)
+
+* **ui:** habilitar redimensionado nativo y escalado responsivo en standalone y DAW ([3b48bfa](https://github.com/davidcastilloc/tepui-vst/commit/3b48bfa3835363a7329050c924f5609aa28f8aeb))
+
+# Changelog
+
+Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
+
 ## [1.1.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.0.0...v1.1.0) (2026-11-02)
 
 ### Nuevas Funcionalidades (Features)
