@@ -1,0 +1,30 @@
+name: Solicitud de Funcionalidad (Feature Request)
+description: Proponer un nuevo timbre venezolano, módulo DSP, mejora de interfaz o integración MIDI.
+title: "feat(alcance): descripción concisa de la mejora"
+labels: ["enhancement"]
+body:
+  - type: dropdown
+    id: subsystem
+    attributes:
+      label: Subsistema Objetivo
+      options:
+        - Motor DSP / Filtros / Efectos (synth_core)
+        - Modelado Físico Venezolano / Síntesis (ai_bridge)
+        - Interfaz WebView2 / Osciloscopio OLED / Teclado (plugin_vst)
+        - Integración DAW / MIDI / Persistencia .tepui
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Descripción Técnica de la Propuesta
+      description: Detalla la funcionalidad propuesta y cómo beneficia la interpretación o el diseño sonoro.
+    validations:
+      required: true
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Consideraciones de Tiempo Real (DSP / Latencia)
+      description: Indica si requiere buffers prealocados, nuevos parámetros automatizables o cambios en el formato .tepui.

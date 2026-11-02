@@ -2,8 +2,10 @@
 name = "synth_core"
 version = "0.1.0"
 edition = "2021"
-authors = ["Audio Plugin Team"]
-description = "Real-time DSP engine for chromatic polyphonic sampling with Hermite interpolation, SVF filters, and ADSR"
+license = "MIT"
+authors = ["Gran Sabana Sonic Lab <contact@gransabana.audio>"]
+repository = "https://github.com/davidcastilloc/tepui-vst"
+description = "Real-time DSP engine for chromatic polyphonic sampling with Hermite interpolation, SVF filters, ADSR, LFO, and Venezuelan arpeggiator"
 
 [dependencies]
 arc-swap = "1.7"

@@ -1,0 +1,43 @@
+name: Reporte de Bug (Bug Report)
+description: Reportar un fallo de audio, interfaz WebView2, compatibilidad DAW o empaquetado.
+title: "fix(alcance): descripción concisa del problema"
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: format
+    attributes:
+      label: Formato de Ejecución
+      options:
+        - VST3 Plugin (TEPUI.vst3)
+        - CLAP Plugin (TEPUI.clap)
+        - Standalone Workstation (tepui_studio.exe)
+    validations:
+      required: true
+
+  - type: input
+    id: host_daw
+    attributes:
+      label: DAW Host y Versión / Sistema Operativo
+      description: Indica el DAW utilizado (ej. Ableton Live 12, Reaper 7, FL Studio 24, Bitwig 5) y versión de Windows.
+      placeholder: "Reaper 7.22 / Windows 11 23H2 x64 (48 kHz, 256 samples)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Descripción del Problema
+      description: Explica qué ocurrió y cuál era el comportamiento esperado.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Pasos para Reproducir
+      placeholder: |
+        1. Cargar TEPUI.vst3 en una pista MIDI.
+        2. Seleccionar el timbre 'Bandola Llanera' y activar el arpegiador en modo 'Joropo 6/8'.
+        3. ...
+    validations:
+      required: true

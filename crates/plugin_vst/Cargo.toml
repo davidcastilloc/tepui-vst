@@ -2,8 +2,10 @@
 name = "plugin_vst"
 version = "0.1.0"
 edition = "2021"
-authors = ["Gran Sabana Sonic Lab"]
-description = "TEPUI // Gran Sabana Sonic Lab — VST3 and CLAP Neural Chromatic Sampler"
+license = "MIT"
+authors = ["Gran Sabana Sonic Lab <contact@gransabana.audio>"]
+repository = "https://github.com/davidcastilloc/tepui-vst"
+description = "TEPUI // Gran Sabana Sonic Lab — VST3, CLAP, and Standalone Neural Chromatic Sampler"
 default-run = "tepui_studio"
 
 [lib]

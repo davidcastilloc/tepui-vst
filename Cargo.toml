@@ -7,6 +7,13 @@ members = [
 ]
 resolver = "2"
 
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["Gran Sabana Sonic Lab <contact@gransabana.audio>"]
+repository = "https://github.com/davidcastilloc/tepui-vst"
+
 [profile.release]
 opt-level = 3
 lto = "thin"

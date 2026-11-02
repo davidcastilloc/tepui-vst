@@ -752,8 +752,8 @@ impl Plugin for AiSamplerPlugin {
 impl ClapPlugin for AiSamplerPlugin {
     const CLAP_ID: &'static str = "ve.gransabana.tepui-chromatic-sampler";
     const CLAP_DESCRIPTION: Option<&'static str> = Some("TEPUI // Gran Sabana Sonic Lab — AI Chromatic Polyphonic Sampler & Synthesizer");
-    const CLAP_MANUAL_URL: Option<&'static str> = Some("https://github.com/user/plugin_vst");
-    const CLAP_SUPPORT_URL: Option<&'static str> = Some("https://github.com/user/plugin_vst");
+    const CLAP_MANUAL_URL: Option<&'static str> = Some("https://github.com/davidcastilloc/tepui-vst");
+    const CLAP_SUPPORT_URL: Option<&'static str> = Some("https://github.com/davidcastilloc/tepui-vst");
     const CLAP_FEATURES: &'static [ClapFeature] = &[
         ClapFeature::Instrument,
         ClapFeature::Synthesizer,

@@ -1,0 +1,56 @@
+name: Semantic Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  semantic-release:
+    name: Semantic Release & Binary Packaging
+    runs-on: windows-latest
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js for Semantic Release
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Rust stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Verify Tests Before Release
+        run: cargo test --workspace
+
+      - name: Run Semantic Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npx --yes `
+            -p semantic-release@24 `
+            -p "@semantic-release/commit-analyzer@13" `
+            -p "@semantic-release/release-notes-generator@14" `
+            -p "@semantic-release/changelog@6" `
+            -p "@semantic-release/exec@6" `
+            -p "@semantic-release/git@10" `
+            -p "@semantic-release/github@11" `
+            -p conventional-changelog-conventionalcommits@8 `
+            semantic-release

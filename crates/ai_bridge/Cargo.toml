@@ -2,8 +2,10 @@
 name = "ai_bridge"
 version = "0.1.0"
 edition = "2021"
-authors = ["Audio Plugin Team"]
-description = "Asynchronous AI audio generation bridge and procedural physical model generator"
+license = "MIT"
+authors = ["Gran Sabana Sonic Lab <contact@gransabana.audio>"]
+repository = "https://github.com/davidcastilloc/tepui-vst"
+description = "Asynchronous neural spectral synthesis bridge and Venezuelan physical modeling generator"
 
 [dependencies]
 synth_core = { path = "../synth_core" }

@@ -1,0 +1,39 @@
+# Configuración de git-cliff para generación local de CHANGELOG.md basada en Conventional Commits
+
+[changelog]
+header = """
+# Changelog\n
+Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan en este archivo.\n
+"""
+body = """
+{% if version %}\
+    ## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}\
+    ## [Unreleased]
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+    ### {{ group | striptags | trim | upper_first }}
+    {% for commit in commits %}
+        - {% if commit.scope %}**({{ commit.scope }})** {% endif %}{{ commit.message | upper_first }}\
+    {% endfor %}
+{% endfor %}\n
+"""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+split_commits = false
+commit_parsers = [
+    { message = "^feat", group = "<!-- 0 -->Nuevas Funcionalidades (Features)" },
+    { message = "^fix", group = "<!-- 1 -->Correcciones de Errores (Bug Fixes)" },
+    { message = "^perf", group = "<!-- 2 -->Optimizaciones DSP y Rendimiento" },
+    { message = "^refactor", group = "<!-- 3 -->Refactorizaciones Internas" },
+    { message = "^docs", group = "<!-- 4 -->Documentación" },
+    { message = "^test", group = "<!-- 5 -->Pruebas Automatizadas" },
+    { message = "^chore\\(release\\):", skip = true },
+    { message = "^chore|^ci", group = "<!-- 6 -->Mantenimiento y CI/CD" },
+]
+filter_commits = false
+tag_pattern = "v[0-9].*"
+sort_commits = "oldest"

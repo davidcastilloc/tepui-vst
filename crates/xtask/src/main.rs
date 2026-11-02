@@ -129,10 +129,59 @@ fn run_install() -> nih_plug_xtask::Result<()> {
     Ok(())
 }
 
+fn update_cargo_toml_version_str(content: &str, new_version: &str) -> String {
+    let mut out = String::with_capacity(content.len() + 16);
+    let mut in_pkg_section = false;
+    let mut updated = false;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            in_pkg_section = trimmed == "[package]" || trimmed == "[workspace.package]";
+            updated = false;
+        }
+        if in_pkg_section && !updated && trimmed.starts_with("version") && trimmed.contains('=') {
+            out.push_str(&format!("version = \"{}\"\n", new_version));
+            updated = true;
+        } else {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out
+}
+
+fn run_set_version(new_version: &str) -> nih_plug_xtask::Result<()> {
+    let clean_ver = new_version.trim().trim_start_matches('v');
+    let manifests = [
+        "Cargo.toml",
+        "crates/synth_core/Cargo.toml",
+        "crates/ai_bridge/Cargo.toml",
+        "crates/plugin_vst/Cargo.toml",
+        "crates/xtask/Cargo.toml",
+    ];
+
+    for manifest in manifests {
+        let path = Path::new(manifest);
+        if path.exists() {
+            let content = fs::read_to_string(path)?;
+            let updated = update_cargo_toml_version_str(&content, clean_ver);
+            fs::write(path, updated)?;
+            println!("[TEPUI VERSION] Actualizado {} -> {}", manifest, clean_ver);
+        }
+    }
+    Ok(())
+}
+
 fn main() -> nih_plug_xtask::Result<()> {
     let args: Vec<String> = env::args().skip(1).collect();
     if args.first().map(|s| s.as_str()) == Some("install") {
         return run_install();
+    }
+    if args.first().map(|s| s.as_str()) == Some("set-version") {
+        if let Some(ver) = args.get(1) {
+            return run_set_version(ver);
+        }
     }
 
     nih_plug_xtask::main()?;
@@ -143,6 +192,14 @@ fn main() -> nih_plug_xtask::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_update_cargo_toml_version() {
+        let sample = "[package]\nname = \"plugin_vst\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nsynth_core = { version = \"0.1.0\" }\n";
+        let updated = update_cargo_toml_version_str(sample, "1.2.3");
+        assert!(updated.contains("version = \"1.2.3\""));
+        assert!(updated.contains("synth_core = { version = \"0.1.0\" }"));
+    }
 
     #[test]
     fn test_installer_vst3_and_clap_copy_with_fallback() {

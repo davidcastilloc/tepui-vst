@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check-and-test:
+    name: Clippy, Tests & VST3/CLAP Bundle (Windows x64)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run Clippy Linter (-D warnings)
+        run: cargo clippy --workspace --all-targets --no-deps -- -D warnings
+
+      - name: Run Workspace Test Suite
+        run: cargo test --workspace
+
+      - name: Build Release Standalone & VST3/CLAP Bundles
+        run: |
+          cargo build --release -p plugin_vst --bins
+          cargo run --package xtask -- bundle plugin_vst --release
+
+      - name: Upload Build Artifacts (Preview)
+        uses: actions/upload-artifact@v4
+        with:
+          name: tepui-windows-x64-bundles
+          path: |
+            target/bundled/TEPUI.vst3
+            target/bundled/TEPUI.clap
+            target/release/tepui_studio.exe
+          retention-days: 7
