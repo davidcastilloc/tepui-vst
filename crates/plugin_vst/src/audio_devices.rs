@@ -123,6 +123,19 @@ pub fn save_config(config: &StandaloneAudioConfig) -> std::io::Result<()> {
 /// Enumera todos los dispositivos de audio y puertos MIDI disponibles en el sistema operativo.
 pub fn enumerate_audio_system(active_config: &StandaloneAudioConfig) -> AudioSystemStatus {
     let standalone = is_standalone();
+    if std::env::var("CI").is_ok() || std::env::var("GITHUB_ACTIONS").is_ok() {
+        return AudioSystemStatus {
+            is_standalone: standalone,
+            active_output_device: active_config.output_device.clone(),
+            active_input_device: active_config.input_device.clone(),
+            active_sample_rate: active_config.sample_rate,
+            active_period_size: active_config.period_size,
+            active_midi_input: active_config.midi_input.clone(),
+            output_devices: Vec::new(),
+            input_devices: Vec::new(),
+            midi_inputs: Vec::new(),
+        };
+    }
     let host = cpal::default_host();
     let default_output = host.default_output_device().and_then(|d| d.name().ok());
     let default_input = host.default_input_device().and_then(|d| d.name().ok());

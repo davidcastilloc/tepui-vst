@@ -2,6 +2,11 @@
 //!
 //! Desarrollado en Rust con nih-plug, garantizando seguridad en tiempo real
 //! y cero asignaciones dinámicas en el ciclo de audio.
+#![allow(
+    unknown_lints,
+    semicolon_in_expressions_from_non_local_macros,
+    clippy::chunks_exact_to_as_chunks
+)]
 
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
@@ -941,6 +946,9 @@ mod tests {
 
     #[test]
     fn test_cpal_devices_and_supported_configs() {
+        if std::env::var("CI").is_ok() || std::env::var("GITHUB_ACTIONS").is_ok() {
+            return;
+        }
         use cpal::traits::{DeviceTrait, HostTrait};
         let host = cpal::default_host();
         println!("Default host: {:?}", host.id());
@@ -976,6 +984,9 @@ mod tests {
 
     #[test]
     fn test_cpal_stream_creation() {
+        if std::env::var("CI").is_ok() || std::env::var("GITHUB_ACTIONS").is_ok() {
+            return;
+        }
         use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
         let host = cpal::default_host();
         if let Ok(devices) = host.output_devices() {

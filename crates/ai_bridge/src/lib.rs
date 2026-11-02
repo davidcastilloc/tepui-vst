@@ -1,4 +1,5 @@
 //! Puente asíncrono para generación de samples por IA.
+#![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
 
 pub mod fallback_synth;
 pub mod npu_synth;
