@@ -1,7 +1,7 @@
 //! Núcleo de DSP en tiempo real para el Sampler Cromático Polifónico.
 //!
 //! Arquitectura lock-free, zero-allocation y desacoplada del framework de plugins.
-#![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
+#![allow(unknown_lints, clippy::chunks_exact_to_as_chunks, clippy::approx_constant)]
 
 pub mod arp;
 pub mod buffer;
