@@ -1725,3 +1725,96 @@ body {
   border-radius: 4px;
   cursor: pointer;
 }
+
+
+/* -------------------------------------------------------------
+   8. FLUID WINDOW RESIZING, FULL-VIEWPORT SCALING & RESIZE GRIP
+   ------------------------------------------------------------- */
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  padding: 4px;
+  align-items: stretch;
+}
+
+.plugin-container {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  min-height: 0;
+  justify-content: space-between;
+  position: relative;
+}
+
+.eurorack-chassis {
+  flex: 1;
+  min-height: 0;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.eurorack-module {
+  min-height: 0;
+  min-width: 0;
+}
+
+.oled-bezel {
+  flex: 1;
+  min-height: 64px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.oled-bezel canvas {
+  flex: 1;
+  width: 100%;
+  height: 100% !important;
+  min-height: 52px;
+}
+
+.preset-browser-drawer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: calc(66.666% - 2px);
+  max-height: none;
+}
+
+.btn-ui-scale {
+  color: var(--color-cyan);
+  border-color: rgba(0, 235, 255, 0.45);
+  background: rgba(0, 235, 255, 0.08);
+  min-width: 58px;
+  text-align: center;
+}
+.btn-ui-scale:hover {
+  background: rgba(0, 235, 255, 0.2);
+  box-shadow: 0 0 10px rgba(0, 235, 255, 0.35);
+}
+
+.resize-grip {
+  position: fixed;
+  right: 5px;
+  bottom: 3px;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  font-size: 11px;
+  line-height: 1;
+  color: rgba(0, 235, 255, 0.55);
+  cursor: nwse-resize;
+  z-index: 90;
+  padding: 2px;
+  transition: color 0.15s ease, text-shadow 0.15s ease, transform 0.15s ease;
+}
+.resize-grip:hover {
+  color: var(--color-cyan);
+  text-shadow: 0 0 8px var(--color-cyan);
+  transform: scale(1.15);
+}

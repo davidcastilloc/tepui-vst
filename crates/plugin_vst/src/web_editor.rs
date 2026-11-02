@@ -20,6 +20,7 @@ use raw_window_handle_06::{
     Win32WindowHandle, WindowHandle,
 };
 use serde::{Deserialize, Serialize};
+use std::rc::Rc;
 use wry::dpi::{LogicalPosition, LogicalSize};
 use wry::http::{header::CONTENT_TYPE, Request, Response, StatusCode};
 use wry::{PageLoadEvent, Rect, WebView, WebViewBuilder};
@@ -172,7 +173,8 @@ impl HasDisplayHandle for NativeHwnd {
 }
 
 pub struct WebViewEditor {
-    size: (u32, u32),
+    size_w: Arc<AtomicU32>,
+    size_h: Arc<AtomicU32>,
     scale_factor: AtomicU32,
     gui_midi_tx: Sender<GuiMidiEvent>,
     params: Arc<SamplerParams>,
@@ -195,7 +197,8 @@ impl WebViewEditor {
         gui_param_tx: Option<Sender<WebGuiEvent>>,
     ) -> Self {
         Self {
-            size: (width, height),
+            size_w: Arc::new(AtomicU32::new(width)),
+            size_h: Arc::new(AtomicU32::new(height)),
             scale_factor: AtomicU32::new(1.0_f32.to_bits()),
             gui_midi_tx,
             params,
@@ -238,6 +241,29 @@ mod win32_pump {
     pub type TIMERPROC = Option<unsafe extern "system" fn(HWND, UINT, UINT_PTR, DWORD)>;
     pub type HICON = *mut c_void;
 
+    #[repr(C)]
+    #[derive(Default, Clone, Copy)]
+    pub struct RECT {
+        pub left: i32,
+        pub top: i32,
+        pub right: i32,
+        pub bottom: i32,
+    }
+
+    pub struct ActiveResizeState {
+        pub hwnd: HWND,
+        pub track_hwnd: HWND,
+        pub webview: std::rc::Rc<wry::WebView>,
+        pub size_w: std::sync::Arc<std::sync::atomic::AtomicU32>,
+        pub size_h: std::sync::Arc<std::sync::atomic::AtomicU32>,
+        pub last_w: i32,
+        pub last_h: i32,
+    }
+
+    thread_local! {
+        static ACTIVE_WEBVIEW_RESIZE: std::cell::RefCell<Option<ActiveResizeState>> = const { std::cell::RefCell::new(None) };
+    }
+
     extern "system" {
         pub fn SetTimer(
             hwnd: HWND,
@@ -256,6 +282,20 @@ mod win32_pump {
         pub fn TranslateMessage(msg: *const MSG) -> BOOL;
         pub fn DispatchMessageW(msg: *const MSG) -> isize;
         pub fn GetAncestor(hwnd: HWND, ga_flags: UINT) -> HWND;
+        pub fn GetParent(hwnd: HWND) -> HWND;
+        pub fn GetClientRect(hwnd: HWND, lp_rect: *mut RECT) -> BOOL;
+        pub fn GetWindowRect(hwnd: HWND, lp_rect: *mut RECT) -> BOOL;
+        pub fn GetWindowLongW(hwnd: HWND, n_index: i32) -> i32;
+        pub fn SetWindowLongW(hwnd: HWND, n_index: i32, dw_new_long: i32) -> i32;
+        pub fn SetWindowPos(
+            hwnd: HWND,
+            hwnd_insert_after: HWND,
+            x: i32,
+            y: i32,
+            cx: i32,
+            cy: i32,
+            u_flags: UINT,
+        ) -> BOOL;
         pub fn SendMessageW(hwnd: HWND, msg: UINT, wparam: usize, lparam: isize) -> isize;
         pub fn CreateIconFromResourceEx(
             presbits: *const u8,
@@ -274,6 +314,171 @@ mod win32_pump {
     pub const WM_SETICON: UINT = 0x0080;
     pub const ICON_SMALL: usize = 0;
     pub const ICON_BIG: usize = 1;
+    pub const GWL_STYLE: i32 = -16;
+    pub const WS_THICKFRAME: i32 = 0x0004_0000;
+    pub const WS_MAXIMIZEBOX: i32 = 0x0001_0000;
+    pub const WS_MINIMIZEBOX: i32 = 0x0002_0000;
+    pub const WS_CLIPCHILDREN: i32 = 0x0200_0000;
+    pub const SWP_NOSIZE: UINT = 0x0001;
+    pub const SWP_NOMOVE: UINT = 0x0002;
+    pub const SWP_NOZORDER: UINT = 0x0004;
+    pub const SWP_NOACTIVATE: UINT = 0x0010;
+    pub const SWP_FRAMECHANGED: UINT = 0x0020;
+
+    pub unsafe fn setup_resizable_window(hwnd: HWND, initial_w: u32, initial_h: u32) -> HWND {
+        let root_hwnd = GetAncestor(hwnd, GA_ROOT);
+        let parent_hwnd = GetParent(hwnd);
+        let target = if !root_hwnd.is_null() {
+            root_hwnd
+        } else {
+            hwnd
+        };
+
+        let mut root_client = RECT::default();
+        let is_dedicated_window = if !target.is_null()
+            && GetClientRect(target, &mut root_client) != 0
+        {
+            let cw = root_client.right - root_client.left;
+            let ch = root_client.bottom - root_client.top;
+            target == hwnd
+                || parent_hwnd == target
+                || ((cw - initial_w as i32).abs() <= 160 && (ch - initial_h as i32).abs() <= 160)
+        } else {
+            false
+        };
+
+        if is_dedicated_window && !target.is_null() {
+            let style = GetWindowLongW(target, GWL_STYLE);
+            let new_style =
+                style | WS_THICKFRAME | WS_MAXIMIZEBOX | WS_MINIMIZEBOX | WS_CLIPCHILDREN;
+            if new_style != style {
+                SetWindowLongW(target, GWL_STYLE, new_style);
+                SetWindowPos(
+                    target,
+                    std::ptr::null_mut(),
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+                );
+            }
+            target
+        } else {
+            hwnd
+        }
+    }
+
+    pub fn register_active_webview(state: ActiveResizeState) {
+        ACTIVE_WEBVIEW_RESIZE.with(|cell| {
+            *cell.borrow_mut() = Some(state);
+        });
+    }
+
+    pub fn clear_active_webview() {
+        ACTIVE_WEBVIEW_RESIZE.with(|cell| {
+            *cell.borrow_mut() = None;
+        });
+    }
+
+    pub unsafe fn sync_webview_bounds() {
+        ACTIVE_WEBVIEW_RESIZE.with(|cell| {
+            if let Some(state) = cell.borrow_mut().as_mut() {
+                if state.track_hwnd.is_null() {
+                    return;
+                }
+                let mut rect = RECT::default();
+                if GetClientRect(state.track_hwnd, &mut rect) != 0 {
+                    let cw = rect.right - rect.left;
+                    let ch = rect.bottom - rect.top;
+                    if cw >= 320 && ch >= 240 && (cw != state.last_w || ch != state.last_h) {
+                        state.last_w = cw;
+                        state.last_h = ch;
+                        state
+                            .size_w
+                            .store(cw as u32, std::sync::atomic::Ordering::Relaxed);
+                        state
+                            .size_h
+                            .store(ch as u32, std::sync::atomic::Ordering::Relaxed);
+                        if state.hwnd != state.track_hwnd && !state.hwnd.is_null() {
+                            SetWindowPos(
+                                state.hwnd,
+                                std::ptr::null_mut(),
+                                0,
+                                0,
+                                cw,
+                                ch,
+                                SWP_NOZORDER | SWP_NOACTIVATE,
+                            );
+                        }
+                        let _ = state.webview.set_bounds(wry::Rect {
+                            position: wry::dpi::PhysicalPosition::new(0, 0).into(),
+                            size: wry::dpi::PhysicalSize::new(cw as u32, ch as u32).into(),
+                        });
+                    }
+                }
+            }
+        });
+    }
+
+    pub unsafe fn request_window_resize(new_w: u32, new_h: u32) {
+        ACTIVE_WEBVIEW_RESIZE.with(|cell| {
+            if let Some(state) = cell.borrow_mut().as_mut() {
+                let cw = new_w.clamp(640, 3840) as i32;
+                let ch = new_h.clamp(480, 2160) as i32;
+                state.last_w = cw;
+                state.last_h = ch;
+                state
+                    .size_w
+                    .store(cw as u32, std::sync::atomic::Ordering::Relaxed);
+                state
+                    .size_h
+                    .store(ch as u32, std::sync::atomic::Ordering::Relaxed);
+
+                if !state.track_hwnd.is_null() {
+                    let mut win_rect = RECT::default();
+                    let mut client_rect = RECT::default();
+                    let (mut outer_w, mut outer_h) = (cw, ch);
+                    if GetWindowRect(state.track_hwnd, &mut win_rect) != 0
+                        && GetClientRect(state.track_hwnd, &mut client_rect) != 0
+                    {
+                        let cur_client_w = (client_rect.right - client_rect.left).max(1);
+                        let cur_client_h = (client_rect.bottom - client_rect.top).max(1);
+                        let border_w = ((win_rect.right - win_rect.left) - cur_client_w).max(0);
+                        let border_h = ((win_rect.bottom - win_rect.top) - cur_client_h).max(0);
+                        outer_w = cw + border_w;
+                        outer_h = ch + border_h;
+                    }
+                    SetWindowPos(
+                        state.track_hwnd,
+                        std::ptr::null_mut(),
+                        0,
+                        0,
+                        outer_w,
+                        outer_h,
+                        SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+                    );
+                }
+
+                if state.hwnd != state.track_hwnd && !state.hwnd.is_null() {
+                    SetWindowPos(
+                        state.hwnd,
+                        std::ptr::null_mut(),
+                        0,
+                        0,
+                        cw,
+                        ch,
+                        SWP_NOZORDER | SWP_NOACTIVATE,
+                    );
+                }
+
+                let _ = state.webview.set_bounds(wry::Rect {
+                    position: wry::dpi::PhysicalPosition::new(0, 0).into(),
+                    size: wry::dpi::PhysicalSize::new(cw as u32, ch as u32).into(),
+                });
+            }
+        });
+    }
 
     pub unsafe fn apply_window_icon(hwnd: HWND) {
         let png_bytes = include_bytes!("../ui/tepui-icon.png");
@@ -314,6 +519,7 @@ mod win32_pump {
         _id: UINT_PTR,
         _time: DWORD,
     ) {
+        sync_webview_bounds();
         let mut msg: MSG = std::mem::zeroed();
         let mut count = 0;
         // Drenar mensajes dirigidos a hilos y ventanas hijas de WebView2 que baseview omite en GetMessage
@@ -329,7 +535,7 @@ mod win32_pump {
 }
 
 struct WebEditorHandle {
-    _webview: WebView,
+    _webview: Rc<WebView>,
     #[cfg(windows)]
     parent_hwnd: win32_pump::HWND,
 }
@@ -338,6 +544,7 @@ impl Drop for WebEditorHandle {
     fn drop(&mut self) {
         #[cfg(windows)]
         unsafe {
+            win32_pump::clear_active_webview();
             win32_pump::KillTimer(self.parent_hwnd, win32_pump::TIMER_ID);
         }
     }
@@ -1174,11 +1381,29 @@ fn handle_native_ipc_message(
     }
 }
 
+pub fn parse_resize_ipc(body: &str) -> Option<(u32, u32)> {
+    let mut trimmed = body.trim();
+    if ((trimmed.starts_with('"') && trimmed.ends_with('"'))
+        || (trimmed.starts_with('\'') && trimmed.ends_with('\'')))
+        && trimmed.len() >= 2
+    {
+        trimmed = &trimmed[1..trimmed.len() - 1];
+    }
+    let rest = trimmed
+        .strip_prefix("resize:")
+        .or_else(|| trimmed.strip_prefix("resize,"))?;
+    let delimiter = if rest.contains(',') { ',' } else { ':' };
+    let (w_str, h_str) = rest.split_once(delimiter)?;
+    let w = w_str.trim().parse::<u32>().ok()?.clamp(640, 3840);
+    let h = h_str.trim().parse::<u32>().ok()?.clamp(480, 2160);
+    Some((w, h))
+}
+
 impl Editor for WebViewEditor {
     fn spawn(
         &self,
         parent: ParentWindowHandle,
-        _context: Arc<dyn GuiContext>,
+        context: Arc<dyn GuiContext>,
     ) -> Box<dyn Any + Send> {
         match parent {
             ParentWindowHandle::Win32Hwnd(hwnd) => {
@@ -1193,6 +1418,7 @@ impl Editor for WebViewEditor {
                 #[cfg(windows)]
                 unsafe {
                     win32_pump::apply_window_icon(hwnd as win32_pump::HWND);
+                    let _ = win32_pump::setup_resizable_window(hwnd as win32_pump::HWND, w, h);
                     win32_pump::SetTimer(
                         hwnd as win32_pump::HWND,
                         win32_pump::TIMER_ID,
@@ -1207,6 +1433,11 @@ impl Editor for WebViewEditor {
                 let ai_worker = self.ai_worker.clone();
                 let sample_rate = self.sample_rate.clone();
                 let gui_param_tx = self.gui_param_tx.clone();
+                let size_w_ipc = self.size_w.clone();
+                let size_h_ipc = self.size_h.clone();
+                let ctx_ipc = context.clone();
+                let size_w_reg = self.size_w.clone();
+                let size_h_reg = self.size_h.clone();
 
                 let params_proto = self.params.clone();
                 let live_params_proto = self.live_params.clone();
@@ -1435,6 +1666,16 @@ impl Editor for WebViewEditor {
                         }
                     "#)
                     .with_ipc_handler(move |req| {
+                        if let Some((rw, rh)) = parse_resize_ipc(req.body()) {
+                            size_w_ipc.store(rw, Ordering::Relaxed);
+                            size_h_ipc.store(rh, Ordering::Relaxed);
+                            let _ = ctx_ipc.request_resize();
+                            #[cfg(windows)]
+                            unsafe {
+                                win32_pump::request_window_resize(rw, rh);
+                            }
+                            return;
+                        }
                         handle_native_ipc_message(
                             req.body(),
                             &gui_midi_tx,
@@ -1459,6 +1700,19 @@ impl Editor for WebViewEditor {
 
                 match builder.build_as_child(&native_window) {
                     Ok(webview) => {
+                        let webview = Rc::new(webview);
+                        #[cfg(windows)]
+                        win32_pump::register_active_webview(win32_pump::ActiveResizeState {
+                            hwnd: hwnd as win32_pump::HWND,
+                            track_hwnd: unsafe {
+                                win32_pump::setup_resizable_window(hwnd as win32_pump::HWND, w, h)
+                            },
+                            webview: Rc::clone(&webview),
+                            size_w: size_w_reg,
+                            size_h: size_h_reg,
+                            last_w: w as i32,
+                            last_h: h as i32,
+                        });
                         let cur_url = webview.url().unwrap_or_default();
                         println!("[TEPUI WEBVIEW] WebView2 Serverless 0-lag incrustado exitosamente! URL: {}", cur_url);
 
@@ -1510,7 +1764,10 @@ impl Editor for WebViewEditor {
     }
 
     fn size(&self) -> (u32, u32) {
-        self.size
+        (
+            self.size_w.load(Ordering::Relaxed),
+            self.size_h.load(Ordering::Relaxed),
+        )
     }
 
     fn set_scale_factor(&self, factor: f32) -> bool {
@@ -1913,5 +2170,7 @@ mod tests {
             &None,
         );
         assert_eq!(live_params.get_active_keyzones_mask(), 0);
+        assert_eq!(parse_resize_ipc("resize:1127,828"), Some((1127, 828)));
+        assert_eq!(parse_resize_ipc("\"resize:200,100\""), Some((640, 480)));
     }
 }

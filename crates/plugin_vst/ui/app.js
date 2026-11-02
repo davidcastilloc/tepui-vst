@@ -2591,6 +2591,7 @@ function initApp() {
   initKeyboardEvents();
   initAiHub();
   initPresetBrowser();
+  initWindowResizeControls();
   initAudioSettingsModal();
   fetchInitState();
   startTelemetryLoop();
@@ -2609,4 +2610,107 @@ if (document.readyState === 'loading') {
   setTimeout(initApp, 60);
 } else {
   initApp();
+}
+
+
+// -------------------------------------------------------------
+// 10. REDIMENSIONADO NATIVO Y ESCALADO RESPONSIVO (STANDALONE & DAW)
+// -------------------------------------------------------------
+const BASE_UI_W = 980;
+const BASE_UI_H = 720;
+const UI_SCALE_STEPS = [1.0, 1.15, 1.3, 0.9];
+let currentScaleIdx = 0;
+
+function applyResponsiveViewport() {
+  const container = document.querySelector('.plugin-container');
+  const scaleBtn = document.getElementById('btn-ui-scale');
+  if (!container) return;
+
+  const vw = window.innerWidth || BASE_UI_W;
+  const vh = window.innerHeight || BASE_UI_H;
+
+  // Si la ventana es más pequeña que 920x660, aplicamos zoom proporcional automático para evitar recortes
+  if (vw < 920 || vh < 660) {
+    const z = Math.max(0.65, Math.min(vw / 920, vh / 660));
+    container.style.zoom = String(z);
+  } else {
+    container.style.zoom = '1';
+  }
+
+  if (scaleBtn) {
+    const pct = Math.round(((vw / BASE_UI_W) + (vh / BASE_UI_H)) * 50);
+    scaleBtn.textContent = `🔍 ${pct}%`;
+  }
+}
+
+function initWindowResizeControls() {
+  const scaleBtn = document.getElementById('btn-ui-scale');
+  const grip = document.getElementById('resize-grip');
+
+  if (scaleBtn) {
+    scaleBtn.addEventListener('click', () => {
+      currentScaleIdx = (currentScaleIdx + 1) % UI_SCALE_STEPS.length;
+      const scale = UI_SCALE_STEPS[currentScaleIdx];
+      const targetW = Math.round(BASE_UI_W * scale);
+      const targetH = Math.round(BASE_UI_H * scale);
+      scaleBtn.textContent = `🔍 ${Math.round(scale * 100)}%`;
+      sendIpc(`resize:${targetW},${targetH}`);
+    });
+  }
+
+  if (grip) {
+    let draggingResize = false;
+    let startScreenX = 0;
+    let startScreenY = 0;
+    let startW = BASE_UI_W;
+    let startH = BASE_UI_H;
+    let rafPending = false;
+    let pendingW = BASE_UI_W;
+    let pendingH = BASE_UI_H;
+
+    grip.addEventListener('mousedown', (e) => {
+      draggingResize = true;
+      startScreenX = e.screenX;
+      startScreenY = e.screenY;
+      startW = window.innerWidth || BASE_UI_W;
+      startH = window.innerHeight || BASE_UI_H;
+      document.body.style.cursor = 'nwse-resize';
+      e.preventDefault();
+      e.stopPropagation();
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!draggingResize) return;
+      const dx = e.screenX - startScreenX;
+      const dy = e.screenY - startScreenY;
+      pendingW = Math.max(760, Math.min(3840, Math.round(startW + dx)));
+      pendingH = Math.max(540, Math.min(2160, Math.round(startH + dy)));
+      if (!rafPending) {
+        rafPending = true;
+        requestAnimationFrame(() => {
+          rafPending = false;
+          sendIpc(`resize:${pendingW},${pendingH}`);
+        });
+      }
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (draggingResize) {
+        draggingResize = false;
+        document.body.style.cursor = 'default';
+      }
+    });
+
+    grip.addEventListener('dblclick', (e) => {
+      currentScaleIdx = 0;
+      sendIpc(`resize:${BASE_UI_W},${BASE_UI_H}`);
+      e.preventDefault();
+    });
+  }
+
+  window.addEventListener('resize', () => {
+    applyResponsiveViewport();
+  });
+
+  applyResponsiveViewport();
 }

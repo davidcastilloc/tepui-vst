@@ -27,6 +27,7 @@
           <input type="file" id="wav-file-input" accept=".wav,audio/wav" class="hidden-file-input">
           <input type="file" id="patch-file-input" accept=".tepui,.json,application/json" class="hidden-file-input">
         </div>
+        <button id="btn-ui-scale" class="btn-io btn-ui-scale" title="Cambiar escala / tamaño de ventana (90% / 100% / 115% / 130%)" type="button">🔍 100%</button>
         <button id="btn-audio-settings" class="btn-settings" title="Configuración de Audio y MIDI">
           <span class="settings-icon">⚙</span>
           <span class="settings-text">AUDIO &amp; MIDI</span>
@@ -581,6 +582,7 @@
     </div>
   </div>
 
+  <div id="resize-grip" class="resize-grip" title="Arrastra para redimensionar la interfaz (Doble clic: 100%)">◢</div>
   <script src="app.js"></script>
 </body>
 </html>
