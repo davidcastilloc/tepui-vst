@@ -1,0 +1,8 @@
+/target/
+standalone_config.json
+*.pdb
+*.exp
+*.lib
+*.ilk
+.DS_Store
+Thumbs.db

@@ -1,0 +1,1936 @@
+/**
+ * TEPUI // GRAN SABANA SONIC LAB - STUDIO ENGINE CONTROLLER
+ * Ultra-Low Latency Native IPC & Custom Protocol Bridge
+ */
+
+// Trap all unhandled errors and forward to native Rust console
+window.onerror = function(msg, url, line, col, error) {
+  var errStr = '[JS ERROR ' + line + ':' + col + '] ' + msg + (error ? ' ' + error.stack : '');
+  console.error(errStr);
+  if (typeof window.ipc !== 'undefined' && typeof window.ipc.postMessage === 'function') {
+    try { window.ipc.postMessage('log:' + errStr); } catch (_) {}
+  } else if (window.chrome && window.chrome.webview && typeof window.chrome.webview.postMessage === 'function') {
+    try { window.chrome.webview.postMessage('log:' + errStr); } catch (_) {}
+  }
+};
+
+window.onunhandledrejection = function(e) {
+  var errStr = '[JS REJECTION] ' + (e.reason ? (e.reason.stack || e.reason) : e);
+  console.error(errStr);
+  if (typeof window.ipc !== 'undefined' && typeof window.ipc.postMessage === 'function') {
+    try { window.ipc.postMessage('log:' + errStr); } catch (_) {}
+  } else if (window.chrome && window.chrome.webview && typeof window.chrome.webview.postMessage === 'function') {
+    try { window.chrome.webview.postMessage('log:' + errStr); } catch (_) {}
+  }
+};
+
+try {
+  if (typeof window.ipc !== 'undefined' && typeof window.ipc.postMessage === 'function') {
+    window.ipc.postMessage('log:app.js parsed at top-level');
+  } else if (window.chrome && window.chrome.webview && typeof window.chrome.webview.postMessage === 'function') {
+    window.chrome.webview.postMessage('log:app.js parsed at top-level');
+  }
+} catch (_) {}
+
+// -------------------------------------------------------------
+// 1. ENGINE STATE & CONFIGURATION
+// -------------------------------------------------------------
+const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+
+function midiNoteToName(midi) {
+  const m = Math.max(0, Math.min(127, Math.round(Number(midi) || 60)));
+  const name = NOTE_NAMES[m % 12];
+  const oct = Math.floor(m / 12) - 1;
+  return `${name}${oct}`;
+}
+
+const state = {
+  connected: false,
+  usingNativeIpc: false,
+  isGenerating: false,
+  isDraggingKnob: false,
+  isDraggingRegion: false,
+  currentOctave: 3, // C3 (48) a C5 (72)
+  currentVelocity: 0.95,
+  activeVoices: 0,
+  dspActiveVoices: 0,
+  activeNotes: new Set(),
+  vuLevelL: 0.0,
+  vuLevelR: 0.0,
+  dspPeakL: 0.0,
+  dspPeakR: 0.0,
+  playheadNorm: 0.0,
+  lastParamRevision: 0,
+  sampleName: 'Concert Grand Piano',
+
+  params: {
+    attack: 0.01,
+    decay: 0.20,
+    sustain: 0.80,
+    release: 0.30,
+    cutoff: 20000.0,
+    resonance: 0.707,
+    filter_mode: 0,
+    gain: 0.0,
+    space_mix: 0.15,
+    root_note: 60,
+    lfo_rate: 3.5,
+    lfo_depth: 0.0,
+    lfo_target: 0,
+    arp_mode: 0
+  },
+  normalized: {
+    attack: 0.002,
+    decay: 0.05,
+    sustain: 0.8,
+    release: 0.03,
+    cutoff: 1.0,
+    resonance: 0.06,
+    gain: 0.909,
+    space_mix: 0.15,
+    root_note: 0.4724,
+    lfo_rate: 0.32,
+    lfo_depth: 0.0
+  },
+  region: {
+    trim_start_norm: 0.0,
+    trim_end_norm: 1.0,
+    loop_enabled: true,
+    loop_start_norm: 0.20,
+    loop_end_norm: 0.85
+  },
+  oddMetrics: null,
+  waveform: []
+};
+
+// -------------------------------------------------------------
+// 2. ULTRA-LOW LATENCY IPC & WEBSOCKET ENGINE
+// -------------------------------------------------------------
+// 2. ULTRA-LOW LATENCY NATIVE IPC (100% SERVERLESS / IN-MEMORY)
+// -------------------------------------------------------------
+
+// Función universal e infalible para enviar IPC a Rust (cero excepciones)
+function sendIpc(msg) {
+  if (typeof window.ipc !== 'undefined' && window.ipc && typeof window.ipc.postMessage === 'function') {
+    try {
+      window.ipc.postMessage(msg);
+      return true;
+    } catch (_) {}
+  }
+  if (typeof window.chrome !== 'undefined' && window.chrome && window.chrome.webview && typeof window.chrome.webview.postMessage === 'function') {
+    try {
+      window.chrome.webview.postMessage(msg);
+      return true;
+    } catch (_) {}
+  }
+  return false;
+}
+
+// Polyfill de conveniencia
+if (typeof window.ipc === 'undefined') {
+  try {
+    window.ipc = { postMessage: (msg) => sendIpc(msg) };
+  } catch (_) {}
+}
+
+function hasNativeIpc() {
+  return (typeof window.ipc !== 'undefined' && window.ipc && typeof window.ipc.postMessage === 'function')
+      || (typeof window.chrome !== 'undefined' && window.chrome && window.chrome.webview && typeof window.chrome.webview.postMessage === 'function');
+}
+
+function updateEngineBadge() {
+  const badge = document.getElementById('engine-badge');
+  const text = document.getElementById('engine-text');
+  if (!badge || !text) return;
+
+  state.usingNativeIpc = true;
+  badge.className = 'engine-badge engine-ipc';
+  text.innerText = '⚡ NATIVE MEMORY (0-LAG)';
+}
+
+// Envío ultrarrápido con bypass directo al hilo de audio de Rust
+function sendFastNoteOn(midi, velocity) {
+  state.activeNotes.add(midi);
+  updateVoiceCount();
+  sendIpc(`1,${midi},${velocity.toFixed(3)}`);
+}
+
+function sendFastNoteOff(midi) {
+  state.activeNotes.delete(midi);
+  updateVoiceCount();
+  sendIpc(`0,${midi}`);
+}
+
+function sendFastParam(paramId, normVal) {
+  sendIpc(`p,${paramId},${normVal.toFixed(4)}`);
+}
+
+function sendFastFilterMode(mode) {
+  sendIpc(`m,${mode}`);
+}
+
+function sendFastRootNote(note) {
+  const clamped = Math.max(0, Math.min(127, Math.round(note)));
+  state.params.root_note = clamped;
+  state.normalized.root_note = clamped / 127.0;
+  sendIpc(`r,${clamped}`);
+  updateRootNoteDisplay(clamped);
+}
+
+function sendFastRegion() {
+  const r = state.region;
+  const en = r.loop_enabled ? 1 : 0;
+  sendIpc(`l,${en},${r.trim_start_norm.toFixed(4)},${r.trim_end_norm.toFixed(4)},${r.loop_start_norm.toFixed(4)},${r.loop_end_norm.toFixed(4)}`);
+  updateRegionDisplay();
+}
+
+function updateRegionDisplay(regionObj) {
+  if (regionObj) {
+    Object.assign(state.region, regionObj);
+  }
+  const r = state.region;
+  const regEl = document.getElementById('telemetry-region');
+  if (regEl) {
+    const ts = Math.round((r.trim_start_norm || 0) * 100);
+    const te = Math.round((r.trim_end_norm !== undefined ? r.trim_end_norm : 1) * 100);
+    regEl.innerText = `TRIM: ${ts}%-${te}%`;
+  }
+  const loopBtn = document.getElementById('btn-loop-toggle');
+  if (loopBtn) {
+    loopBtn.classList.toggle('active', !!r.loop_enabled);
+    loopBtn.innerText = r.loop_enabled ? '🔁 LOOP ON' : '🔁 LOOP OFF';
+  }
+}
+
+function updateOddMetricsDisplay(odd) {
+  if (!odd) return;
+  state.oddMetrics = odd;
+  const mask = odd.active_keyzones_mask || 0;
+  const zLowBtn = document.getElementById('btn-zone-low');
+  const zMidBtn = document.getElementById('btn-zone-mid');
+  const zHighBtn = document.getElementById('btn-zone-high');
+  if (zLowBtn) zLowBtn.classList.toggle('active', (mask & 1) !== 0);
+  if (zMidBtn) zMidBtn.classList.toggle('active', (mask & 2) !== 0);
+  if (zHighBtn) zHighBtn.classList.toggle('active', (mask & 4) !== 0);
+
+  const zonesVal = document.getElementById('t-zones-val');
+  if (zonesVal) {
+    if (mask === 0) {
+      zonesVal.innerText = 'GLOBAL';
+    } else {
+      const parts = [];
+      if (mask & 1) parts.push('L');
+      if (mask & 2) parts.push('M');
+      if (mask & 4) parts.push('H');
+      zonesVal.innerText = `SPLIT (${parts.join('+')})`;
+    }
+  }
+
+  const recBtn = document.getElementById('btn-live-rec');
+  if (recBtn) {
+    if (odd.is_recording_master) {
+      const secs = ((odd.recorded_master_frames || 0) / 48000).toFixed(1);
+      recBtn.classList.add('active', 'panic-btn');
+      recBtn.innerText = `⏹ STOP (${secs}s)`;
+    } else {
+      recBtn.classList.remove('active', 'panic-btn');
+      recBtn.innerText = '🔴 REC LIVE';
+    }
+  }
+
+  const footerText = document.getElementById('footer-text');
+  if (footerText) {
+    const backend = (odd.synth_backend || 'HYBRID-PHYSICAL').toUpperCase();
+    const durUs = odd.last_generation_duration_us || 0;
+    const genCnt = odd.generation_count || 1;
+    const blk = odd.dsp_blocks_processed || 0;
+    const lim = odd.dsp_limiter_activations || 0;
+    const patches = odd.patch_io_count || 0;
+    const lfoMod = Math.round(Math.abs(odd.lfo_mod_value || 0) * 100);
+    footerText.innerText = `ODD // BACKEND: ${backend} • SYNTH: ${durUs}µs (#${genCnt}) • LFO: ${lfoMod}% • PATCH I/O: ${patches} • DSP BLK: ${blk} • LIM: ${lim}`;
+  }
+}
+
+function updateRootNoteDisplay(rootNote, sampleName) {
+  if (sampleName) state.sampleName = sampleName;
+  const root = Math.max(0, Math.min(127, Math.round(rootNote !== undefined ? rootNote : state.params.root_note)));
+  state.params.root_note = root;
+  const noteLabel = `${midiNoteToName(root)} (${root})`;
+  const rootValEl = document.getElementById('t-root-val');
+  if (rootValEl) rootValEl.innerText = noteLabel;
+  const telemRootEl = document.getElementById('telemetry-root');
+  if (telemRootEl) {
+    const upperName = (state.sampleName || 'CUSTOM SAMPLE').toUpperCase();
+    telemRootEl.innerText = `SAMPLE: ${upperName} • ROOT: ${noteLabel}`;
+  }
+}
+
+let pollTimer = null;
+function pollAiGeneration() {
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(async () => {
+    try {
+      const resp = await fetch('/api/init-state');
+      if (resp.ok) {
+        const data = await resp.json();
+        if (!data.is_generating) {
+          clearInterval(pollTimer);
+          pollTimer = null;
+          state.isGenerating = false;
+          updateGeneratingUI(false);
+          if (data.params) Object.assign(state.params, data.params);
+          if (data.normalized) Object.assign(state.normalized, data.normalized);
+          if (data.param_revision !== undefined) state.lastParamRevision = data.param_revision;
+          if (data.waveform && data.waveform.length > 0) {
+            state.waveform = data.waveform;
+          }
+          if (data.sample_info) updateTelemetry(data.sample_info);
+          if (data.region && !state.isDraggingRegion) updateRegionDisplay(data.region);
+          if (data.odd_metrics) updateOddMetricsDisplay(data.odd_metrics);
+          drawOscilloscope();
+        }
+      }
+    } catch (e) {
+      console.warn('[AI Poll Error]', e);
+    }
+  }, 150);
+}
+
+function sendFastGenerate(prompt) {
+  sendIpc(`gen:${prompt}`);
+  state.isGenerating = true;
+  updateGeneratingUI(true);
+  pollAiGeneration();
+}
+
+function applyInitPayload(msg) {
+  if (!msg) return;
+  if (msg.params) Object.assign(state.params, msg.params);
+  if (msg.normalized) Object.assign(state.normalized, msg.normalized);
+  if (msg.param_revision !== undefined) state.lastParamRevision = msg.param_revision;
+  if (msg.peak_l !== undefined) state.dspPeakL = msg.peak_l;
+  if (msg.peak_r !== undefined) state.dspPeakR = msg.peak_r;
+  if (msg.active_voices !== undefined) state.dspActiveVoices = msg.active_voices;
+  if (typeof msg.playhead_norm === 'number') state.playheadNorm = msg.playhead_norm;
+  if (msg.waveform && msg.waveform.length > 0) {
+    state.waveform = msg.waveform;
+  }
+  if (msg.sample_info) updateTelemetry(msg.sample_info);
+  if (msg.region) updateRegionDisplay(msg.region);
+  if (msg.odd_metrics) updateOddMetricsDisplay(msg.odd_metrics);
+  state.isGenerating = msg.is_generating || false;
+  updateAllKnobsUI();
+  updateFilterModeUI(state.params.filter_mode);
+  updateLfoTargetUI(state.params.lfo_target || 0);
+  updateArpModeUI(state.params.arp_mode || 0);
+  updateVoiceCount();
+  drawOscilloscope();
+  state.connected = true;
+  updateEngineBadge();
+}
+
+async function fetchInitState() {
+  if (window.__TEPUI_INIT_STATE__) {
+    applyInitPayload(window.__TEPUI_INIT_STATE__);
+    return;
+  }
+  try {
+    const resp = await fetch('/api/init-state');
+    if (resp.ok) {
+      const msg = await resp.json();
+      applyInitPayload(msg);
+    }
+  } catch (e) {
+    console.warn('[TEPUI INIT STATE FETCH ERROR]', e);
+  }
+}
+
+let telemetryTimer = null;
+function startTelemetryLoop() {
+  if (telemetryTimer) clearInterval(telemetryTimer);
+  telemetryTimer = setInterval(async () => {
+    try {
+      const resp = await fetch('/api/telemetry');
+      if (!resp.ok) return;
+      const data = await resp.json();
+      if (typeof data.peak_l === 'number') state.dspPeakL = data.peak_l;
+      if (typeof data.peak_r === 'number') state.dspPeakR = data.peak_r;
+      if (typeof data.playhead_norm === 'number') state.playheadNorm = data.playhead_norm;
+      if (typeof data.active_voices === 'number') {
+        state.dspActiveVoices = data.active_voices;
+        updateVoiceCount();
+      }
+      if (data.odd_metrics) {
+        updateOddMetricsDisplay(data.odd_metrics);
+      }
+      if (data.param_revision !== undefined && data.param_revision !== state.lastParamRevision) {
+        state.lastParamRevision = data.param_revision;
+        if (!state.isDraggingKnob && !state.isDraggingRegion) {
+          if (data.params) Object.assign(state.params, data.params);
+          if (data.normalized) Object.assign(state.normalized, data.normalized);
+          updateAllKnobsUI();
+          updateFilterModeUI(state.params.filter_mode);
+          updateLfoTargetUI(state.params.lfo_target || 0);
+          updateArpModeUI(state.params.arp_mode || 0);
+          if (data.sample_info) updateTelemetry(data.sample_info);
+          if (data.region) updateRegionDisplay(data.region);
+        }
+      }
+    } catch (_) {}
+  }, 80);
+}
+
+// -------------------------------------------------------------
+// 3. VOICE COUNTER & HARDWARE LED MONITOR
+// -------------------------------------------------------------
+function updateVoiceCount() {
+  const count = Math.min(16, Math.max(state.activeNotes.size, state.dspActiveVoices || 0));
+  state.activeVoices = count;
+
+  const countEl = document.getElementById('voice-count');
+  if (countEl) countEl.innerText = count;
+
+  const leds = document.querySelectorAll('#voice-leds i');
+  leds.forEach((led, idx) => {
+    led.classList.toggle('on', idx < count);
+  });
+}
+
+// -------------------------------------------------------------
+// 4. ROTARY KNOBS WIDGET (SVG ARC + PRECISION MODIFIERS)
+// -------------------------------------------------------------
+const KNOB_CONFIG = {
+  radius: 18,
+  circumference: 2 * Math.PI * 18, // ~ 113.1
+  arcAngle: 270,
+  startAngle: 135
+};
+
+function initKnobs() {
+  document.querySelectorAll('.knob-container').forEach((container) => {
+    const paramId = container.dataset.param;
+    const widget = container.querySelector('.knob-widget');
+    const accentClass = getAccentClass(paramId);
+
+    widget.innerHTML = `
+      <svg class="knob-svg" viewBox="0 0 46 46">
+        <circle class="knob-bg-track" cx="23" cy="23" r="18" fill="none" stroke="#161e2b" stroke-width="3.2" stroke-dasharray="84.8 113.1" stroke-dashoffset="0" stroke-linecap="round" />
+        <circle class="knob-active-track ${accentClass}-track" cx="23" cy="23" r="18" fill="none" stroke="currentColor" stroke-width="3.2" stroke-dasharray="0 113.1" stroke-dashoffset="0" stroke-linecap="round" />
+      </svg>
+      <div class="knob-cap ${accentClass}">
+        <div class="knob-notch"></div>
+      </div>
+    `;
+
+    // Interacción Drag vertical de alta precisión
+    let isDragging = false;
+    let startY = 0;
+    let startNorm = 0;
+
+    container.addEventListener('mousedown', (e) => {
+      isDragging = true;
+      state.isDraggingKnob = true;
+      startY = e.clientY;
+      startNorm = state.normalized[paramId] || 0.0;
+      document.body.style.cursor = 'ns-resize';
+      e.preventDefault();
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
+      const deltaY = startY - e.clientY;
+      // Shift para precisión milimétrica (10x más fino)
+      const step = e.shiftKey ? 0.001 : 0.005;
+      const newNorm = Math.max(0.0, Math.min(1.0, startNorm + deltaY * step));
+      
+      state.normalized[paramId] = newNorm;
+      updateKnobUI(paramId, newNorm);
+      sendFastParam(paramId, newNorm);
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (isDragging) {
+        isDragging = false;
+        state.isDraggingKnob = false;
+        document.body.style.cursor = 'default';
+      }
+    });
+
+    // Rueda del ratón
+    container.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const current = state.normalized[paramId] || 0.0;
+      const step = (e.deltaY < 0 ? 1 : -1) * (e.shiftKey ? 0.005 : 0.025);
+      const newNorm = Math.max(0.0, Math.min(1.0, current + step));
+      
+      state.normalized[paramId] = newNorm;
+      updateKnobUI(paramId, newNorm);
+      sendFastParam(paramId, newNorm);
+    }, { passive: false });
+
+    // Doble clic: reiniciar a defecto de fábrica
+    container.addEventListener('dblclick', () => {
+      let defNorm = 0.5;
+      if (paramId === 'cutoff') defNorm = 1.0;
+      if (paramId === 'resonance') defNorm = 0.061;
+      if (paramId === 'gain') defNorm = 0.909;
+      if (paramId === 'space_mix') defNorm = 0.15;
+      if (paramId === 'lfo_rate') defNorm = 0.32;
+      if (paramId === 'lfo_depth') defNorm = 0.0;
+      if (paramId === 'attack') defNorm = 0.002;
+      if (paramId === 'decay') defNorm = 0.05;
+      if (paramId === 'sustain') defNorm = 0.8;
+      if (paramId === 'release') defNorm = 0.03;
+      
+      state.normalized[paramId] = defNorm;
+      updateKnobUI(paramId, defNorm);
+      sendFastParam(paramId, defNorm);
+    });
+  });
+}
+
+function getAccentClass(id) {
+  if (['attack', 'decay', 'sustain', 'release'].includes(id)) return 'cyan-accent';
+  if (['cutoff', 'resonance'].includes(id)) return 'amber-accent';
+  return 'green-accent';
+}
+
+function getAccentColor(id) {
+  if (['attack', 'decay', 'sustain', 'release'].includes(id)) return '#00ebff';
+  if (['cutoff', 'resonance'].includes(id)) return '#ffaa00';
+  return '#10b981';
+}
+
+function updateKnobUI(paramId, norm, displayVal) {
+  const container = document.querySelector(`.knob-container[data-param="${paramId}"]`);
+  if (!container) return;
+
+  const cap = container.querySelector('.knob-cap');
+  const activeTrack = container.querySelector('.knob-active-track');
+  const valLabel = container.querySelector('.knob-val');
+
+  // Rotar el cap de aluminio (-135deg a +135deg)
+  const angle = -135 + norm * 270;
+  if (cap) cap.style.transform = `rotate(${angle}deg)`;
+
+  // Actualizar arco SVG (longitud total del arco de 270° es ~84.82)
+  const maxArc = (270 / 360) * KNOB_CONFIG.circumference;
+  const currentArc = norm * maxArc;
+  if (activeTrack) {
+    activeTrack.setAttribute('stroke-dasharray', `${currentArc} ${KNOB_CONFIG.circumference}`);
+    const color = getAccentColor(paramId);
+    activeTrack.setAttribute('stroke', color);
+  }
+
+  // Actualizar texto de valor
+  if (valLabel) {
+    if (displayVal !== undefined) {
+      valLabel.innerText = displayVal;
+    } else {
+      valLabel.innerText = formatKnobValue(paramId, norm);
+    }
+  }
+}
+
+function formatKnobValue(id, norm) {
+  if (id === 'attack' || id === 'decay') {
+    const val = 0.001 * Math.pow(5.0 / 0.001, norm);
+    return val >= 1.0 ? `${val.toFixed(2)} s` : `${(val * 1000).toFixed(0)} ms`;
+  }
+  if (id === 'sustain') {
+    return `${(norm * 100).toFixed(0)} %`;
+  }
+  if (id === 'release') {
+    const val = 0.001 * Math.pow(10.0 / 0.001, norm);
+    return val >= 1.0 ? `${val.toFixed(2)} s` : `${(val * 1000).toFixed(0)} ms`;
+  }
+  if (id === 'cutoff') {
+    const val = 20.0 * Math.pow(20000.0 / 20.0, norm);
+    return val >= 1000 ? `${(val / 1000).toFixed(1)} kHz` : `${Math.round(val)} Hz`;
+  }
+  if (id === 'resonance') {
+    return (0.1 + norm * (10.0 - 0.1)).toFixed(2);
+  }
+  if (id === 'gain') {
+    const db = -60.0 + norm * 66.0;
+    return `${db.toFixed(1)} dB`;
+  }
+  if (id === 'space_mix' || id === 'lfo_depth') {
+    return `${Math.round(norm * 100)} %`;
+  }
+  if (id === 'lfo_rate') {
+    const val = 0.1 * Math.pow(20.0 / 0.1, norm);
+    return `${val.toFixed(1)} Hz`;
+  }
+  return norm.toFixed(2);
+}
+
+const LFO_TARGET_LABELS = ['LFO → CUTOFF', 'LFO → VIBRATO', 'LFO → TREMOLO', 'LFO → OFF'];
+
+function updateLfoTargetUI(targetInt) {
+  const t = Math.max(0, Math.min(3, Math.round(Number(targetInt) || 0)));
+  state.params.lfo_target = t;
+  const btn = document.getElementById('btn-lfo-target');
+  if (btn) {
+    btn.innerText = LFO_TARGET_LABELS[t] || 'LFO → CUTOFF';
+  }
+}
+
+function updateAllKnobsUI() {
+  for (const [id, norm] of Object.entries(state.normalized)) {
+    updateKnobUI(id, norm);
+  }
+}
+
+// -------------------------------------------------------------
+// 5. FILTER MODE SWITCHER
+// -------------------------------------------------------------
+function initFilterModes() {
+  document.querySelectorAll('.mode-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const mode = parseInt(btn.dataset.mode, 10);
+      updateFilterModeUI(mode);
+      sendFastFilterMode(mode);
+    });
+  });
+}
+
+function updateFilterModeUI(mode) {
+  document.querySelectorAll('.mode-btn').forEach((btn) => {
+    const btnMode = parseInt(btn.dataset.mode, 10);
+    btn.classList.toggle('active', btnMode === mode);
+  });
+}
+
+// -------------------------------------------------------------
+// 6. REAL-TIME OLED OSCILLOSCOPE, INTERACTIVE TRIM/LOOP & STEREO VU METERS
+// -------------------------------------------------------------
+let animFrameId = null;
+let animPhase = 0;
+let activeRegionMarker = null; // 'trim_start' | 'trim_end' | 'loop_start' | 'loop_end'
+
+function initOscilloscope() {
+  if (state.waveform.length === 0) {
+    state.waveform = [];
+    for (let i = 0; i < 360; i++) {
+      const t = i / 360;
+      const val = Math.sin(t * Math.PI * 6) * Math.exp(-t * 2.2) * 0.72;
+      state.waveform.push(val);
+    }
+  }
+
+  const loopBtn = document.getElementById('btn-loop-toggle');
+  if (loopBtn) {
+    loopBtn.addEventListener('click', () => {
+      state.region.loop_enabled = !state.region.loop_enabled;
+      sendFastRegion();
+    });
+  }
+
+  const canvas = document.getElementById('oscilloscope');
+  if (canvas) {
+    const pickMarker = (normX, normY) => {
+      const r = state.region;
+      const candidates = [
+        { id: 'trim_start', pos: r.trim_start_norm, preferTop: true },
+        { id: 'trim_end', pos: r.trim_end_norm, preferTop: true },
+      ];
+      if (r.loop_enabled) {
+        candidates.push({ id: 'loop_start', pos: r.loop_start_norm, preferTop: false });
+        candidates.push({ id: 'loop_end', pos: r.loop_end_norm, preferTop: false });
+      }
+      let best = null;
+      let bestScore = 0.055;
+      for (const c of candidates) {
+        let dist = Math.abs(normX - c.pos);
+        if ((c.preferTop && normY < 0.5) || (!c.preferTop && normY >= 0.5)) {
+          dist *= 0.65;
+        }
+        if (dist < bestScore) {
+          bestScore = dist;
+          best = c.id;
+        }
+      }
+      return best;
+    };
+
+    canvas.addEventListener('mousedown', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      const normX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const normY = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+      const picked = pickMarker(normX, normY);
+      if (picked) {
+        activeRegionMarker = picked;
+        state.isDraggingRegion = true;
+        document.body.style.cursor = 'ew-resize';
+        e.preventDefault();
+      }
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      const normX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const normY = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+
+      if (!activeRegionMarker) {
+        if (e.target === canvas) {
+          const hover = pickMarker(normX, normY);
+          canvas.style.cursor = hover ? 'ew-resize' : 'crosshair';
+        }
+        return;
+      }
+
+      const r = state.region;
+      if (activeRegionMarker === 'trim_start') {
+        r.trim_start_norm = Math.max(0.0, Math.min(r.trim_end_norm - 0.02, normX));
+        if (r.loop_start_norm < r.trim_start_norm) r.loop_start_norm = r.trim_start_norm;
+      } else if (activeRegionMarker === 'trim_end') {
+        r.trim_end_norm = Math.min(1.0, Math.max(r.trim_start_norm + 0.02, normX));
+        if (r.loop_end_norm > r.trim_end_norm) r.loop_end_norm = r.trim_end_norm;
+      } else if (activeRegionMarker === 'loop_start') {
+        r.loop_start_norm = Math.max(r.trim_start_norm, Math.min(r.loop_end_norm - 0.02, normX));
+      } else if (activeRegionMarker === 'loop_end') {
+        r.loop_end_norm = Math.min(r.trim_end_norm, Math.max(r.loop_start_norm + 0.02, normX));
+      }
+      sendFastRegion();
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (activeRegionMarker) {
+        activeRegionMarker = null;
+        state.isDraggingRegion = false;
+        document.body.style.cursor = 'default';
+      }
+    });
+
+    canvas.addEventListener('dblclick', () => {
+      state.region.trim_start_norm = 0.0;
+      state.region.trim_end_norm = 1.0;
+      state.region.loop_start_norm = 0.20;
+      state.region.loop_end_norm = 0.85;
+      sendFastRegion();
+    });
+  }
+
+  updateRegionDisplay();
+  startVisualizationLoop();
+}
+
+function startVisualizationLoop() {
+  if (animFrameId) cancelAnimationFrame(animFrameId);
+
+  const render = () => {
+    drawOscilloscope();
+    updateVuMeters();
+    animPhase += 0.05;
+    animFrameId = requestAnimationFrame(render);
+  };
+
+  animFrameId = requestAnimationFrame(render);
+}
+
+function drawOscilloscope() {
+  const canvas = document.getElementById('oscilloscope');
+  if (!canvas) return;
+
+  // HiDPI auto-scaler para máxima nitidez OLED en pantallas 4K y escaladas
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const targetW = Math.round(rect.width * dpr);
+  const targetH = Math.round(rect.height * dpr);
+  if (targetW > 0 && targetH > 0 && (canvas.width !== targetW || canvas.height !== targetH)) {
+    canvas.width = targetW;
+    canvas.height = targetH;
+  }
+
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width;
+  const h = canvas.height;
+
+  // Fondo OLED ultra negro
+  ctx.fillStyle = '#040609';
+  ctx.fillRect(0, 0, w, h);
+
+  const centerY = h / 2;
+
+  // Rejilla técnica de osciloscopio
+  ctx.strokeStyle = '#0e141f';
+  ctx.lineWidth = 1;
+
+  // Línea cero central
+  ctx.beginPath();
+  ctx.moveTo(0, centerY);
+  ctx.lineTo(w, centerY);
+  ctx.strokeStyle = '#182232';
+  ctx.stroke();
+
+  // Líneas de división verticales (12 divisiones)
+  ctx.strokeStyle = '#0c121b';
+  for (let i = 1; i < 12; i++) {
+    const x = (w / 12) * i;
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, h);
+    ctx.stroke();
+  }
+
+  // Trazar forma de onda
+  const pts = state.waveform;
+  if (!pts || pts.length < 2) return;
+
+  const isPlaying = state.activeNotes.size > 0 || (state.dspActiveVoices || 0) > 0;
+  const wobble = isPlaying ? Math.sin(animPhase) * 0.08 : 0;
+
+  // Relleno gradiente con glow cian
+  const grad = ctx.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, 'rgba(0, 235, 255, 0.22)');
+  grad.addColorStop(0.5, 'rgba(0, 235, 255, 0.04)');
+  grad.addColorStop(1, 'rgba(0, 235, 255, 0.22)');
+
+  ctx.beginPath();
+  ctx.moveTo(0, centerY);
+  for (let i = 0; i < pts.length; i++) {
+    const x = (i / (pts.length - 1)) * w;
+    const sampleVal = pts[i] * (1.0 + wobble);
+    const y = centerY - sampleVal * (centerY - 10);
+    ctx.lineTo(x, y);
+  }
+  ctx.lineTo(w, centerY);
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Línea de señal de fósforo cian brillante con resplandor
+  ctx.beginPath();
+  for (let i = 0; i < pts.length; i++) {
+    const x = (i / (pts.length - 1)) * w;
+    const sampleVal = pts[i] * (1.0 + wobble);
+    const y = centerY - sampleVal * (centerY - 10);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.strokeStyle = isPlaying ? '#e0ffff' : '#00ebff';
+  ctx.lineWidth = isPlaying ? 2.0 : 1.6;
+  ctx.shadowColor = '#00ebff';
+  ctx.shadowBlur = isPlaying ? 10 : 5;
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // --- OVERLAY INTERACTIVO DE TRIM (START / END) Y LOOP (L1 / L2) ---
+  const r = state.region || { trim_start_norm: 0, trim_end_norm: 1, loop_enabled: true, loop_start_norm: 0.2, loop_end_norm: 0.85 };
+  const trimStartX = Math.round(r.trim_start_norm * w);
+  const trimEndX = Math.round(r.trim_end_norm * w);
+  const loopStartX = Math.round(r.loop_start_norm * w);
+  const loopEndX = Math.round(r.loop_end_norm * w);
+
+  // Sombreado de zonas recortadas (fuera de Trim Start .. Trim End)
+  ctx.fillStyle = 'rgba(2, 4, 8, 0.72)';
+  if (trimStartX > 0) {
+    ctx.fillRect(0, 0, trimStartX, h);
+  }
+  if (trimEndX < w) {
+    ctx.fillRect(trimEndX, 0, w - trimEndX, h);
+  }
+
+  // Región de Loop Sostenido (cuando loop_enabled = true)
+  if (r.loop_enabled && loopEndX > loopStartX) {
+    ctx.fillStyle = 'rgba(255, 170, 0, 0.11)';
+    ctx.fillRect(loopStartX, 0, loopEndX - loopStartX, h);
+
+    ctx.save();
+    ctx.strokeStyle = '#ffaa00';
+    ctx.lineWidth = Math.max(1.2, 1.2 * dpr);
+    ctx.setLineDash([4 * dpr, 3 * dpr]);
+    ctx.beginPath();
+    ctx.moveTo(loopStartX, 0);
+    ctx.lineTo(loopStartX, h);
+    ctx.moveTo(loopEndX, 0);
+    ctx.lineTo(loopEndX, h);
+    ctx.stroke();
+    ctx.restore();
+
+    // Banderines inferiores L1 / L2
+    ctx.fillStyle = '#ffaa00';
+    const flagW = 14 * dpr;
+    const flagH = 11 * dpr;
+    ctx.fillRect(loopStartX, h - flagH, flagW, flagH);
+    ctx.fillRect(Math.max(0, loopEndX - flagW), h - flagH, flagW, flagH);
+    ctx.fillStyle = '#05070b';
+    ctx.font = `bold ${Math.round(7.5 * dpr)}px monospace`;
+    ctx.fillText('L1', loopStartX + 2 * dpr, h - 2.5 * dpr);
+    ctx.fillText('L2', Math.max(0, loopEndX - flagW) + 2 * dpr, h - 2.5 * dpr);
+  }
+
+  // Marcadores verticales de Trim Start (S) y Trim End (E)
+  ctx.strokeStyle = '#10b981';
+  ctx.lineWidth = Math.max(1.5, 1.5 * dpr);
+  ctx.beginPath();
+  ctx.moveTo(trimStartX, 0);
+  ctx.lineTo(trimStartX, h);
+  ctx.moveTo(trimEndX, 0);
+  ctx.lineTo(trimEndX, h);
+  ctx.stroke();
+
+  const tFlagW = 11 * dpr;
+  const tFlagH = 11 * dpr;
+  ctx.fillStyle = '#10b981';
+  ctx.fillRect(trimStartX, 0, tFlagW, tFlagH);
+  ctx.fillRect(Math.max(0, trimEndX - tFlagW), 0, tFlagW, tFlagH);
+  ctx.fillStyle = '#04120c';
+  ctx.font = `bold ${Math.round(7.5 * dpr)}px monospace`;
+  ctx.fillText('S', trimStartX + 2.5 * dpr, 8.5 * dpr);
+  ctx.fillText('E', Math.max(0, trimEndX - tFlagW) + 2.5 * dpr, 8.5 * dpr);
+
+  // --- CURVA DE MODULACIÓN LFO EN TIEMPO REAL ---
+  const lfoDepth = state.params.lfo_depth || 0;
+  const lfoTarget = state.params.lfo_target !== undefined ? state.params.lfo_target : 0;
+  if (lfoDepth > 0.005 && lfoTarget !== 3) {
+    const lfoRate = state.params.lfo_rate || 3.5;
+    const cycles = Math.max(1.0, Math.min(12.0, lfoRate * 0.6));
+    const lfoLive = (state.oddMetrics && typeof state.oddMetrics.lfo_mod_value === 'number')
+      ? state.oddMetrics.lfo_mod_value
+      : Math.sin(animPhase) * lfoDepth;
+
+    ctx.save();
+    ctx.beginPath();
+    for (let x = 0; x <= w; x += Math.max(2, Math.round(2 * dpr))) {
+      const normX = x / w;
+      const waveY = centerY - Math.sin(normX * Math.PI * 2 * cycles + animPhase) * lfoDepth * (centerY * 0.65);
+      if (x === 0) ctx.moveTo(x, waveY);
+      else ctx.lineTo(x, waveY);
+    }
+    ctx.strokeStyle = 'rgba(16, 185, 129, 0.55)';
+    ctx.lineWidth = Math.max(1.2, 1.2 * dpr);
+    ctx.stroke();
+
+    // Indicador vertical lateral de modulación LFO instantánea
+    const modY = centerY - lfoLive * (centerY * 0.65);
+    ctx.fillStyle = '#10b981';
+    ctx.beginPath();
+    ctx.arc(w - 6 * dpr, modY, 3 * dpr, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // --- CABEZAL DE REPRODUCCIÓN EN VIVO (PLAYHEAD CURSOR) ---
+  const phNorm = state.playheadNorm || 0;
+  if (isPlaying || phNorm > 0.001) {
+    const effPlayhead = phNorm > 0.001
+      ? phNorm
+      : (r.trim_start_norm + ((animPhase * 0.08) % Math.max(0.05, r.trim_end_norm - r.trim_start_norm)));
+    const phX = Math.round(Math.max(0, Math.min(1, effPlayhead)) * w);
+
+    ctx.save();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = Math.max(1.6, 1.6 * dpr);
+    ctx.shadowColor = '#00ebff';
+    ctx.shadowBlur = 8 * dpr;
+    ctx.beginPath();
+    ctx.moveTo(phX, 0);
+    ctx.lineTo(phX, h);
+    ctx.stroke();
+
+    // Triángulo superior del Playhead
+    ctx.fillStyle = '#00ebff';
+    ctx.beginPath();
+    ctx.moveTo(phX - 4 * dpr, 0);
+    ctx.lineTo(phX + 4 * dpr, 0);
+    ctx.lineTo(phX, 6 * dpr);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function updateVuMeters() {
+  const hasUiNotes = state.activeNotes.size > 0;
+  const uiTargetL = hasUiNotes ? Math.min(0.95, 0.35 + state.activeNotes.size * 0.15 + (Math.sin(animPhase * 2) * 0.08)) : 0.0;
+  const uiTargetR = hasUiNotes ? Math.min(0.95, 0.33 + state.activeNotes.size * 0.15 + (Math.cos(animPhase * 2) * 0.08)) : 0.0;
+
+  const targetL = Math.min(1.0, Math.max(state.dspPeakL || 0.0, uiTargetL));
+  const targetR = Math.min(1.0, Math.max(state.dspPeakR || 0.0, uiTargetR));
+
+  // Decaimiento entre lecturas de telemetría DSP
+  state.dspPeakL = Math.max(0, (state.dspPeakL || 0) * 0.92);
+  state.dspPeakR = Math.max(0, (state.dspPeakR || 0) * 0.92);
+
+  // Ataque instantáneo, caída exponencial suave
+  if (targetL > state.vuLevelL) state.vuLevelL = targetL;
+  else state.vuLevelL = Math.max(0, state.vuLevelL - 0.04);
+
+  if (targetR > state.vuLevelR) state.vuLevelR = targetR;
+  else state.vuLevelR = Math.max(0, state.vuLevelR - 0.04);
+
+  const fillL = document.getElementById('meter-fill-l');
+  const fillR = document.getElementById('meter-fill-r');
+
+  if (fillL) fillL.style.height = `${(state.vuLevelL * 100).toFixed(0)}%`;
+  if (fillR) fillR.style.height = `${(state.vuLevelR * 100).toFixed(0)}%`;
+}
+
+function updateTelemetry(info) {
+  if (!info) return;
+  if (info.name) {
+    state.sampleName = info.name;
+  }
+  if (info.root_note !== undefined) {
+    updateRootNoteDisplay(info.root_note, info.name);
+  } else if (info.name) {
+    updateRootNoteDisplay(state.params.root_note, info.name);
+  }
+  if (info.duration_secs !== undefined) {
+    const durEl = document.getElementById('telemetry-dur');
+    if (durEl) durEl.innerText = `DUR: ${info.duration_secs.toFixed(2)}s`;
+  }
+  if (info.num_samples !== undefined) {
+    const sampEl = document.getElementById('telemetry-samples');
+    if (sampEl) sampEl.innerText = `SAMPLES: ${info.num_samples.toLocaleString()}`;
+  }
+  if (info.sample_rate !== undefined) {
+    const srEl = document.getElementById('telemetry-sr');
+    if (srEl) srEl.innerText = `${(info.sample_rate / 1000).toFixed(1)} kHz STEREO`;
+  }
+}
+
+// -------------------------------------------------------------
+// 7. RESPONSIVE PIANO KEYBOARD & QWERTY MUSICAL TYPING
+// -------------------------------------------------------------
+// Definición semitonal relativa al C base de la octava actual
+const WHITE_KEY_DEFS = [
+  { semi: 0,  note: 'C',  shortcut: 'A' },
+  { semi: 2,  note: 'D',  shortcut: 'S' },
+  { semi: 4,  note: 'E',  shortcut: 'D' },
+  { semi: 5,  note: 'F',  shortcut: 'F' },
+  { semi: 7,  note: 'G',  shortcut: 'G' },
+  { semi: 9,  note: 'A',  shortcut: 'H' },
+  { semi: 11, note: 'B',  shortcut: 'J' },
+  { semi: 12, note: 'C',  shortcut: 'K' },
+  { semi: 14, note: 'D',  shortcut: 'L' },
+  { semi: 16, note: 'E',  shortcut: ';' },
+  { semi: 17, note: 'F',  shortcut: "'" },
+  { semi: 19, note: 'G',  shortcut: '' },
+  { semi: 21, note: 'A',  shortcut: '' },
+  { semi: 23, note: 'B',  shortcut: '' },
+  { semi: 24, note: 'C',  shortcut: '' }
+];
+
+const BLACK_KEY_DEFS = [
+  { semi: 1,  afterIndex: 0,  note: 'C#', shortcut: 'W' },
+  { semi: 3,  afterIndex: 1,  note: 'D#', shortcut: 'E' },
+  { semi: 6,  afterIndex: 3,  note: 'F#', shortcut: 'T' },
+  { semi: 8,  afterIndex: 4,  note: 'G#', shortcut: 'Y' },
+  { semi: 10, afterIndex: 5,  note: 'A#', shortcut: 'U' },
+  { semi: 13, afterIndex: 7,  note: 'C#', shortcut: 'O' },
+  { semi: 15, afterIndex: 8,  note: 'D#', shortcut: 'P' },
+  { semi: 18, afterIndex: 10, note: 'F#', shortcut: '[' },
+  { semi: 20, afterIndex: 11, note: 'G#', shortcut: ']' },
+  { semi: 22, afterIndex: 12, note: 'A#', shortcut: '' }
+];
+
+// Mapa de teclas físicas del teclado (inmune a CapsLock / Shift / Layouts internacionales)
+const CODE_TO_SEMI = {
+  // Octava 1 (relativa al C base de la octava seleccionada)
+  'KeyA': 0,        // C
+  'KeyW': 1,        // C#
+  'KeyS': 2,        // D
+  'KeyE': 3,        // D#
+  'KeyD': 4,        // E
+  'KeyF': 5,        // F
+  'KeyT': 6,        // F#
+  'KeyG': 7,        // G
+  'KeyY': 8,        // G#
+  'KeyH': 9,        // A
+  'KeyU': 10,       // A#
+  'KeyJ': 11,       // B
+  // Octava 2
+  'KeyK': 12,       // C
+  'KeyO': 13,       // C#
+  'KeyL': 14,       // D
+  'KeyP': 15,       // D#
+  'Semicolon': 16,  // E
+  'Quote': 17,      // F
+  'BracketLeft': 18,// F#
+  'BracketRight': 20// G#
+};
+
+// Fallback por nombre de tecla (soporta teclados en español y variantes)
+const KEY_FALLBACK_MAP = {
+  'a': 0, 'w': 1, 's': 2, 'e': 3, 'd': 4, 'f': 5,
+  't': 6, 'g': 7, 'y': 8, 'h': 9, 'u': 10, 'j': 11,
+  'k': 12, 'o': 13, 'l': 14, 'p': 15, ';': 16, "'": 17,
+  '[': 18, ']': 20, 'ñ': 16
+};
+
+let activeMouseNote = null;
+let isPointerDown = false;
+const activePhysicalKeys = new Map(); // trackingId (e.code o e.key) -> midiNote
+
+function getBaseMidiNote() {
+  return (state.currentOctave + 1) * 12; // Octava 3 -> 48 (C3)
+}
+
+function initKeyboard() {
+  const piano = document.getElementById('piano-keyboard');
+  if (!piano) return;
+  piano.innerHTML = '';
+
+  const baseNote = getBaseMidiNote();
+  const totalWhite = WHITE_KEY_DEFS.length;
+
+  // 1. Teclas blancas
+  WHITE_KEY_DEFS.forEach((k) => {
+    const midi = baseNote + k.semi;
+    const octOffset = Math.floor(k.semi / 12);
+    const octNumber = state.currentOctave + octOffset;
+    const label = `${k.note}${octNumber}`;
+
+    const keyEl = document.createElement('div');
+    keyEl.className = 'piano-key white-key';
+    keyEl.dataset.midi = midi;
+
+    keyEl.innerHTML = `
+      <span class="key-note">${label}</span>
+      ${k.shortcut ? `<span class="key-shortcut">[${k.shortcut}]</span>` : ''}
+    `;
+
+    piano.appendChild(keyEl);
+  });
+
+  // 2. Teclas negras con posicionamiento proporcional
+  requestAnimationFrame(() => {
+    const pianoRect = piano.getBoundingClientRect();
+    const whiteW = pianoRect.width / totalWhite;
+
+    BLACK_KEY_DEFS.forEach((bk) => {
+      const midi = baseNote + bk.semi;
+      const octOffset = Math.floor(bk.semi / 12);
+      const octNumber = state.currentOctave + octOffset;
+      const label = `${bk.note}${octNumber}`;
+
+      const blackEl = document.createElement('div');
+      blackEl.className = 'piano-key black-key';
+      blackEl.dataset.midi = midi;
+
+      const leftPos = (bk.afterIndex + 1) * whiteW - (whiteW * 0.58) / 2;
+      blackEl.style.left = `${leftPos}px`;
+      blackEl.style.width = `${whiteW * 0.58}px`;
+
+      blackEl.innerHTML = `
+        <span class="key-note">${label}</span>
+        ${bk.shortcut ? `<span class="key-shortcut">[${bk.shortcut}]</span>` : ''}
+      `;
+
+      piano.appendChild(blackEl);
+    });
+  });
+
+  // Actualizar badge de octava en barra de herramientas
+  const octBadge = document.getElementById('octave-badge');
+  if (octBadge) {
+    octBadge.innerText = `OCT ${state.currentOctave} (C${state.currentOctave} - C${state.currentOctave + 2})`;
+  }
+}
+
+function initKeyboardEvents() {
+  const piano = document.getElementById('piano-keyboard');
+  if (!piano) return;
+
+  // Soporte Pointer Events de alto rendimiento (ratón y multitáctil con captura)
+  piano.addEventListener('pointerdown', (e) => {
+    isPointerDown = true;
+    try { piano.setPointerCapture(e.pointerId); } catch (_) {}
+    handlePointerNote(e);
+  });
+
+  piano.addEventListener('pointermove', (e) => {
+    if (isPointerDown) handlePointerNote(e);
+  });
+
+  const stopPointer = (e) => {
+    if (isPointerDown) {
+      isPointerDown = false;
+      try { piano.releasePointerCapture(e.pointerId); } catch (_) {}
+      if (activeMouseNote !== null) {
+        releaseNote(activeMouseNote);
+        activeMouseNote = null;
+      }
+    }
+  };
+
+  piano.addEventListener('pointerup', stopPointer);
+  piano.addEventListener('pointercancel', stopPointer);
+  window.addEventListener('pointerup', stopPointer);
+
+  // TECLADO DE COMPUTADORA (QWERTY) CON DETECCIÓN CERO-LAG
+  window.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    if (e.repeat) return; // PREVIENE REPETICIONES DE TECLAS DEL OS
+
+    const code = e.code;
+    const k = e.key ? e.key.toLowerCase() : '';
+
+    // Atajos de cambio de octava
+    if (code === 'KeyZ' || k === 'z') {
+      shiftOctave(-1);
+      e.preventDefault();
+      return;
+    }
+    if (code === 'KeyX' || k === 'x') {
+      shiftOctave(1);
+      e.preventDefault();
+      return;
+    }
+
+    // Atajos de velocidad
+    if (code === 'KeyC' || k === 'c') {
+      shiftVelocity(-0.1);
+      e.preventDefault();
+      return;
+    }
+    if (code === 'KeyV' || k === 'v') {
+      shiftVelocity(0.1);
+      e.preventDefault();
+      return;
+    }
+
+    // Pánico / Kill all
+    if (code === 'Escape' || k === 'escape') {
+      panicAllNotes();
+      e.preventDefault();
+      return;
+    }
+
+    // Notas musicales QWERTY prioritarias por código físico de tecla
+    let semi = CODE_TO_SEMI[code];
+    if (semi === undefined) {
+      semi = KEY_FALLBACK_MAP[k];
+    }
+
+    if (semi !== undefined) {
+      e.preventDefault();
+      const trackingId = code || k;
+      if (activePhysicalKeys.has(trackingId)) return;
+
+      const midi = getBaseMidiNote() + semi;
+      if (midi >= 0 && midi <= 127) {
+        activePhysicalKeys.set(trackingId, midi);
+        pressNote(midi, state.currentVelocity);
+      }
+    }
+  });
+
+  window.addEventListener('keyup', (e) => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    const code = e.code;
+    const k = e.key ? e.key.toLowerCase() : '';
+
+    let trackingId = null;
+    if (code && activePhysicalKeys.has(code)) {
+      trackingId = code;
+    } else if (k && activePhysicalKeys.has(k)) {
+      trackingId = k;
+    }
+
+    if (trackingId !== null) {
+      const midi = activePhysicalKeys.get(trackingId);
+      activePhysicalKeys.delete(trackingId);
+      releaseNote(midi);
+    }
+  });
+
+  // Si la ventana pierde foco (ej. clic a otra pista en el DAW o Alt-Tab), cortar notas
+  window.addEventListener('blur', () => {
+    panicAllNotes();
+  });
+
+  // Botones de la barra de teclado
+  document.getElementById('btn-oct-down').addEventListener('click', () => shiftOctave(-1));
+  document.getElementById('btn-oct-up').addEventListener('click', () => shiftOctave(1));
+  document.getElementById('btn-vel-down').addEventListener('click', () => shiftVelocity(-0.1));
+  document.getElementById('btn-vel-up').addEventListener('click', () => shiftVelocity(0.1));
+  document.getElementById('btn-panic').addEventListener('click', panicAllNotes);
+
+  const arpBtn = document.getElementById('btn-arp-mode');
+  if (arpBtn) {
+    arpBtn.addEventListener('click', () => {
+      const nextMode = ((state.params.arp_mode || 0) + 1) % 5;
+      state.params.arp_mode = nextMode;
+      updateArpModeUI(nextMode);
+      sendIpc(`arp,${nextMode}`);
+    });
+  }
+
+  const recBtn = document.getElementById('btn-live-rec');
+  if (recBtn) {
+    recBtn.addEventListener('click', async () => {
+      const isRec = !!(state.oddMetrics && state.oddMetrics.is_recording_master);
+      if (!isRec) {
+        if (!state.oddMetrics) state.oddMetrics = {};
+        state.oddMetrics.is_recording_master = true;
+        recBtn.classList.add('active', 'panic-btn');
+        recBtn.innerText = '⏹ STOP REC';
+        sendIpc('rec,start');
+      } else {
+        state.oddMetrics.is_recording_master = false;
+        recBtn.classList.remove('active', 'panic-btn');
+        recBtn.innerText = '🔴 REC LIVE';
+        sendIpc('rec,stop');
+        try {
+          const resp = await fetch('/api/export-live-rec');
+          if (resp.ok) {
+            const blob = await resp.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'TEPUI_Live_Master_Session.wav';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(url), 2500);
+          }
+        } catch (err) {
+          console.warn('[TEPUI LIVE REC EXPORT ERROR]', err);
+        }
+      }
+    });
+  }
+}
+
+const ARP_LABELS = [
+  '🎵 ARP: OFF',
+  '🎵 ARP: UP',
+  '🎵 ARP: DOWN',
+  '🇻🇪 JOROPO 6/8',
+  '🇻🇪 MERENGUE 5/8'
+];
+
+function updateArpModeUI(mode) {
+  const m = Math.max(0, Math.min(4, Math.round(mode || 0)));
+  state.params.arp_mode = m;
+  const arpBtn = document.getElementById('btn-arp-mode');
+  if (arpBtn) {
+    arpBtn.innerText = ARP_LABELS[m] || '🎵 ARP: OFF';
+    arpBtn.classList.toggle('active', m > 0);
+  }
+}
+
+function handlePointerNote(e) {
+  const target = document.elementFromPoint(e.clientX, e.clientY);
+  if (!target) return;
+  const keyEl = target.closest('.piano-key');
+
+  if (keyEl && keyEl.dataset.midi) {
+    const note = parseInt(keyEl.dataset.midi, 10);
+    // Calcular velocidad interactiva según la altura del clic en la tecla (Top=0.5, Bottom=1.0)
+    const rect = keyEl.getBoundingClientRect();
+    const relY = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    const vel = 0.5 + relY * 0.5;
+
+    if (note !== activeMouseNote) {
+      if (activeMouseNote !== null) releaseNote(activeMouseNote);
+      activeMouseNote = note;
+      pressNote(note, vel);
+    }
+  } else if (activeMouseNote !== null) {
+    releaseNote(activeMouseNote);
+    activeMouseNote = null;
+  }
+}
+
+function pressNote(midi, velocity = 0.95) {
+  const el = document.querySelector(`.piano-key[data-midi="${midi}"]`);
+  if (el) el.classList.add('active');
+  sendFastNoteOn(midi, velocity);
+}
+
+function releaseNote(midi) {
+  const el = document.querySelector(`.piano-key[data-midi="${midi}"]`);
+  if (el) el.classList.remove('active');
+  sendFastNoteOff(midi);
+}
+
+function shiftOctave(delta) {
+  // Silenciar cualquier nota activa para evitar voces colgadas
+  panicAllNotes();
+
+  const newOct = Math.max(1, Math.min(6, state.currentOctave + delta));
+  if (newOct !== state.currentOctave) {
+    state.currentOctave = newOct;
+    initKeyboard();
+  }
+}
+
+function shiftVelocity(delta) {
+  const newVel = Math.max(0.1, Math.min(1.0, state.currentVelocity + delta));
+  state.currentVelocity = newVel;
+  const badge = document.getElementById('vel-badge');
+  if (badge) badge.innerText = `${Math.round(newVel * 100)}%`;
+}
+
+function panicAllNotes() {
+  activePhysicalKeys.clear();
+  activeMouseNote = null;
+  document.querySelectorAll('.piano-key.active').forEach(k => k.classList.remove('active'));
+
+  sendIpc('k');
+
+  // Enviar note off para las notas activas registradas
+  for (const note of Array.from(state.activeNotes)) {
+    sendFastNoteOff(note);
+  }
+  state.activeNotes.clear();
+  updateVoiceCount();
+}
+
+// -------------------------------------------------------------
+// 8. AI GENERATION HUB, PRESET CHIPS, WAV IMPORT/EXPORT & ROOT NOTE
+// -------------------------------------------------------------
+async function uploadWavBytes(arrayBuffer, rawFileName) {
+  try {
+    const cleanName = (rawFileName || 'Imported WAV').replace(/\.wav$/i, '').trim() || 'Imported WAV';
+    const resp = await fetch(`/api/load-wav?name=${encodeURIComponent(cleanName)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'audio/wav' },
+      body: arrayBuffer
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+      const promptInput = document.getElementById('prompt-input');
+      if (promptInput) promptInput.value = cleanName;
+      applyInitPayload(data);
+    } else {
+      const errText = await resp.text();
+      console.warn('[WAV Load Error]', errText);
+    }
+  } catch (e) {
+    console.warn('[WAV Upload Exception]', e);
+  }
+}
+
+async function uploadPatchBytes(arrayBuffer) {
+  try {
+    const resp = await fetch('/api/load-patch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: arrayBuffer
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+      if (data.odd_metrics && data.odd_metrics.active_prompt) {
+        const promptInput = document.getElementById('prompt-input');
+        if (promptInput) promptInput.value = data.odd_metrics.active_prompt;
+      }
+      applyInitPayload(data);
+    } else {
+      const errText = await resp.text();
+      console.warn('[TEPUI Patch Load Error]', errText);
+    }
+  } catch (e) {
+    console.warn('[TEPUI Patch Upload Exception]', e);
+  }
+}
+
+function initWavImportExport() {
+  const btnImport = document.getElementById('btn-import-wav');
+  const btnExport = document.getElementById('btn-export-wav');
+  const btnLoadPatch = document.getElementById('btn-load-patch');
+  const btnSavePatch = document.getElementById('btn-save-patch');
+  const fileInput = document.getElementById('wav-file-input');
+  const patchInput = document.getElementById('patch-file-input');
+  const screenBody = document.querySelector('.screen-body');
+
+  if (btnImport && fileInput) {
+    btnImport.addEventListener('click', () => {
+      fileInput.value = '';
+      fileInput.click();
+    });
+    fileInput.addEventListener('change', async (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      const buf = await file.arrayBuffer();
+      await uploadWavBytes(buf, file.name);
+    });
+  }
+
+  if (btnExport) {
+    btnExport.addEventListener('click', async () => {
+      try {
+        const resp = await fetch('/api/export-wav');
+        if (!resp.ok) return;
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const safeName = (state.sampleName || 'tepui_sample').toLowerCase().replace(/[^a-z0-9_-]+/g, '_');
+        a.href = url;
+        a.download = `${safeName}.wav`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1500);
+      } catch (e) {
+        console.warn('[WAV Export Error]', e);
+      }
+    });
+  }
+
+  if (btnLoadPatch && patchInput) {
+    btnLoadPatch.addEventListener('click', () => {
+      patchInput.value = '';
+      patchInput.click();
+    });
+    patchInput.addEventListener('change', async (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      const buf = await file.arrayBuffer();
+      await uploadPatchBytes(buf);
+    });
+  }
+
+  if (btnSavePatch) {
+    btnSavePatch.addEventListener('click', async () => {
+      try {
+        const resp = await fetch('/api/export-patch');
+        if (!resp.ok) return;
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const safeName = (state.sampleName || 'tepui_patch').toLowerCase().replace(/[^a-z0-9_-]+/g, '_');
+        a.href = url;
+        a.download = `${safeName}.tepui`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1500);
+      } catch (e) {
+        console.warn('[TEPUI Patch Export Error]', e);
+      }
+    });
+  }
+
+  if (screenBody) {
+    screenBody.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      screenBody.classList.add('drag-over');
+    });
+    screenBody.addEventListener('dragleave', () => {
+      screenBody.classList.remove('drag-over');
+    });
+    screenBody.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      screenBody.classList.remove('drag-over');
+      const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (!file) return;
+      const buf = await file.arrayBuffer();
+      if (file.name && (file.name.toLowerCase().endsWith('.tepui') || file.name.toLowerCase().endsWith('.json'))) {
+        await uploadPatchBytes(buf);
+      } else {
+        await uploadWavBytes(buf, file.name);
+      }
+    });
+  }
+}
+
+function initLfoAndKeyzoneControls() {
+  const btnLfoTarget = document.getElementById('btn-lfo-target');
+  if (btnLfoTarget) {
+    btnLfoTarget.addEventListener('click', () => {
+      const nextTarget = ((state.params.lfo_target || 0) + 1) % 4;
+      updateLfoTargetUI(nextTarget);
+      sendIpc(`lt,${nextTarget}`);
+    });
+  }
+
+  const zLow = document.getElementById('btn-zone-low');
+  const zMid = document.getElementById('btn-zone-mid');
+  const zHigh = document.getElementById('btn-zone-high');
+  const zClr = document.getElementById('btn-zone-clear');
+
+  if (zLow) zLow.addEventListener('click', () => sendIpc('z,0'));
+  if (zMid) zMid.addEventListener('click', () => sendIpc('z,1'));
+  if (zHigh) zHigh.addEventListener('click', () => sendIpc('z,2'));
+  if (zClr) zClr.addEventListener('click', () => sendIpc('z,clear'));
+}
+
+function initRootNoteControls() {
+  const btnDown = document.getElementById('btn-root-down');
+  const btnUp = document.getElementById('btn-root-up');
+  if (btnDown) {
+    btnDown.addEventListener('click', () => {
+      sendFastRootNote((state.params.root_note ?? 60) - 1);
+    });
+  }
+  if (btnUp) {
+    btnUp.addEventListener('click', () => {
+      sendFastRootNote((state.params.root_note ?? 60) + 1);
+    });
+  }
+}
+
+function initAiHub() {
+  const btn = document.getElementById('btn-generate');
+  const input = document.getElementById('prompt-input');
+
+  btn.addEventListener('click', () => {
+    if (state.isGenerating) return;
+    const prompt = input.value.trim() || 'Concert Grand Piano C4';
+    state.isGenerating = true;
+    updateGeneratingUI(true);
+    sendFastGenerate(prompt);
+  });
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      btn.click();
+      input.blur(); // Regresar el foco al instrumento para tocar inmediatamente
+    }
+  });
+
+  document.querySelectorAll('.chip').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      const prompt = chip.dataset.prompt;
+      input.value = prompt;
+      state.isGenerating = true;
+      updateGeneratingUI(true);
+      sendFastGenerate(prompt);
+    });
+  });
+
+  initWavImportExport();
+  initRootNoteControls();
+  initLfoAndKeyzoneControls();
+}
+
+function updateGeneratingUI(isGenerating) {
+  const btn = document.getElementById('btn-generate');
+  const btnText = btn.querySelector('.btn-text');
+
+  if (isGenerating) {
+    btn.classList.add('busy');
+    btnText.innerText = '⏳ SINTETIZANDO...';
+  } else {
+    btn.classList.remove('busy');
+    btnText.innerText = '✦ GENERAR SAMPLE';
+  }
+}
+
+// -------------------------------------------------------------
+// 10. AUDIO & MIDI HARDWARE SETTINGS MODAL (STANDALONE ONLY)
+// -------------------------------------------------------------
+function initAudioSettingsModal() {
+  const btnOpen = document.getElementById('btn-audio-settings');
+  const btnClose = document.getElementById('btn-close-settings');
+  const btnCancel = document.getElementById('btn-cancel-settings');
+  const btnSave = document.getElementById('btn-save-settings');
+  const btnTestTone = document.getElementById('btn-test-tone');
+  const modal = document.getElementById('settings-modal');
+  const statusMsg = document.getElementById('settings-status-msg');
+  const dawBanner = document.getElementById('daw-mode-banner');
+
+  if (!btnOpen || !modal) return;
+
+  function showStatus(text, isError = false) {
+    if (!statusMsg) return;
+    statusMsg.innerText = text;
+    statusMsg.className = `settings-status-msg ${isError ? 'error' : ''}`;
+  }
+
+  function hideStatus() {
+    if (!statusMsg) return;
+    statusMsg.className = 'settings-status-msg hidden';
+  }
+
+  async function loadAudioDevices(forceFetch = false) {
+    try {
+      let data = (!forceFetch && window.__TEPUI_AUDIO_STATUS__) ? window.__TEPUI_AUDIO_STATUS__ : null;
+      if (!data) {
+        try {
+          const resp = await fetch('/api/audio-devices');
+          if (resp.ok) {
+            data = await resp.json();
+            window.__TEPUI_AUDIO_STATUS__ = data;
+          }
+        } catch (e) {
+          console.warn('[AUDIO DEVICES FETCH ERROR]', e);
+        }
+      }
+      if (!data) data = window.__TEPUI_AUDIO_STATUS__;
+      if (!data) return;
+
+      if (data.is_standalone) {
+        if (dawBanner) dawBanner.classList.add('hidden');
+        if (btnSave) btnSave.disabled = false;
+      } else {
+        if (dawBanner) dawBanner.classList.remove('hidden');
+      }
+
+      // Populate Output Devices
+      const selectOut = document.getElementById('select-output-device');
+      if (selectOut && data.output_devices) {
+        selectOut.innerHTML = '';
+        
+        // Opción 1: Dispositivo por Defecto del Sistema (Windows Default)
+        const defOption = document.createElement('option');
+        defOption.value = '';
+        const defDev = data.output_devices.find(d => d.is_default);
+        defOption.innerText = `Por Defecto del Sistema (Windows Default)${defDev ? ` • ${defDev.name}` : ''}`;
+        if (!data.active_output_device) {
+          defOption.selected = true;
+        }
+        selectOut.appendChild(defOption);
+
+        data.output_devices.forEach((dev) => {
+          const opt = document.createElement('option');
+          opt.value = dev.name;
+          const isDef = dev.is_default ? ' [Por Defecto Windows]' : '';
+          opt.innerText = `${dev.name}${isDef} (${dev.channels}ch)`;
+          if (data.active_output_device && data.active_output_device === dev.name) {
+            opt.selected = true;
+          }
+          selectOut.appendChild(opt);
+        });
+      }
+
+      // Populate Input Devices
+      const selectIn = document.getElementById('select-input-device');
+      if (selectIn) {
+        selectIn.innerHTML = '<option value="">Desactivado (Recomendado)</option>';
+        if (data.input_devices) {
+          data.input_devices.forEach((dev) => {
+            const opt = document.createElement('option');
+            opt.value = dev.name;
+            opt.innerText = `${dev.name} (${dev.channels}ch)`;
+            if (data.active_input_device && data.active_input_device === dev.name) {
+              opt.selected = true;
+            }
+            selectIn.appendChild(opt);
+          });
+        }
+      }
+
+      // Dynamic Sample Rate based on selected output device hardware capabilities
+      function updateSampleRatesForDevice(devName) {
+        const selectSr = document.getElementById('select-sample-rate');
+        if (!selectSr || !data.output_devices) return;
+        const dev = data.output_devices.find(d => d.name === devName) || data.output_devices.find(d => d.is_default);
+        const supported = (dev && dev.supported_sample_rates && dev.supported_sample_rates.length > 0)
+          ? dev.supported_sample_rates
+          : [48000];
+
+        selectSr.innerHTML = '';
+        supported.forEach((rate) => {
+          const opt = document.createElement('option');
+          opt.value = String(rate);
+          const khz = (rate / 1000).toFixed(1);
+          opt.innerText = `${khz} kHz (${rate.toLocaleString()} Hz) [Nativo]`;
+          selectSr.appendChild(opt);
+        });
+
+        const targetRate = data.active_sample_rate || 48000;
+        if (supported.includes(targetRate)) {
+          selectSr.value = String(targetRate);
+        } else if (supported.length > 0) {
+          selectSr.value = String(supported[0]);
+        }
+      }
+
+      function getModalConfig() {
+        return {
+          output_device: selectOut && selectOut.value ? selectOut.value : null,
+          input_device: selectIn && selectIn.value ? selectIn.value : null,
+          sample_rate: selectSr ? parseInt(selectSr.value, 10) : 48000,
+          period_size: selectBuf ? parseInt(selectBuf.value, 10) : 1056,
+          midi_input: selectMidi && selectMidi.value ? selectMidi.value : null,
+        };
+      }
+
+      function autoSaveConfig() {
+        const cfg = getModalConfig();
+        if (window.__TEPUI_AUDIO_STATUS__) {
+          window.__TEPUI_AUDIO_STATUS__.active_output_device = cfg.output_device;
+          window.__TEPUI_AUDIO_STATUS__.active_input_device = cfg.input_device;
+          window.__TEPUI_AUDIO_STATUS__.active_sample_rate = cfg.sample_rate;
+          window.__TEPUI_AUDIO_STATUS__.active_period_size = cfg.period_size;
+          window.__TEPUI_AUDIO_STATUS__.active_midi_input = cfg.midi_input;
+        }
+        sendIpc('save_audio_config:' + JSON.stringify(cfg));
+      }
+
+      if (selectOut) {
+        selectOut.onchange = () => {
+          updateSampleRatesForDevice(selectOut.value);
+          autoSaveConfig();
+          showStatus('⚠ Configuración guardada. Para activar el nuevo dispositivo de audio pulsa "GUARDAR Y REINICIAR MOTOR" abajo.', false);
+        };
+        const currentDev = selectOut.value || (data.active_output_device || (data.output_devices[0] && data.output_devices[0].name));
+        if (currentDev) updateSampleRatesForDevice(currentDev);
+      }
+
+      if (selectIn) {
+        selectIn.onchange = autoSaveConfig;
+      }
+
+      // Buffer Size
+      const selectBuf = document.getElementById('select-buffer-size');
+      if (selectBuf) {
+        if (data.active_period_size) {
+          selectBuf.value = String(data.active_period_size);
+        }
+        selectBuf.onchange = autoSaveConfig;
+      }
+
+      const selectSr = document.getElementById('select-sample-rate');
+      if (selectSr) {
+        selectSr.onchange = autoSaveConfig;
+      }
+
+      // MIDI Inputs
+      const selectMidi = document.getElementById('select-midi-device');
+      if (selectMidi) {
+        selectMidi.innerHTML = '<option value="">Ninguno / Teclado Virtual</option>';
+        if (data.midi_inputs && data.midi_inputs.length > 0) {
+          data.midi_inputs.forEach((port) => {
+            const opt = document.createElement('option');
+            opt.value = port;
+            opt.innerText = port;
+            if (data.active_midi_input && data.active_midi_input === port) {
+              opt.selected = true;
+            }
+            selectMidi.appendChild(opt);
+          });
+        } else {
+          const opt = document.createElement('option');
+          opt.value = "";
+          opt.innerText = "No se detectaron teclados MIDI USB";
+          selectMidi.appendChild(opt);
+        }
+        selectMidi.onchange = autoSaveConfig;
+      }
+    } catch (e) {
+      console.warn('[TEPUI AUDIO SETTINGS FETCH ERROR]', e);
+      showStatus('No se pudieron leer los dispositivos: ' + e.message, true);
+    }
+  }
+
+  btnOpen.addEventListener('click', () => {
+    hideStatus();
+    modal.classList.remove('hidden');
+    loadAudioDevices(true);
+  });
+
+  const closeModal = () => {
+    modal.classList.add('hidden');
+    hideStatus();
+  };
+
+  if (btnClose) btnClose.addEventListener('click', closeModal);
+  if (btnCancel) btnCancel.addEventListener('click', closeModal);
+
+  // Close on clicking backdrop outside card
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) closeModal();
+  });
+
+  // Test Tone: 100% Rust DSP Puro
+  if (btnTestTone) {
+    btnTestTone.addEventListener('click', () => {
+      const textSpan = document.getElementById('test-tone-text');
+      btnTestTone.classList.add('active');
+      if (textSpan) textSpan.innerText = 'SONANDO (C4-E4-G4)...';
+
+      // Disparar acorde interactivo directamente en motor de audio nativo Rust
+      sendFastNoteOn(60, 1.0);
+      sendFastNoteOn(64, 0.9);
+      sendFastNoteOn(67, 0.95);
+
+      setTimeout(() => {
+        sendFastNoteOff(60);
+        sendFastNoteOff(64);
+        sendFastNoteOff(67);
+        btnTestTone.classList.remove('active');
+        if (textSpan) textSpan.innerText = 'PROBAR SONIDO (TEST CHORD)';
+      }, 900);
+    });
+  }
+
+  // Save Settings & Restart
+  if (btnSave) {
+    btnSave.addEventListener('click', async () => {
+      const selectOut = document.getElementById('select-output-device');
+      const selectIn = document.getElementById('select-input-device');
+      const selectSr = document.getElementById('select-sample-rate');
+      const selectBuf = document.getElementById('select-buffer-size');
+      const selectMidi = document.getElementById('select-midi-device');
+
+      const config = {
+        output_device: selectOut && selectOut.value ? selectOut.value : null,
+        input_device: selectIn && selectIn.value ? selectIn.value : null,
+        sample_rate: selectSr ? parseInt(selectSr.value, 10) : 48000,
+        period_size: selectBuf ? parseInt(selectBuf.value, 10) : 1056,
+        midi_input: selectMidi && selectMidi.value ? selectMidi.value : null,
+      };
+
+      showStatus('Guardando configuración de audio...');
+
+      if (window.__TEPUI_AUDIO_STATUS__) {
+        window.__TEPUI_AUDIO_STATUS__.active_output_device = config.output_device;
+        window.__TEPUI_AUDIO_STATUS__.active_input_device = config.input_device;
+        window.__TEPUI_AUDIO_STATUS__.active_sample_rate = config.sample_rate;
+        window.__TEPUI_AUDIO_STATUS__.active_period_size = config.period_size;
+        window.__TEPUI_AUDIO_STATUS__.active_midi_input = config.midi_input;
+      }
+
+      sendIpc('save_audio_config:' + JSON.stringify(config));
+      showStatus('✓ Configuración guardada. Reiniciando motor de audio...');
+      setTimeout(() => {
+        sendIpc('restart_standalone');
+      }, 400);
+    });
+  }
+}
+
+// -------------------------------------------------------------
+// 9. INICIALIZACIÓN GLOBAL
+// -------------------------------------------------------------
+let appInitialized = false;
+
+function initApp() {
+  if (appInitialized) return;
+  appInitialized = true;
+
+  sendIpc('log:initApp starting...');
+
+  // Deshabilitar menú contextual del navegador, pero permitir Shift + Clic Derecho para DevTools
+  window.addEventListener('contextmenu', (e) => {
+    if (!e.shiftKey) e.preventDefault();
+  });
+
+  initKnobs();
+  initFilterModes();
+  initOscilloscope();
+  initKeyboard();
+  initKeyboardEvents();
+  initAiHub();
+  initAudioSettingsModal();
+  fetchInitState();
+  startTelemetryLoop();
+  updateEngineBadge();
+
+  // Redimensionar piano y oscilograma en resize
+  window.addEventListener('resize', () => {
+    initKeyboard();
+  });
+
+  sendIpc('log:initApp finished successfully!');
+}
+
+if (document.readyState === 'loading') {
+  window.addEventListener('DOMContentLoaded', initApp);
+  setTimeout(initApp, 60);
+} else {
+  initApp();
+}

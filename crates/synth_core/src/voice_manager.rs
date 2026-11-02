@@ -1,0 +1,613 @@
+//! Gestor de voces polifónicas con pool prealocado, política inteligente de voice stealing,
+//! modulación LFO en tiempo real y ruteo Multi-Sample por Keyzones (`Low / Mid / High`).
+
+use crate::arp::{ArpMode, TepuiArpeggiator};
+use crate::buffer::SampleBuffer;
+use crate::envelope::AdsrStage;
+use crate::filter::FilterMode;
+use crate::lfo::{LfoState, LfoTarget};
+use crate::resampler::ResamplingQuality;
+use crate::voice::{SampleRegionOverride, Voice};
+
+pub const DEFAULT_MAX_VOICES: usize = 16;
+
+#[derive(Debug)]
+pub struct VoiceManager {
+    voices: Vec<Voice>,
+    sample_rate: f32,
+    time_counter: u64,
+
+    // Parámetros globales aplicados a las voces
+    attack_s: f32,
+    decay_s: f32,
+    sustain: f32,
+    release_s: f32,
+    cutoff_hz: f32,
+    resonance: f32,
+    filter_mode: FilterMode,
+    resampling_quality: ResamplingQuality,
+
+    // Estado MIDI y Modulación LFO en tiempo real (0 asignaciones)
+    sustain_pedal: bool,
+    sustained_notes: [bool; 128],
+    pitch_bend_semitones: f32,
+    pitch_bend_multiplier: f64,
+    root_note_override: Option<u8>,
+    region_override: SampleRegionOverride,
+    lfo: LfoState,
+    base_lfo_rate: f32,
+    base_lfo_depth: f32,
+    base_lfo_target: LfoTarget,
+    mod_wheel: f32,
+    brightness_cc74: f32,
+    channel_aftertouch: f32,
+    arp: TepuiArpeggiator,
+}
+
+impl Default for VoiceManager {
+    fn default() -> Self {
+        Self::new(44100.0, DEFAULT_MAX_VOICES)
+    }
+}
+
+impl VoiceManager {
+    /// Inicializa el pool de voces prealocadas en memoria para garantizar 0 asignaciones dinámicas.
+    pub fn new(sample_rate: f32, num_voices: usize) -> Self {
+        let count = num_voices.clamp(1, 64);
+        let mut voices = Vec::with_capacity(count);
+        for _ in 0..count {
+            voices.push(Voice::new(sample_rate));
+        }
+
+        Self {
+            voices,
+            sample_rate,
+            time_counter: 0,
+            attack_s: 0.01,
+            decay_s: 0.2,
+            sustain: 0.8,
+            release_s: 0.3,
+            cutoff_hz: 20000.0,
+            resonance: 0.707,
+            filter_mode: FilterMode::Bypass,
+            resampling_quality: ResamplingQuality::HermiteCubic,
+            sustain_pedal: false,
+            sustained_notes: [false; 128],
+            pitch_bend_semitones: 0.0,
+            pitch_bend_multiplier: 1.0,
+            root_note_override: None,
+            region_override: SampleRegionOverride::default(),
+            lfo: LfoState::new(sample_rate),
+            base_lfo_rate: 3.5,
+            base_lfo_depth: 0.0,
+            base_lfo_target: LfoTarget::Cutoff,
+            mod_wheel: 0.0,
+            brightness_cc74: 0.0,
+            channel_aftertouch: 0.0,
+            arp: TepuiArpeggiator::new(sample_rate),
+        }
+    }
+
+    /// Determina el índice de zona de teclado (`0: Low 0..=55`, `1: Mid 56..=76`, `2: High 77..=127`) para una nota MIDI.
+    #[inline]
+    pub fn zone_index_for_note(note: u8) -> usize {
+        if note <= 55 {
+            0
+        } else if note <= 76 {
+            1
+        } else {
+            2
+        }
+    }
+
+    /// Configura el modo y tempo (BPM) del arpegiador y motor de compases venezolanos en tiempo real.
+    #[inline]
+    pub fn update_arp_params(&mut self, mode: ArpMode, bpm: f32) {
+        if self.arp.mode() != mode && mode == ArpMode::Off {
+            if let Some(last) = self.arp.clear() {
+                self.trigger_voice_note_off(last);
+            }
+        }
+        self.arp.set_mode(mode);
+        self.arp.set_bpm(bpm);
+    }
+
+    /// Retorna el total acumulado de pasos rítmicos disparados por el arpegiador (ODD).
+    #[inline]
+    pub fn arp_steps_triggered(&self) -> u32 {
+        self.arp.steps_triggered_count()
+    }
+
+    /// Configura los parámetros del oscilador de baja frecuencia (LFO) en tiempo real.
+    #[inline]
+    pub fn update_lfo_params(&mut self, rate_hz: f32, depth: f32, target: LfoTarget) {
+        self.base_lfo_rate = rate_hz;
+        self.base_lfo_depth = depth.clamp(0.0, 1.0);
+        self.base_lfo_target = target;
+
+        let eff_depth = (self.base_lfo_depth + self.mod_wheel).clamp(0.0, 1.0);
+        let prev_target = self.lfo.target();
+        let prev_depth = self.lfo.depth();
+        self.lfo.set_parameters(rate_hz, eff_depth, target);
+
+        // Si el LFO se apaga o cambia de destino, restaurar cutoff y pitch bend base en voces activas
+        if (prev_depth > 1e-5 && eff_depth <= 1e-5) || prev_target != target {
+            let eff_cut = self.effective_cutoff_hz();
+            for voice in &mut self.voices {
+                if voice.is_active() {
+                    voice.filter_l.set_cutoff(eff_cut);
+                    voice.filter_r.set_cutoff(eff_cut);
+                    voice.update_pitch_bend(self.pitch_bend_multiplier);
+                }
+            }
+        }
+    }
+
+    /// Calcula la frecuencia de corte efectiva combinando `cutoff_hz`, `CC #74 (Brightness)` y `Aftertouch`.
+    #[inline]
+    pub fn effective_cutoff_hz(&self) -> f32 {
+        let boost_octaves = (self.brightness_cc74 + self.channel_aftertouch) * 1.5;
+        (self.cutoff_hz * 2.0_f32.powf(boost_octaves)).clamp(20.0, 20000.0)
+    }
+
+    /// Actualiza la rueda de modulación MIDI (`CC #1 ModWheel`, `0.0..=1.0`), sumándose a la profundidad del LFO.
+    #[inline]
+    pub fn set_mod_wheel(&mut self, value: f32) {
+        self.mod_wheel = if value.is_finite() {
+            value.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let eff_depth = (self.base_lfo_depth + self.mod_wheel).clamp(0.0, 1.0);
+        self.lfo
+            .set_parameters(self.base_lfo_rate, eff_depth, self.base_lfo_target);
+    }
+
+    /// Actualiza el control expresivo de brillo espectral (`CC #74 Brightness` / `CC #11 Expression`, `0.0..=1.0`).
+    #[inline]
+    pub fn set_brightness_cc74(&mut self, value: f32) {
+        self.brightness_cc74 = if value.is_finite() {
+            value.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let eff_cut = self.effective_cutoff_hz();
+        for voice in &mut self.voices {
+            if voice.is_active() {
+                voice.filter_l.set_cutoff(eff_cut);
+                voice.filter_r.set_cutoff(eff_cut);
+            }
+        }
+    }
+
+    /// Actualiza la presión de canal o polifónica (`Aftertouch`, `0.0..=1.0`), abriendo dinámicamente el filtro SVF.
+    #[inline]
+    pub fn set_aftertouch(&mut self, pressure: f32) {
+        self.channel_aftertouch = if pressure.is_finite() {
+            pressure.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let eff_cut = self.effective_cutoff_hz();
+        for voice in &mut self.voices {
+            if voice.is_active() {
+                voice.filter_l.set_cutoff(eff_cut);
+                voice.filter_r.set_cutoff(eff_cut);
+            }
+        }
+    }
+
+    /// Retorna el último valor instantáneo de modulación del LFO (`-1.0..=1.0`) para telemetría ODD.
+    #[inline]
+    pub fn lfo_last_value(&self) -> f32 {
+        self.lfo.last_modulated_value()
+    }
+
+    /// Establece la región de reproducción y bucle (`start_norm`, `end_norm`, `loop_enabled`, `loop_start_norm`, `loop_end_norm`)
+    /// para todas las voces activas y futuras (0 asignaciones).
+    #[inline]
+    pub fn set_region_override(&mut self, region: SampleRegionOverride) {
+        if self.region_override != region {
+            self.region_override = region;
+            for voice in &mut self.voices {
+                voice.region_override = region;
+            }
+        }
+    }
+
+    /// Retorna la configuración activa de región y bucle.
+    #[inline]
+    pub fn region_override(&self) -> SampleRegionOverride {
+        self.region_override
+    }
+
+    /// Establece o limpia el override de nota raíz (`root_note`) para transposición cromática en tiempo real.
+    pub fn set_root_note_override(&mut self, root_note: Option<u8>, buffer: &SampleBuffer) {
+        let clamped = root_note.map(|n| n.min(127));
+        if self.root_note_override != clamped {
+            self.root_note_override = clamped;
+            let eff_root = clamped.unwrap_or(buffer.root_note);
+            for voice in &mut self.voices {
+                if voice.is_active() && voice.zone_slot == 0 {
+                    voice.update_root_note(eff_root, buffer, self.pitch_bend_multiplier);
+                }
+            }
+        }
+    }
+
+    /// Retorna la nota raíz efectiva (`root_note_override` si está activo, o `buffer.root_note`).
+    #[inline]
+    pub fn effective_root_note(&self, buffer: &SampleBuffer) -> u8 {
+        self.root_note_override.unwrap_or(buffer.root_note)
+    }
+
+    pub fn set_sample_rate(&mut self, sample_rate: f32) {
+        if sample_rate > 0.0 {
+            self.sample_rate = sample_rate;
+            self.lfo.set_sample_rate(sample_rate);
+            self.arp.set_sample_rate(sample_rate);
+            for voice in &mut self.voices {
+                voice.set_sample_rate(sample_rate);
+            }
+        }
+    }
+
+    /// Actualiza los parámetros de envolvente de todas las voces
+    pub fn update_envelope_params(&mut self, attack_s: f32, decay_s: f32, sustain: f32, release_s: f32) {
+        self.attack_s = attack_s;
+        self.decay_s = decay_s;
+        self.sustain = sustain;
+        self.release_s = release_s;
+
+        for voice in &mut self.voices {
+            voice.adsr.set_parameters(attack_s, decay_s, sustain, release_s);
+        }
+    }
+
+    /// Actualiza los parámetros de filtro de todas las voces
+    pub fn update_filter_params(&mut self, cutoff_hz: f32, resonance: f32, mode: FilterMode) {
+        self.cutoff_hz = cutoff_hz;
+        self.resonance = resonance;
+        self.filter_mode = mode;
+
+        let eff_cut = self.effective_cutoff_hz();
+        for voice in &mut self.voices {
+            voice.filter_l.set_cutoff(eff_cut);
+            voice.filter_l.set_resonance(resonance);
+            voice.filter_l.mode = mode;
+            voice.filter_r.set_cutoff(eff_cut);
+            voice.filter_r.set_resonance(resonance);
+            voice.filter_r.mode = mode;
+        }
+    }
+
+    /// Actualiza el estado del pedal de sustain (Damper Pedal CC 64)
+    pub fn set_sustain_pedal(&mut self, down: bool) {
+        self.sustain_pedal = down;
+        if !down {
+            for note in 0..128 {
+                if self.sustained_notes[note] {
+                    self.sustained_notes[note] = false;
+                    for voice in &mut self.voices {
+                        if voice.is_active() && voice.note == note as u8 {
+                            voice.note_off();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Actualiza el Pitch Bend en semitonos para todas las voces activas
+    pub fn set_pitch_bend(&mut self, bend_semitones: f32) {
+        self.pitch_bend_semitones = bend_semitones;
+        self.pitch_bend_multiplier = 2.0_f64.powf(bend_semitones as f64 / 12.0);
+        for voice in &mut self.voices {
+            if voice.is_active() {
+                voice.update_pitch_bend(self.pitch_bend_multiplier);
+            }
+        }
+    }
+
+    /// Maneja el evento de pulsación de nota MIDI (Note On) sobre el sample principal.
+    #[inline]
+    pub fn note_on(&mut self, note: u8, velocity: f32, buffer: &SampleBuffer) {
+        self.note_on_with_zones(note, velocity, buffer, &[None, None, None]);
+    }
+
+    /// Maneja el evento de pulsación de nota MIDI (Note On) evaluando primero si existe
+    /// un sample dedicado en la Keyzone correspondiente (`0: Low 0..=55`, `1: Mid 56..=76`, `2: High 77..=127`).
+    pub fn note_on_with_zones(
+        &mut self,
+        note: u8,
+        velocity: f32,
+        primary_buffer: &SampleBuffer,
+        zones: &[Option<&SampleBuffer>; 3],
+    ) {
+        if velocity <= 0.0 {
+            self.note_off(note);
+            return;
+        }
+
+        if (note as usize) < 128 {
+            self.sustained_notes[note as usize] = false;
+        }
+
+        if self.arp.is_active() {
+            self.arp.press_note(note);
+            if let Some(step) = self.arp.advance_chunk(1) {
+                if let Some(prev) = step.prev_note_off {
+                    self.trigger_voice_note_off(prev);
+                }
+                self.trigger_voice_note_on_with_zones(
+                    step.note_on,
+                    step.velocity,
+                    primary_buffer,
+                    zones,
+                );
+            }
+            return;
+        }
+
+        self.trigger_voice_note_on_with_zones(note, velocity, primary_buffer, zones);
+    }
+
+    fn trigger_voice_note_on_with_zones(
+        &mut self,
+        note: u8,
+        velocity: f32,
+        primary_buffer: &SampleBuffer,
+        zones: &[Option<&SampleBuffer>; 3],
+    ) {
+        self.time_counter = self.time_counter.wrapping_add(1);
+        let time = self.time_counter;
+
+        // 0. Si la misma nota ya está sonando en una voz activa, re-dispararla (retrigger limpio)
+        let mut target_idx = None;
+        for (i, voice) in self.voices.iter().enumerate() {
+            if voice.is_active() && voice.note == note {
+                target_idx = Some(i);
+                break;
+            }
+        }
+
+        // 1. Si no estaba sonando, buscar si hay una voz inactiva
+        if target_idx.is_none() {
+            for (i, voice) in self.voices.iter().enumerate() {
+                if !voice.is_active() {
+                    target_idx = Some(i);
+                    break;
+                }
+            }
+        }
+
+        // 2. Si todas están ocupadas, robar voz (Voice Stealing inteligente)
+        if target_idx.is_none() {
+            let mut candidate_idx = 0;
+            let mut lowest_gain = f32::MAX;
+            let mut found_release = false;
+
+            for (i, voice) in self.voices.iter().enumerate() {
+                if voice.adsr.stage == AdsrStage::Release || voice.adsr.stage == AdsrStage::FastKill {
+                    found_release = true;
+                    let gain = voice.adsr.current_value();
+                    if gain < lowest_gain {
+                        lowest_gain = gain;
+                        candidate_idx = i;
+                    }
+                }
+            }
+
+            if !found_release {
+                let mut oldest_time = u64::MAX;
+                for (i, voice) in self.voices.iter().enumerate() {
+                    if voice.note_on_time < oldest_time {
+                        oldest_time = voice.note_on_time;
+                        candidate_idx = i;
+                    }
+                }
+            }
+
+            target_idx = Some(candidate_idx);
+        }
+
+        // 3. Resolver el buffer y nota raíz según la Keyzone de la nota tocada
+        let zone_idx = Self::zone_index_for_note(note);
+        let (zone_slot, target_buf, eff_root) = match zones[zone_idx] {
+            Some(zbuf) if !zbuf.is_empty() => ((zone_idx as u8) + 1, zbuf, zbuf.root_note),
+            _ => (0u8, primary_buffer, self.effective_root_note(primary_buffer)),
+        };
+
+        // 4. Asignar la nota a la voz elegida
+        if let Some(idx) = target_idx {
+            let eff_cut = self.effective_cutoff_hz();
+            let voice = &mut self.voices[idx];
+            voice.zone_slot = zone_slot;
+            voice.adsr.set_parameters(self.attack_s, self.decay_s, self.sustain, self.release_s);
+            voice.filter_l.set_cutoff(eff_cut);
+            voice.filter_l.set_resonance(self.resonance);
+            voice.filter_l.mode = self.filter_mode;
+            voice.filter_r.set_cutoff(eff_cut);
+            voice.filter_r.set_resonance(self.resonance);
+            voice.filter_r.mode = self.filter_mode;
+            voice.quality = self.resampling_quality;
+            voice.region_override = self.region_override;
+            voice.note_on_with_root(note, velocity, target_buf, eff_root, time);
+            voice.update_pitch_bend(self.pitch_bend_multiplier);
+        }
+    }
+
+    /// Maneja el evento de soltar nota MIDI (Note Off)
+    pub fn note_off(&mut self, note: u8) {
+        if self.sustain_pedal {
+            if (note as usize) < 128 {
+                self.sustained_notes[note as usize] = true;
+            }
+            return;
+        }
+
+        if self.arp.is_active() {
+            if let Some(last) = self.arp.release_note(note) {
+                self.trigger_voice_note_off(last);
+            }
+            return;
+        }
+
+        self.trigger_voice_note_off(note);
+    }
+
+    fn trigger_voice_note_off(&mut self, note: u8) {
+        for voice in &mut self.voices {
+            if voice.is_active() && voice.note == note {
+                voice.note_off();
+            }
+        }
+    }
+
+    /// Silencia todas las voces inmediatamente
+    pub fn kill_all(&mut self) {
+        self.sustained_notes = [false; 128];
+        let _ = self.arp.clear();
+        self.lfo.reset();
+        for voice in &mut self.voices {
+            voice.kill();
+        }
+    }
+
+    /// Procesa un bloque entero de muestras usando el sample principal.
+    #[inline]
+    pub fn process_block(
+        &mut self,
+        buffer: &SampleBuffer,
+        out_left: &mut [f32],
+        out_right: &mut [f32],
+    ) {
+        self.process_block_with_zones(buffer, &[None, None, None], out_left, out_right);
+    }
+
+    /// Procesa un bloque entero de muestras soportando modulación LFO en tiempo real y Keyzones (`Low / Mid / High`).
+    /// Garantiza 0 asignaciones dinámicas en el bucle principal.
+    #[inline]
+    pub fn process_block_with_zones(
+        &mut self,
+        primary_buffer: &SampleBuffer,
+        zones: &[Option<&SampleBuffer>; 3],
+        out_left: &mut [f32],
+        out_right: &mut [f32],
+    ) {
+        let num_samples = out_left.len().min(out_right.len());
+        if num_samples == 0 || primary_buffer.is_empty() {
+            return;
+        }
+
+        const SUB_BLOCK: usize = 16;
+        let lfo_active = self.lfo.depth() > 1e-5 && self.lfo.target() != LfoTarget::Off;
+        let lfo_target = self.lfo.target();
+        let lfo_depth = self.lfo.depth();
+
+        let mut offset = 0;
+        while offset < num_samples {
+            let chunk_end = (offset + SUB_BLOCK).min(num_samples);
+            let chunk_len = chunk_end - offset;
+
+            if self.arp.is_active() {
+                if let Some(step) = self.arp.advance_chunk(chunk_len) {
+                    if let Some(prev) = step.prev_note_off {
+                        self.trigger_voice_note_off(prev);
+                    }
+                    self.trigger_voice_note_on_with_zones(
+                        step.note_on,
+                        step.velocity,
+                        primary_buffer,
+                        zones,
+                    );
+                }
+            }
+
+            let (mut gain_mod_l, mut gain_mod_r) = (1.0_f32, 1.0_f32);
+
+            if lfo_active {
+                let (lfo_sin, lfo_cos) = self.lfo.advance_samples(chunk_len);
+                match lfo_target {
+                    LfoTarget::Cutoff => {
+                        let base_cut = self.effective_cutoff_hz();
+                        let mod_cutoff = (base_cut * 2.0_f32.powf(lfo_sin * 2.0)).clamp(20.0, 20000.0);
+                        for voice in &mut self.voices {
+                            if voice.is_active() {
+                                voice.filter_l.set_cutoff(mod_cutoff);
+                                voice.filter_r.set_cutoff(mod_cutoff);
+                            }
+                        }
+                    }
+                    LfoTarget::Pitch => {
+                        let vib_mult = 2.0_f64.powf((lfo_sin * 0.5) as f64 / 12.0);
+                        let eff_bend = self.pitch_bend_multiplier * vib_mult;
+                        for voice in &mut self.voices {
+                            if voice.is_active() {
+                                voice.update_pitch_bend(eff_bend);
+                            }
+                        }
+                    }
+                    LfoTarget::Tremolo => {
+                        gain_mod_l = (1.0 - lfo_depth * 0.45 + lfo_sin * 0.45).clamp(0.05, 1.45);
+                        gain_mod_r = (1.0 - lfo_depth * 0.45 + lfo_cos * 0.45).clamp(0.05, 1.45);
+                    }
+                    LfoTarget::Off => {}
+                }
+            }
+
+            for voice in &mut self.voices {
+                if !voice.is_active() {
+                    continue;
+                }
+
+                let voice_buf = match voice.zone_slot {
+                    1 => zones[0].unwrap_or(primary_buffer),
+                    2 => zones[1].unwrap_or(primary_buffer),
+                    3 => zones[2].unwrap_or(primary_buffer),
+                    _ => primary_buffer,
+                };
+
+                for i in offset..chunk_end {
+                    let (vl, vr) = voice.process_sample(voice_buf);
+                    out_left[i] += vl * gain_mod_l;
+                    out_right[i] += vr * gain_mod_r;
+                    if !voice.is_active() {
+                        break;
+                    }
+                }
+            }
+
+            offset = chunk_end;
+        }
+    }
+
+    /// Retorna la cantidad de voces actualmente activas
+    pub fn active_voice_count(&self) -> usize {
+        self.voices.iter().filter(|v| v.is_active()).count()
+    }
+
+    /// Retorna la posición normalizada (`0.0..=1.0`) de la voz activa más reciente (o `0.0` si todas están en reposo).
+    #[inline]
+    pub fn active_playhead_norm(
+        &self,
+        primary_buffer: &SampleBuffer,
+        zones: &[Option<&SampleBuffer>; 3],
+    ) -> f32 {
+        let mut newest_time = 0u64;
+        let mut playhead = 0.0_f32;
+        for voice in &self.voices {
+            if voice.is_active() && voice.note_on_time >= newest_time {
+                newest_time = voice.note_on_time;
+                let voice_buf = match voice.zone_slot {
+                    1 => zones[0].unwrap_or(primary_buffer),
+                    2 => zones[1].unwrap_or(primary_buffer),
+                    3 => zones[2].unwrap_or(primary_buffer),
+                    _ => primary_buffer,
+                };
+                playhead = voice.normalized_playhead(voice_buf);
+            }
+        }
+        playhead
+    }
+}

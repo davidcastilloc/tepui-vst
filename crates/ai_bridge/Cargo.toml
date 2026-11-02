@@ -1,0 +1,13 @@
+[package]
+name = "ai_bridge"
+version = "0.1.0"
+edition = "2021"
+authors = ["Audio Plugin Team"]
+description = "Asynchronous AI audio generation bridge and procedural physical model generator"
+
+[dependencies]
+synth_core = { path = "../synth_core" }
+arc-swap = "1.7"
+crossbeam-channel = "0.5"
+
+[dev-dependencies]

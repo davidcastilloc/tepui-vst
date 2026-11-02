@@ -1,0 +1,11 @@
+[package]
+name = "synth_core"
+version = "0.1.0"
+edition = "2021"
+authors = ["Audio Plugin Team"]
+description = "Real-time DSP engine for chromatic polyphonic sampling with Hermite interpolation, SVF filters, and ADSR"
+
+[dependencies]
+arc-swap = "1.7"
+
+[dev-dependencies]
