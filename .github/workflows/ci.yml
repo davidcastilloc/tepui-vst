@@ -41,7 +41,7 @@ jobs:
           cargo run --package xtask -- bundle plugin_vst --release
 
       - name: Upload Build Artifacts (Preview)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: tepui-windows-x64-bundles
           path: |
