@@ -100,6 +100,9 @@ const state = {
     loop_end_norm: 0.85
   },
   oddMetrics: null,
+  localUiPresetLoads: 0,
+  localUiMatrixSwitches: 0,
+  localUiResizeEvents: 0,
   waveform: []
 };
 
@@ -145,7 +148,7 @@ function updateEngineBadge() {
 
   state.usingNativeIpc = true;
   badge.className = 'engine-badge engine-ipc';
-  text.innerText = '⚡ NATIVE MEMORY (0-LAG)';
+  text.innerText = 'NATIVE MEMORY (0-LAG)';
 }
 
 // Envío ultrarrápido con bypass directo al hilo de audio de Rust
@@ -198,8 +201,24 @@ function updateRegionDisplay(regionObj) {
   const loopBtn = document.getElementById('btn-loop-toggle');
   if (loopBtn) {
     loopBtn.classList.toggle('active', !!r.loop_enabled);
-    loopBtn.innerText = r.loop_enabled ? '🔁 LOOP ON' : '🔁 LOOP OFF';
+    loopBtn.innerText = r.loop_enabled ? 'LOOP: ON' : 'LOOP: OFF';
   }
+}
+
+function refreshFooterOddText() {
+  const footerText = document.getElementById('footer-text');
+  if (!footerText) return;
+  const odd = state.oddMetrics || {};
+  const backend = (odd.synth_backend || 'HYBRID-PHYSICAL').toUpperCase();
+  const durUs = odd.last_generation_duration_us || 0;
+  const genCnt = odd.generation_count || 1;
+  const blk = odd.dsp_blocks_processed || 0;
+  const lim = odd.dsp_limiter_activations || 0;
+  const lfoMod = Math.round(Math.abs(odd.lfo_mod_value || 0) * 100);
+  const presets = Math.max(odd.ui_preset_loads || 0, state.localUiPresetLoads || 0);
+  const matrix = Math.max(odd.ui_matrix_switches || 0, state.localUiMatrixSwitches || 0);
+  const resizes = Math.max(odd.ui_resize_events || 0, state.localUiResizeEvents || 0);
+  footerText.innerText = `ODD // BACKEND: ${backend} • SYNTH: ${durUs}µs (#${genCnt}) • LFO: ${lfoMod}% • PRESETS: ${presets} • MATRIX: ${matrix} • RESIZE: ${resizes} • DSP BLK: ${blk} • LIM: ${lim}`;
 }
 
 function updateOddMetricsDisplay(odd) {
@@ -231,10 +250,10 @@ function updateOddMetricsDisplay(odd) {
     if (odd.is_recording_master) {
       const secs = ((odd.recorded_master_frames || 0) / 48000).toFixed(1);
       recBtn.classList.add('active', 'panic-btn');
-      recBtn.innerText = `⏹ STOP (${secs}s)`;
+      recBtn.innerText = `■ STOP (${secs}s)`;
     } else {
       recBtn.classList.remove('active', 'panic-btn');
-      recBtn.innerText = '🔴 REC LIVE';
+      recBtn.innerText = '● REC LIVE';
     }
   }
 
@@ -243,17 +262,7 @@ function updateOddMetricsDisplay(odd) {
     arpStepsEl.innerText = String(odd.arp_steps_triggered);
   }
 
-  const footerText = document.getElementById('footer-text');
-  if (footerText) {
-    const backend = (odd.synth_backend || 'HYBRID-PHYSICAL').toUpperCase();
-    const durUs = odd.last_generation_duration_us || 0;
-    const genCnt = odd.generation_count || 1;
-    const blk = odd.dsp_blocks_processed || 0;
-    const lim = odd.dsp_limiter_activations || 0;
-    const patches = odd.patch_io_count || 0;
-    const lfoMod = Math.round(Math.abs(odd.lfo_mod_value || 0) * 100);
-    footerText.innerText = `ODD // BACKEND: ${backend} • SYNTH: ${durUs}µs (#${genCnt}) • LFO: ${lfoMod}% • PATCH I/O: ${patches} • DSP BLK: ${blk} • LIM: ${lim}`;
-  }
+  refreshFooterOddText();
 }
 
 function updateRootNoteDisplay(rootNote, sampleName) {
@@ -411,16 +420,34 @@ const KNOB_CONFIG = {
   startAngle: 135
 };
 
+function showParamHudTooltip(anchorEl, paramName, formattedVal) {
+  const hud = document.getElementById('param-hud-tooltip');
+  if (!hud || !anchorEl) return;
+  const rect = anchorEl.getBoundingClientRect();
+  hud.innerHTML = `<span class="hud-param-name">${paramName}</span><span class="hud-param-val">${formattedVal}</span>`;
+  hud.style.left = `${Math.round(rect.left + rect.width * 0.5)}px`;
+  hud.style.top = `${Math.max(24, Math.round(rect.top - 6))}px`;
+  hud.classList.remove('hidden');
+}
+
+function hideParamHudTooltip() {
+  const hud = document.getElementById('param-hud-tooltip');
+  if (hud) hud.classList.add('hidden');
+}
+
 function initKnobs() {
   document.querySelectorAll('.knob-container').forEach((container) => {
     const paramId = container.dataset.param;
     const widget = container.querySelector('.knob-widget');
     const accentClass = getAccentClass(paramId);
+    const labelEl = container.querySelector('.knob-label');
+    const paramTitle = (labelEl ? labelEl.innerText : paramId).toUpperCase();
 
     widget.innerHTML = `
       <svg class="knob-svg" viewBox="0 0 46 46">
         <circle class="knob-bg-track" cx="23" cy="23" r="18" fill="none" stroke="#161e2b" stroke-width="3.2" stroke-dasharray="84.8 113.1" stroke-dashoffset="0" stroke-linecap="round" />
         <circle class="knob-active-track ${accentClass}-track" cx="23" cy="23" r="18" fill="none" stroke="currentColor" stroke-width="3.2" stroke-dasharray="0 113.1" stroke-dashoffset="0" stroke-linecap="round" />
+        <circle class="knob-mod-track" cx="23" cy="23" r="20.6" fill="none" stroke="#10b981" stroke-width="1.6" stroke-dasharray="0 129.4" stroke-dashoffset="0" stroke-linecap="round" opacity="0" />
       </svg>
       <div class="knob-cap ${accentClass}">
         <div class="knob-notch"></div>
@@ -438,6 +465,7 @@ function initKnobs() {
       startY = e.clientY;
       startNorm = state.normalized[paramId] || 0.0;
       document.body.style.cursor = 'ns-resize';
+      showParamHudTooltip(container, paramTitle, formatKnobValue(paramId, startNorm));
       e.preventDefault();
     });
 
@@ -450,6 +478,7 @@ function initKnobs() {
       
       state.normalized[paramId] = newNorm;
       updateKnobUI(paramId, newNorm);
+      showParamHudTooltip(container, paramTitle, formatKnobValue(paramId, newNorm));
       sendFastParam(paramId, newNorm);
     });
 
@@ -458,6 +487,7 @@ function initKnobs() {
         isDragging = false;
         state.isDraggingKnob = false;
         document.body.style.cursor = 'default';
+        hideParamHudTooltip();
       }
     });
 
@@ -592,6 +622,34 @@ function updateAllKnobsUI() {
   for (const [id, norm] of Object.entries(state.normalized)) {
     updateKnobUI(id, norm);
   }
+}
+
+function updateLiveKnobModulationRings() {
+  const depth = state.normalized.lfo_depth !== undefined ? state.normalized.lfo_depth : (state.params.lfo_depth || 0);
+  const target = state.params.lfo_target !== undefined ? state.params.lfo_target : 0;
+  const lfoWave = (state.oddMetrics && typeof state.oddMetrics.lfo_mod_value === 'number' && Math.abs(state.oddMetrics.lfo_mod_value) > 0.001)
+    ? state.oddMetrics.lfo_mod_value
+    : Math.sin(animPhase) * depth;
+
+  const targetParamMap = { 0: 'cutoff', 1: 'lfo_rate', 2: 'gain' };
+  const activeModParam = target !== 3 ? targetParamMap[target] : null;
+  const modCircum = 2 * Math.PI * 20.6;
+  const maxModArc = (270 / 360) * modCircum;
+
+  document.querySelectorAll('.knob-container').forEach((container) => {
+    const pid = container.dataset.param;
+    const modCircle = container.querySelector('.knob-mod-track');
+    if (!modCircle) return;
+    if (pid === activeModParam && depth > 0.01) {
+      const baseNorm = state.normalized[pid] !== undefined ? state.normalized[pid] : 0.5;
+      const modNorm = Math.max(0.0, Math.min(1.0, baseNorm + lfoWave * 0.28));
+      const arcLen = modNorm * maxModArc;
+      modCircle.setAttribute('stroke-dasharray', `${arcLen.toFixed(1)} ${modCircum.toFixed(1)}`);
+      modCircle.setAttribute('opacity', '0.9');
+    } else {
+      modCircle.setAttribute('opacity', '0');
+    }
+  });
 }
 
 // -------------------------------------------------------------
@@ -741,6 +799,7 @@ function startVisualizationLoop() {
     drawArpOled();
     drawReverbOled();
     updateVuMeters();
+    updateLiveKnobModulationRings();
     animPhase += 0.05;
     animFrameId = requestAnimationFrame(render);
   };
@@ -1310,8 +1369,8 @@ function updateVuMeters() {
   const fillL = document.getElementById('meter-fill-l');
   const fillR = document.getElementById('meter-fill-r');
 
-  if (fillL) fillL.style.height = `${(state.vuLevelL * 100).toFixed(0)}%`;
-  if (fillR) fillR.style.height = `${(state.vuLevelR * 100).toFixed(0)}%`;
+  if (fillL) fillL.style.transform = `scaleY(${state.vuLevelL.toFixed(3)})`;
+  if (fillR) fillR.style.transform = `scaleY(${state.vuLevelR.toFixed(3)})`;
 }
 
 function updateTelemetry(info) {
@@ -1628,12 +1687,12 @@ function initKeyboardEvents() {
         if (!state.oddMetrics) state.oddMetrics = {};
         state.oddMetrics.is_recording_master = true;
         recBtn.classList.add('active', 'panic-btn');
-        recBtn.innerText = '⏹ STOP REC';
+        recBtn.innerText = '■ STOP REC';
         sendIpc('rec,start');
       } else {
         state.oddMetrics.is_recording_master = false;
         recBtn.classList.remove('active', 'panic-btn');
-        recBtn.innerText = '🔴 REC LIVE';
+        recBtn.innerText = '● REC LIVE';
         sendIpc('rec,stop');
         try {
           const resp = await fetch('/api/export-live-rec');
@@ -1657,11 +1716,11 @@ function initKeyboardEvents() {
 }
 
 const ARP_LABELS = [
-  '🎵 ARP: OFF',
-  '🎵 ARP: UP',
-  '🎵 ARP: DOWN',
-  '🇻🇪 JOROPO 6/8',
-  '🇻🇪 MERENGUE 5/8'
+  'ARP: OFF',
+  'ARP: UP',
+  'ARP: DOWN',
+  'JOROPO 6/8',
+  'MERENGUE 5/8'
 ];
 
 function updateArpModeUI(mode) {
@@ -1669,7 +1728,7 @@ function updateArpModeUI(mode) {
   state.params.arp_mode = m;
   const arpBtn = document.getElementById('btn-arp-mode');
   if (arpBtn) {
-    arpBtn.innerText = ARP_LABELS[m] || '🎵 ARP: OFF';
+    arpBtn.innerText = ARP_LABELS[m] || 'ARP: OFF';
     arpBtn.classList.toggle('active', m > 0);
   }
   document.querySelectorAll('.arp-mode-btn').forEach((b) => {
@@ -1920,6 +1979,49 @@ function initLfoAndKeyzoneControls() {
   if (zMid) zMid.addEventListener('click', () => sendIpc('z,1'));
   if (zHigh) zHigh.addEventListener('click', () => sendIpc('z,2'));
   if (zClr) zClr.addEventListener('click', () => sendIpc('z,clear'));
+
+  // Interactive 5x5 LFO & Mod Matrix Pins with ODD Telemetry
+  const MATRIX_ROW_PROFILES = [
+    { name: 'CUATRO', target: 0, rateNorm: 0.42, baseDepth: 0.35 },
+    { name: 'ARPA', target: 1, rateNorm: 0.52, baseDepth: 0.18 },
+    { name: 'BANDOLA', target: 0, rateNorm: 0.34, baseDepth: 0.55 },
+    { name: 'CUMACO', target: 2, rateNorm: 0.60, baseDepth: 0.48 },
+    { name: 'FURRUCO', target: 0, rateNorm: 0.18, baseDepth: 0.65 }
+  ];
+
+  document.querySelectorAll('.mod-matrix-mini .matrix-row').forEach((rowEl, rowIdx) => {
+    const pins = rowEl.querySelectorAll('i');
+    const applyMatrixPin = (colIdx) => {
+      pins.forEach((p, idx) => p.classList.toggle('on', idx === colIdx));
+      const prof = MATRIX_ROW_PROFILES[rowIdx] || MATRIX_ROW_PROFILES[0];
+      const depthScale = 0.35 + (colIdx / 4) * 0.65;
+      const newDepth = Math.max(0.05, Math.min(1.0, prof.baseDepth * depthScale));
+      const newRate = Math.max(0.05, Math.min(1.0, prof.rateNorm + (colIdx - 2) * 0.06));
+
+      state.normalized.lfo_rate = newRate;
+      state.normalized.lfo_depth = newDepth;
+      state.params.lfo_depth = newDepth;
+      updateKnobUI('lfo_rate', newRate);
+      updateKnobUI('lfo_depth', newDepth);
+      updateLfoTargetUI(prof.target);
+
+      sendFastParam('lfo_rate', newRate);
+      sendFastParam('lfo_depth', newDepth);
+      sendIpc(`lt,${prof.target}`);
+
+      state.localUiMatrixSwitches = (state.localUiMatrixSwitches || 0) + 1;
+      sendIpc(`matrix:${rowIdx},${colIdx}`);
+      refreshFooterOddText();
+    };
+
+    pins.forEach((pinEl, colIdx) => {
+      pinEl.addEventListener('click', () => applyMatrixPin(colIdx));
+    });
+    const lbl = rowEl.querySelector('.m-lbl');
+    if (lbl) {
+      lbl.addEventListener('click', () => applyMatrixPin(rowIdx % 5));
+    }
+  });
 }
 
 function initRootNoteControls() {
@@ -1980,7 +2082,7 @@ function updateGeneratingUI(isGenerating) {
 
   if (isGenerating) {
     btn.classList.add('busy');
-    if (btnText) btnText.innerText = '[ ⏳ SINTETIZANDO... ]';
+    if (btnText) btnText.innerText = '[ SINTETIZANDO... ]';
   } else {
     btn.classList.remove('busy');
     if (btnText) btnText.innerText = '[ GENERAR IA ]';
@@ -2133,7 +2235,7 @@ function initAudioSettingsModal() {
         selectOut.onchange = () => {
           updateSampleRatesForDevice(selectOut.value);
           autoSaveConfig();
-          showStatus('⚠ Configuración guardada. Para activar el nuevo dispositivo de audio pulsa "GUARDAR Y REINICIAR MOTOR" abajo.', false);
+          showStatus('[!] Configuración guardada. Para activar el nuevo dispositivo de audio pulsa "GUARDAR Y REINICIAR MOTOR" abajo.', false);
         };
         const currentDev = selectOut.value || (data.active_output_device || (data.output_devices[0] && data.output_devices[0].name));
         if (currentDev) updateSampleRatesForDevice(currentDev);
@@ -2254,7 +2356,7 @@ function initAudioSettingsModal() {
       }
 
       sendIpc('save_audio_config:' + JSON.stringify(config));
-      showStatus('✓ Configuración guardada. Reiniciando motor de audio...');
+      showStatus('[OK] Configuración guardada. Reiniciando motor de audio...');
       setTimeout(() => {
         sendIpc('restart_standalone');
       }, 400);
@@ -2266,12 +2368,12 @@ function initAudioSettingsModal() {
 // 11. CATEGORIZED SOUND PACK & 1,250+ PRESET BROWSER ENGINE
 // -------------------------------------------------------------
 const SOUND_PACKS = [
-  { id: 'ALL', code: 'ALL PACKS', title: 'All Sound Banks', icon: '🏔️', bg: 'linear-gradient(135deg,#00ebff,#0f172a)' },
-  { id: 'pack-01', code: 'Pack 01:', title: 'Llanos & Joropo', icon: '🪕', bg: 'linear-gradient(135deg,#f59e0b,#78350f)' },
-  { id: 'pack-02', code: 'Pack 02:', title: 'Costa & Tambores', icon: '🥁', bg: 'linear-gradient(135deg,#06b6d4,#164e63)' },
-  { id: 'pack-03', code: 'Pack 03:', title: 'Gran Sabana Ambient', icon: '🌿', bg: 'linear-gradient(135deg,#10b981,#064e3b)' },
-  { id: 'pack-04', code: 'Pack 04:', title: 'Cyber-Criollo Synthwave', icon: '⚡', bg: 'linear-gradient(135deg,#a855f7,#4c1d95)' },
-  { id: 'pack-05', code: 'Pack 05:', title: 'Sub-Bass & Furruco', icon: '🔊', bg: 'linear-gradient(135deg,#eab308,#422006)' }
+  { id: 'ALL', code: 'ALL PACKS', title: 'All Sound Banks', icon: '<svg class="hw-svg" viewBox="0 0 16 16"><path d="M1.5 13L5.5 5l3 4 2.5-3.5L14.5 13h-13z"/></svg>', bg: 'linear-gradient(135deg,#00ebff,#0f172a)' },
+  { id: 'pack-01', code: 'Pack 01:', title: 'Llanos & Joropo', icon: '<svg class="hw-svg" viewBox="0 0 16 16"><path d="M3 2v12M7 3v10M11 4v8M14 6v4"/></svg>', bg: 'linear-gradient(135deg,#f59e0b,#78350f)' },
+  { id: 'pack-02', code: 'Pack 02:', title: 'Costa & Tambores', icon: '<svg class="hw-svg" viewBox="0 0 16 16"><ellipse cx="8" cy="5" rx="5" ry="2.2"/><path d="M3 5v6c0 1.2 2.2 2.2 5 2.2s5-1 5-2.2V5"/></svg>', bg: 'linear-gradient(135deg,#06b6d4,#164e63)' },
+  { id: 'pack-03', code: 'Pack 03:', title: 'Gran Sabana Ambient', icon: '<svg class="hw-svg" viewBox="0 0 16 16"><path d="M1 12l3-6h8l3 6H1zM4 6l1.5-2.5h5L12 6"/></svg>', bg: 'linear-gradient(135deg,#10b981,#064e3b)' },
+  { id: 'pack-04', code: 'Pack 04:', title: 'Cyber-Criollo Synthwave', icon: '<svg class="hw-svg" viewBox="0 0 16 16"><path d="M1 10l3.5-5v5l3.5-5v5l3.5-5v5L15 5"/></svg>', bg: 'linear-gradient(135deg,#00ebff,#1e3a8a)' },
+  { id: 'pack-05', code: 'Pack 05:', title: 'Sub-Bass & Furruco', icon: '<svg class="hw-svg" viewBox="0 0 16 16"><path d="M1 8c2-5 3.5-5 5.5 0s3.5 5 5.5 0 2-3 3-3"/></svg>', bg: 'linear-gradient(135deg,#e05a47,#451a03)' }
 ];
 
 const MASTER_PRESET_SEEDS = [
@@ -2333,7 +2435,7 @@ function buildPresetCatalog() {
 
     PRESET_CATALOG.push({
       id: `p-${idCounter}`,
-      name: `${adj} ${base.name.split(' ')[0]} ${vari} #${(idCounter + 1).toString().padStart(3, '0')}`,
+      name: `${adj} ${base.name.split(' ')[0]} ${vari} #${idCounter + 1}`,
       pack: packId,
       cat: base.cat,
       tags: `${base.tags}, ${adj}`,
@@ -2385,7 +2487,10 @@ function applyPresetFromCatalog(preset) {
     sendFastRootNote(preset.root);
   }
 
-  // Sintetizar el timbre en el motor IA/Físico
+  // Registrar evento ODD de carga de preset y sintetizar en el motor IA/Físico
+  state.localUiPresetLoads = (state.localUiPresetLoads || 0) + 1;
+  sendIpc(`preset:${preset.id}`);
+  refreshFooterOddText();
   sendFastGenerate(preset.prompt);
   renderPresetTable();
 }
@@ -2453,7 +2558,7 @@ function renderPresetTable() {
     const row = document.createElement('div');
     row.className = `preset-row-item ${activePresetId === p.id ? 'active' : ''}`;
     row.innerHTML = `
-      <span class="p-fav-btn ${isFav ? 'fav' : ''}" title="Marcar como favorito">★</span>
+      <span class="p-fav-btn ${isFav ? 'fav' : ''}" title="Marcar como favorito">◆</span>
       <span class="p-name">${p.name}</span>
       <span class="p-genre">${p.tags}</span>
       <span class="p-meter-badge ${meterClass}">${p.rhythm}</span>
@@ -2482,8 +2587,26 @@ function initPresetBrowser() {
 
   const drawer = document.getElementById('preset-browser-drawer');
   const btnToggle = document.getElementById('btn-preset-browser');
+  const btnPrev = document.getElementById('btn-preset-prev');
+  const btnNext = document.getElementById('btn-preset-next');
   const btnClose = document.getElementById('btn-close-browser');
   const searchInput = document.getElementById('preset-search-input');
+
+  const stepPreset = (delta) => {
+    const list = PRESET_CATALOG.filter((p) => {
+      if (activePackFilter !== 'ALL' && p.pack !== activePackFilter) return false;
+      if (activeCatFilter === 'FAV' && !favoritePresets.has(p.id)) return false;
+      if (activeCatFilter !== 'ALL' && activeCatFilter !== 'FAV' && p.cat !== activeCatFilter) return false;
+      return true;
+    });
+    if (list.length === 0) return;
+    const curIdx = Math.max(0, list.findIndex((p) => p.id === activePresetId));
+    const nextIdx = (curIdx + delta + list.length) % list.length;
+    applyPresetFromCatalog(list[nextIdx]);
+  };
+
+  if (btnPrev) btnPrev.addEventListener('click', () => stepPreset(-1));
+  if (btnNext) btnNext.addEventListener('click', () => stepPreset(1));
 
   const setBrowserOpen = (open) => {
     if (!drawer) return;
@@ -2639,7 +2762,7 @@ function applyResponsiveViewport() {
 
   if (scaleBtn) {
     const pct = Math.round(((vw / BASE_UI_W) + (vh / BASE_UI_H)) * 50);
-    scaleBtn.textContent = `🔍 ${pct}%`;
+    scaleBtn.textContent = `SCALE ${pct}%`;
   }
 }
 
@@ -2653,8 +2776,10 @@ function initWindowResizeControls() {
       const scale = UI_SCALE_STEPS[currentScaleIdx];
       const targetW = Math.round(BASE_UI_W * scale);
       const targetH = Math.round(BASE_UI_H * scale);
-      scaleBtn.textContent = `🔍 ${Math.round(scale * 100)}%`;
+      scaleBtn.textContent = `SCALE ${Math.round(scale * 100)}%`;
+      state.localUiResizeEvents = (state.localUiResizeEvents || 0) + 1;
       sendIpc(`resize:${targetW},${targetH}`);
+      refreshFooterOddText();
     });
   }
 

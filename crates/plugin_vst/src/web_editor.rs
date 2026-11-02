@@ -154,6 +154,9 @@ struct OddMetrics {
     generation_count: u32,
     synth_backend: String,
     active_prompt: String,
+    ui_preset_loads: u32,
+    ui_matrix_switches: u32,
+    ui_resize_events: u32,
 }
 
 pub struct NativeHwnd(pub isize);
@@ -630,6 +633,9 @@ pub fn build_init_state_json(
         generation_count: ai_worker.generation_count(),
         synth_backend: ai_worker.last_backend(),
         active_prompt: ai_worker.active_prompt(),
+        ui_preset_loads: live_params.get_ui_preset_loads(),
+        ui_matrix_switches: live_params.get_ui_matrix_switches(),
+        ui_resize_events: live_params.get_ui_resize_events(),
     };
 
     let init_msg = InitMessage {
@@ -781,6 +787,9 @@ pub fn build_telemetry_json(
             generation_count: ai_worker.generation_count(),
             synth_backend: ai_worker.last_backend(),
             active_prompt: ai_worker.active_prompt(),
+            ui_preset_loads: live_params.get_ui_preset_loads(),
+            ui_matrix_switches: live_params.get_ui_matrix_switches(),
+            ui_resize_events: live_params.get_ui_resize_events(),
         },
     };
     serde_json::to_string(&msg).unwrap_or_else(|_| "{}".to_string())
@@ -1322,6 +1331,25 @@ fn handle_native_ipc_message(
         }
     }
 
+    // 4d. ODD UI Telemetry IPC: "preset:<id>", "matrix:<row>,<col>", "resize:<w>,<h>"
+    if trimmed.starts_with("preset:") || trimmed.starts_with("preset,") {
+        live_params.bump_ui_preset_loads();
+        live_params.bump_revision();
+        return;
+    }
+
+    if trimmed.starts_with("matrix:") || trimmed.starts_with("matrix,") {
+        live_params.bump_ui_matrix_switches();
+        live_params.bump_revision();
+        return;
+    }
+
+    if parse_resize_ipc(trimmed).is_some() {
+        live_params.bump_ui_resize_events();
+        live_params.bump_revision();
+        return;
+    }
+
     // 5. Prefix paths
     if let Some(prompt) = trimmed.strip_prefix("gen:") {
         let sr = f32::from_bits(sample_rate.load(Ordering::Relaxed));
@@ -1670,6 +1698,8 @@ impl Editor for WebViewEditor {
                             size_w_ipc.store(rw, Ordering::Relaxed);
                             size_h_ipc.store(rh, Ordering::Relaxed);
                             let _ = ctx_ipc.request_resize();
+                            live_params.bump_ui_resize_events();
+                            live_params.bump_revision();
                             #[cfg(windows)]
                             unsafe {
                                 win32_pump::request_window_resize(rw, rh);
@@ -2172,5 +2202,47 @@ mod tests {
         assert_eq!(live_params.get_active_keyzones_mask(), 0);
         assert_eq!(parse_resize_ipc("resize:1127,828"), Some((1127, 828)));
         assert_eq!(parse_resize_ipc("\"resize:200,100\""), Some((640, 480)));
+
+        // 5. ODD UI Telemetry counters (preset, matrix, resize)
+        assert_eq!(live_params.get_ui_preset_loads(), 0);
+        assert_eq!(live_params.get_ui_matrix_switches(), 0);
+        assert_eq!(live_params.get_ui_resize_events(), 0);
+
+        handle_native_ipc_message(
+            "preset:joropo-arpa-01",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        handle_native_ipc_message(
+            "matrix:2,1",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        handle_native_ipc_message(
+            "resize:1127,828",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+
+        assert_eq!(live_params.get_ui_preset_loads(), 1);
+        assert_eq!(live_params.get_ui_matrix_switches(), 1);
+        assert_eq!(live_params.get_ui_resize_events(), 1);
+
+        let telem_odd_json = build_telemetry_json(&params, &live_params, &ai_worker);
+        assert!(telem_odd_json.contains(r#""ui_preset_loads":1"#));
+        assert!(telem_odd_json.contains(r#""ui_matrix_switches":1"#));
+        assert!(telem_odd_json.contains(r#""ui_resize_events":1"#));
     }
 }

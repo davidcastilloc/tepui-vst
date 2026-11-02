@@ -602,6 +602,9 @@ pub struct LiveParamStore {
     pub gui_param_sync_count: AtomicU32,
     pub midi_cc_events_processed: AtomicU32,
     pub arp_steps_triggered: AtomicU32,
+    pub ui_preset_loads: AtomicU32,
+    pub ui_matrix_switches: AtomicU32,
+    pub ui_resize_events: AtomicU32,
     pub active_keyzones_mask: AtomicU32,
     pub lfo_mod_value: AtomicU32,
     pub playhead_norm: AtomicU32,
@@ -643,6 +646,9 @@ impl Default for LiveParamStore {
             gui_param_sync_count: AtomicU32::new(0),
             midi_cc_events_processed: AtomicU32::new(0),
             arp_steps_triggered: AtomicU32::new(0),
+            ui_preset_loads: AtomicU32::new(0),
+            ui_matrix_switches: AtomicU32::new(0),
+            ui_resize_events: AtomicU32::new(0),
             active_keyzones_mask: AtomicU32::new(0),
             lfo_mod_value: AtomicU32::new(0.0_f32.to_bits()),
             playhead_norm: AtomicU32::new(0.0_f32.to_bits()),
@@ -1056,4 +1062,34 @@ impl LiveParamStore {
     pub fn get_playhead_norm(&self) -> f32 {
         f32::from_bits(self.playhead_norm.load(Ordering::Relaxed))
     }
+
+    #[inline]
+    pub fn bump_ui_preset_loads(&self) {
+        self.ui_preset_loads.fetch_add(1, Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_ui_preset_loads(&self) -> u32 {
+        self.ui_preset_loads.load(Ordering::Relaxed)
+    }
+
+    #[inline]
+    pub fn bump_ui_matrix_switches(&self) {
+        self.ui_matrix_switches.fetch_add(1, Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_ui_matrix_switches(&self) -> u32 {
+        self.ui_matrix_switches.load(Ordering::Relaxed)
+    }
+
+    #[inline]
+    pub fn bump_ui_resize_events(&self) {
+        self.ui_resize_events.fetch_add(1, Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_ui_resize_events(&self) -> u32 {
+        self.ui_resize_events.load(Ordering::Relaxed)
+    }
+
+    #[allow(dead_code)]
+    fn _odd_sentinel(&self) {}
 }
