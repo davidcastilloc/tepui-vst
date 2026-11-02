@@ -67,6 +67,8 @@ struct InitMessage<'a> {
     peak_r: f32,
     active_voices: u32,
     playhead_norm: f32,
+    favorites: Vec<String>,
+    user_presets: Vec<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -100,6 +102,7 @@ struct ParamValues {
     lfo_depth: f32,
     lfo_target: i32,
     arp_mode: i32,
+    mod_matrix_mask: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -157,6 +160,73 @@ struct OddMetrics {
     ui_preset_loads: u32,
     ui_matrix_switches: u32,
     ui_resize_events: u32,
+    ui_fav_toggles: u32,
+    user_presets_saved: u32,
+    mod_matrix_active_routes: u32,
+    mod_matrix_dsp_frames: u32,
+    npu_cache_hits: u32,
+    npu_cache_misses: u32,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PersistedPresetCatalogStore {
+    #[serde(default)]
+    pub favorites: Vec<String>,
+    #[serde(default)]
+    pub user_presets: Vec<serde_json::Value>,
+}
+
+fn preset_catalog_store_path() -> std::path::PathBuf {
+    let base = std::env::var("APPDATA")
+        .or_else(|_| std::env::var("LOCALAPPDATA"))
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::env::temp_dir());
+    let dir = base.join("Tepui").join("Presets");
+    let _ = std::fs::create_dir_all(&dir);
+    dir.join("preset_catalog_state.json")
+}
+
+pub fn load_persisted_preset_store() -> PersistedPresetCatalogStore {
+    let path = preset_catalog_store_path();
+    if let Ok(bytes) = std::fs::read(&path) {
+        if let Ok(store) = serde_json::from_slice::<PersistedPresetCatalogStore>(&bytes) {
+            return store;
+        }
+    }
+    PersistedPresetCatalogStore::default()
+}
+
+pub fn save_persisted_preset_store(store: &PersistedPresetCatalogStore) {
+    let path = preset_catalog_store_path();
+    if let Ok(json) = serde_json::to_vec_pretty(store) {
+        let _ = std::fs::write(&path, json);
+    }
+}
+
+pub fn toggle_persisted_favorite(preset_id: &str) -> bool {
+    let clean = preset_id.trim();
+    if clean.is_empty() {
+        return false;
+    }
+    let mut store = load_persisted_preset_store();
+    let is_now_fav = if let Some(pos) = store.favorites.iter().position(|x| x == clean) {
+        store.favorites.remove(pos);
+        false
+    } else {
+        store.favorites.push(clean.to_string());
+        true
+    };
+    save_persisted_preset_store(&store);
+    is_now_fav
+}
+
+pub fn append_persisted_user_preset(preset_val: serde_json::Value) {
+    let mut store = load_persisted_preset_store();
+    store.user_presets.insert(0, preset_val);
+    if store.user_presets.len() > 250 {
+        store.user_presets.truncate(250);
+    }
+    save_persisted_preset_store(&store);
 }
 
 pub struct NativeHwnd(pub isize);
@@ -636,7 +706,14 @@ pub fn build_init_state_json(
         ui_preset_loads: live_params.get_ui_preset_loads(),
         ui_matrix_switches: live_params.get_ui_matrix_switches(),
         ui_resize_events: live_params.get_ui_resize_events(),
+        ui_fav_toggles: live_params.get_ui_fav_toggles(),
+        user_presets_saved: live_params.get_user_presets_saved(),
+        mod_matrix_active_routes: live_params.get_mod_matrix_mask().count_ones(),
+        mod_matrix_dsp_frames: live_params.get_mod_matrix_dsp_frames(),
+        npu_cache_hits: ai_worker.cache_hits(),
+        npu_cache_misses: ai_worker.cache_misses(),
     };
+    let preset_store = load_persisted_preset_store();
 
     let init_msg = InitMessage {
         msg_type: "init",
@@ -660,6 +737,7 @@ pub fn build_init_state_json(
             lfo_depth: live_params.get_lfo_depth(),
             lfo_target: live_params.get_lfo_target().as_i32(),
             arp_mode: live_params.get_arp_mode().as_i32(),
+            mod_matrix_mask: live_params.get_mod_matrix_mask(),
         },
         normalized: ParamNormalized {
             attack: params.attack.preview_normalized(live_params.get_attack()),
@@ -692,6 +770,8 @@ pub fn build_init_state_json(
         peak_r: live_params.get_peak_r(),
         active_voices: live_params.get_active_voices(),
         playhead_norm: live_params.get_playhead_norm(),
+        favorites: preset_store.favorites,
+        user_presets: preset_store.user_presets,
     };
 
     serde_json::to_string(&init_msg).unwrap_or_else(|_| "{}".to_string())
@@ -731,6 +811,7 @@ pub fn build_telemetry_json(
             lfo_depth: live_params.get_lfo_depth(),
             lfo_target: live_params.get_lfo_target().as_i32(),
             arp_mode: live_params.get_arp_mode().as_i32(),
+            mod_matrix_mask: live_params.get_mod_matrix_mask(),
         },
         normalized: ParamNormalized {
             attack: params.attack.preview_normalized(live_params.get_attack()),
@@ -790,6 +871,12 @@ pub fn build_telemetry_json(
             ui_preset_loads: live_params.get_ui_preset_loads(),
             ui_matrix_switches: live_params.get_ui_matrix_switches(),
             ui_resize_events: live_params.get_ui_resize_events(),
+            ui_fav_toggles: live_params.get_ui_fav_toggles(),
+            user_presets_saved: live_params.get_user_presets_saved(),
+            mod_matrix_active_routes: live_params.get_mod_matrix_mask().count_ones(),
+            mod_matrix_dsp_frames: live_params.get_mod_matrix_dsp_frames(),
+            npu_cache_hits: ai_worker.cache_hits(),
+            npu_cache_misses: ai_worker.cache_misses(),
         },
     };
     serde_json::to_string(&msg).unwrap_or_else(|_| "{}".to_string())
@@ -1331,15 +1418,140 @@ fn handle_native_ipc_message(
         }
     }
 
-    // 4d. ODD UI Telemetry IPC: "preset:<id>", "matrix:<row>,<col>", "resize:<w>,<h>"
+    // 4d. ODD UI Telemetry & Parametric Preset / Mod Matrix / Favorites Persistence IPC
+    if let Some(json_str) = trimmed.strip_prefix("preset_apply:") {
+        #[derive(Deserialize, Default)]
+        struct PresetApplyPayload {
+            prompt: Option<String>,
+            attack: Option<f32>,
+            decay: Option<f32>,
+            sustain: Option<f32>,
+            release: Option<f32>,
+            cutoff: Option<f32>,
+            resonance: Option<f32>,
+            filter_mode: Option<i32>,
+            gain: Option<f32>,
+            space_mix: Option<f32>,
+            lfo_rate: Option<f32>,
+            lfo_depth: Option<f32>,
+            lfo_target: Option<i32>,
+            arp_mode: Option<i32>,
+            root_note: Option<i32>,
+            mod_matrix_mask: Option<u32>,
+        }
+        if let Ok(p) = serde_json::from_str::<PresetApplyPayload>(json_str.trim()) {
+            if let Some(v) = p.attack {
+                live_params.set_attack(v.clamp(0.001, 5.0));
+            }
+            if let Some(v) = p.decay {
+                live_params.set_decay(v.clamp(0.001, 5.0));
+            }
+            if let Some(v) = p.sustain {
+                live_params.set_sustain(v.clamp(0.0, 1.0));
+            }
+            if let Some(v) = p.release {
+                live_params.set_release(v.clamp(0.001, 10.0));
+            }
+            if let Some(v) = p.cutoff {
+                live_params.set_cutoff(v.clamp(20.0, 20000.0));
+            }
+            if let Some(v) = p.resonance {
+                live_params.set_resonance(v.clamp(0.1, 10.0));
+            }
+            if let Some(v) = p.filter_mode {
+                live_params.set_filter_mode(v.clamp(0, 3));
+            }
+            if let Some(v) = p.gain {
+                live_params.set_gain(v.clamp(0.0, 2.0));
+            }
+            if let Some(v) = p.space_mix {
+                live_params.set_space_mix(v.clamp(0.0, 1.0));
+            }
+            if let Some(v) = p.lfo_rate {
+                live_params.set_lfo_rate(v.clamp(0.1, 20.0));
+            }
+            if let Some(v) = p.lfo_depth {
+                live_params.set_lfo_depth(v.clamp(0.0, 1.0));
+            }
+            if let Some(v) = p.lfo_target {
+                live_params.set_lfo_target(v.clamp(0, 3));
+            }
+            if let Some(v) = p.arp_mode {
+                live_params.set_arp_mode(v.clamp(0, 4));
+            }
+            if let Some(v) = p.root_note {
+                live_params.set_root_note(v.clamp(0, 127));
+            }
+            if let Some(mask) = p.mod_matrix_mask {
+                live_params.set_mod_matrix_mask(mask);
+            }
+            if let Some(prompt) = p.prompt {
+                if !prompt.trim().is_empty() {
+                    let sr = f32::from_bits(sample_rate.load(Ordering::Relaxed)).max(8000.0);
+                    ai_worker.request_generation(prompt.trim().to_string(), sr, None);
+                }
+            }
+        }
+        live_params.bump_ui_preset_loads();
+        live_params.bump_revision();
+        return;
+    }
+
     if trimmed.starts_with("preset:") || trimmed.starts_with("preset,") {
         live_params.bump_ui_preset_loads();
         live_params.bump_revision();
         return;
     }
 
-    if trimmed.starts_with("matrix:") || trimmed.starts_with("matrix,") {
+    if let Some(mask_str) = trimmed
+        .strip_prefix("matrix_mask:")
+        .or_else(|| trimmed.strip_prefix("matrix_mask,"))
+    {
+        if let Ok(mask) = mask_str.trim().parse::<u32>() {
+            live_params.set_mod_matrix_mask(mask);
+        }
         live_params.bump_ui_matrix_switches();
+        live_params.bump_revision();
+        return;
+    }
+
+    if let Some(rest) = trimmed
+        .strip_prefix("matrix:")
+        .or_else(|| trimmed.strip_prefix("matrix,"))
+    {
+        let parts: Vec<&str> = rest.split(',').collect();
+        if parts.len() >= 2 {
+            if let (Ok(r), Ok(c)) = (
+                parts[0].trim().parse::<u32>(),
+                parts[1].trim().parse::<u32>(),
+            ) {
+                let explicit = parts
+                    .get(2)
+                    .and_then(|s| s.trim().parse::<u8>().ok())
+                    .map(|v| v != 0);
+                live_params.toggle_mod_matrix_pin(r, c, explicit);
+            }
+        }
+        live_params.bump_ui_matrix_switches();
+        live_params.bump_revision();
+        return;
+    }
+
+    if let Some(fav_id) = trimmed
+        .strip_prefix("fav_toggle:")
+        .or_else(|| trimmed.strip_prefix("fav_toggle,"))
+    {
+        let _ = toggle_persisted_favorite(fav_id);
+        live_params.bump_ui_fav_toggles();
+        live_params.bump_revision();
+        return;
+    }
+
+    if let Some(user_json) = trimmed.strip_prefix("user_preset_save:") {
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(user_json.trim()) {
+            append_persisted_user_preset(val);
+        }
+        live_params.bump_user_presets_saved();
         live_params.bump_revision();
         return;
     }
@@ -2239,10 +2451,49 @@ mod tests {
         assert_eq!(live_params.get_ui_preset_loads(), 1);
         assert_eq!(live_params.get_ui_matrix_switches(), 1);
         assert_eq!(live_params.get_ui_resize_events(), 1);
+        assert_eq!(live_params.get_mod_matrix_mask(), 1 << (2 * 5 + 1));
+
+        // 6. Probar preset_apply:<json>, fav_toggle:<id> y user_preset_save:<json>
+        handle_native_ipc_message(
+            r#"preset_apply:{"attack":0.04,"cutoff":3200.0,"resonance":2.4,"lfo_rate":6.5,"lfo_depth":0.6,"arp_mode":1,"mod_matrix_mask":130}"#,
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        handle_native_ipc_message(
+            "fav_toggle:joropo-arpa-01",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        handle_native_ipc_message(
+            r#"user_preset_save:{"id":"usr-odd-1","name":"Custom ODD Lead","category":"synthwave"}"#,
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+
+        assert_eq!(live_params.get_ui_preset_loads(), 2);
+        assert_eq!(live_params.get_ui_fav_toggles(), 1);
+        assert_eq!(live_params.get_user_presets_saved(), 1);
+        assert_eq!(live_params.get_mod_matrix_mask(), 130);
+        assert!((live_params.get_cutoff() - 3200.0).abs() < 1e-2);
 
         let telem_odd_json = build_telemetry_json(&params, &live_params, &ai_worker);
-        assert!(telem_odd_json.contains(r#""ui_preset_loads":1"#));
+        assert!(telem_odd_json.contains(r#""ui_preset_loads":2"#));
         assert!(telem_odd_json.contains(r#""ui_matrix_switches":1"#));
         assert!(telem_odd_json.contains(r#""ui_resize_events":1"#));
+        assert!(telem_odd_json.contains(r#""ui_fav_toggles":1"#));
+        assert!(telem_odd_json.contains(r#""user_presets_saved":1"#));
+        assert!(telem_odd_json.contains(r#""mod_matrix_active_routes":2"#));
     }
 }

@@ -38,6 +38,8 @@ pub struct VoiceManager {
     base_lfo_rate: f32,
     base_lfo_depth: f32,
     base_lfo_target: LfoTarget,
+    mod_matrix_mask: u32,
+    mod_matrix_dsp_frames: u32,
     mod_wheel: f32,
     brightness_cc74: f32,
     channel_aftertouch: f32,
@@ -81,11 +83,52 @@ impl VoiceManager {
             base_lfo_rate: 3.5,
             base_lfo_depth: 0.0,
             base_lfo_target: LfoTarget::Cutoff,
+            mod_matrix_mask: 0,
+            mod_matrix_dsp_frames: 0,
             mod_wheel: 0.0,
             brightness_cc74: 0.0,
             channel_aftertouch: 0.0,
             arp: TepuiArpeggiator::new(sample_rate),
         }
+    }
+
+    /// Configura la máscara de 25 bits (`5×5`) de la matriz de modulación en tiempo real (0 asignaciones).
+    /// Filas `0..5`: `LFO 1`, `LFO 2`, `ENV 2`, `VEL`, `MOD W`.
+    /// Columnas `0..5`: `PITCH`, `CUTOFF`, `RESO`, `PAN`, `MORPH`.
+    #[inline]
+    pub fn set_mod_matrix_mask(&mut self, mask: u32) {
+        let masked = mask & 0x01FF_FFFF;
+        if self.mod_matrix_mask != masked {
+            self.mod_matrix_mask = masked;
+            let eff_cut = self.effective_cutoff_hz();
+            for voice in &mut self.voices {
+                if voice.is_active() {
+                    voice.filter_l.set_cutoff(eff_cut);
+                    voice.filter_l.set_resonance(self.resonance);
+                    voice.filter_r.set_cutoff(eff_cut);
+                    voice.filter_r.set_resonance(self.resonance);
+                    voice.update_pitch_bend(self.pitch_bend_multiplier);
+                }
+            }
+        }
+    }
+
+    /// Retorna la máscara activa de 25 bits (`5×5`) de la matriz de modulación.
+    #[inline]
+    pub fn mod_matrix_mask(&self) -> u32 {
+        self.mod_matrix_mask
+    }
+
+    /// Retorna la cantidad de rutas activas (`0..=25`) en la matriz de modulación 5×5 (ODD).
+    #[inline]
+    pub fn mod_matrix_active_routes(&self) -> u32 {
+        self.mod_matrix_mask.count_ones()
+    }
+
+    /// Retorna el total acumulado de muestras DSP procesadas con rutas de matriz activas (ODD).
+    #[inline]
+    pub fn mod_matrix_dsp_frames(&self) -> u32 {
+        self.mod_matrix_dsp_frames
     }
 
     /// Determina el índice de zona de teclado (`0: Low 0..=55`, `1: Mid 56..=76`, `2: High 77..=127`) para una nota MIDI.
@@ -519,6 +562,7 @@ impl VoiceManager {
         let lfo_active = self.lfo.depth() > 1e-5 && self.lfo.target() != LfoTarget::Off;
         let lfo_target = self.lfo.target();
         let lfo_depth = self.lfo.depth();
+        let matrix_mask = self.mod_matrix_mask & 0x01FF_FFFF;
 
         let mut offset = 0;
         while offset < num_samples {
@@ -540,8 +584,96 @@ impl VoiceManager {
             }
 
             let (mut gain_mod_l, mut gain_mod_r) = (1.0_f32, 1.0_f32);
+            let mut morph_drive = 0.0_f32;
 
-            if lfo_active {
+            if matrix_mask != 0 {
+                // Evaluar las 5 fuentes de modulación (LFO1, LFO2, ENV2, VEL, MOD W) con 0 asignaciones
+                let lfo_pins_active = (matrix_mask & 0b00000_00000_00000_11111_11111) != 0;
+                let min_lfo_depth = if lfo_pins_active { 0.35 } else { 0.0 };
+                let (lfo1_val, lfo2_val) = self.lfo.advance_matrix_lfos(chunk_len, min_lfo_depth);
+
+                let mut env_acc = 0.0_f32;
+                let mut vel_acc = 0.0_f32;
+                let mut active_cnt = 0u32;
+                for v in &self.voices {
+                    if v.is_active() {
+                        env_acc += v.adsr.current_value();
+                        vel_acc += v.velocity;
+                        active_cnt += 1;
+                    }
+                }
+                let env_src = if active_cnt > 0 {
+                    (env_acc / active_cnt as f32) - 0.5
+                } else {
+                    0.0
+                };
+                let vel_src = if active_cnt > 0 {
+                    (vel_acc / active_cnt as f32) - 0.5
+                } else {
+                    0.0
+                };
+                let sources = [lfo1_val, lfo2_val, env_src, vel_src, self.mod_wheel];
+
+                let mut dest_sums = [0.0_f32; 5];
+                for (r, &src_val) in sources.iter().enumerate() {
+                    let row_bits = (matrix_mask >> (r * 5)) & 0b11111;
+                    if row_bits != 0 {
+                        for (c, dest_slot) in dest_sums.iter_mut().enumerate() {
+                            if (row_bits & (1 << c)) != 0 {
+                                *dest_slot += src_val;
+                            }
+                        }
+                    }
+                }
+
+                // Destino 0: PITCH (Vibrato / Modulación cromática)
+                let mut pitch_semis = dest_sums[0].clamp(-2.0, 2.0) * 0.65;
+                if lfo_active && lfo_target == LfoTarget::Pitch {
+                    pitch_semis += lfo1_val * 0.5;
+                }
+                let pitch_mult =
+                    self.pitch_bend_multiplier * 2.0_f64.powf(pitch_semis as f64 / 12.0);
+
+                // Destino 1: CUTOFF (Octavas SVF)
+                let mut cutoff_octs = dest_sums[1].clamp(-2.5, 2.5) * 1.8;
+                if lfo_active && lfo_target == LfoTarget::Cutoff {
+                    cutoff_octs += lfo1_val * 2.0;
+                }
+                let base_cut = self.effective_cutoff_hz();
+                let mod_cutoff = (base_cut * 2.0_f32.powf(cutoff_octs)).clamp(20.0, 20000.0);
+
+                // Destino 2: RESO (Factor Q SVF)
+                let mod_reso =
+                    (self.resonance + dest_sums[2].clamp(-2.0, 2.0) * 2.2).clamp(0.1, 10.0);
+
+                // Destino 3: PAN (Balance estéreo en cuadratura)
+                let pan_shift = dest_sums[3].clamp(-1.0, 1.0) * 0.45;
+                gain_mod_l = (1.0 - pan_shift).clamp(0.05, 1.45);
+                gain_mod_r = (1.0 + pan_shift).clamp(0.05, 1.45);
+                if lfo_active && lfo_target == LfoTarget::Tremolo {
+                    gain_mod_l =
+                        (gain_mod_l * (1.0 - lfo_depth * 0.35 + lfo1_val * 0.35)).clamp(0.05, 1.5);
+                    gain_mod_r =
+                        (gain_mod_r * (1.0 - lfo_depth * 0.35 + lfo2_val * 0.35)).clamp(0.05, 1.5);
+                }
+
+                // Destino 4: MORPH (Excitación armónica / saturación cálida)
+                morph_drive = dest_sums[4].abs().clamp(0.0, 1.0) * 0.75;
+
+                if active_cnt > 0 {
+                    self.mod_matrix_dsp_frames =
+                        self.mod_matrix_dsp_frames.wrapping_add(chunk_len as u32);
+                    for voice in &mut self.voices {
+                        if voice.is_active() {
+                            voice.filter_l.set_cutoff(mod_cutoff);
+                            voice.filter_l.set_resonance(mod_reso);
+                            voice.filter_r.set_cutoff(mod_cutoff);
+                            voice.filter_r.set_resonance(mod_reso);
+                            voice.update_pitch_bend(pitch_mult);
+                        }
+                    }
+                }
+            } else if lfo_active {
                 let (lfo_sin, lfo_cos) = self.lfo.advance_samples(chunk_len);
                 match lfo_target {
                     LfoTarget::Cutoff => {
@@ -585,7 +717,14 @@ impl VoiceManager {
                 };
 
                 for i in offset..chunk_end {
-                    let (vl, vr) = voice.process_sample(voice_buf);
+                    let (mut vl, mut vr) = voice.process_sample(voice_buf);
+                    if morph_drive > 1e-4 {
+                        // Excitador armónico cúbico suave cuando MORPH está activo en la matriz 5x5
+                        let dl = vl * (1.0 + morph_drive);
+                        let dr = vr * (1.0 + morph_drive);
+                        vl = dl - (dl * dl * dl) * 0.18 * morph_drive;
+                        vr = dr - (dr * dr * dr) * 0.18 * morph_drive;
+                    }
                     out_left[i] += vl * gain_mod_l;
                     out_right[i] += vr * gain_mod_r;
                     if !voice.is_active() {

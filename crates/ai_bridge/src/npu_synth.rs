@@ -4,9 +4,91 @@
 //! y sintetiza timbres híbridos (modal + FM + formantes + sub-armónicos) adaptados a la descripción,
 //! incluyendo detección automática de la nota raíz MIDI en el prompt (ej. `C2`, `F#3`, `A4`).
 
+use std::collections::HashMap;
 use std::f32::consts::{E, PI};
+use std::path::PathBuf;
 use std::process::Command;
-use synth_core::SampleBuffer;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Mutex, OnceLock};
+use synth_core::{decode_wav, encode_wav_f32, SampleBuffer};
+
+static GLOBAL_SAMPLE_CACHE: OnceLock<Mutex<HashMap<String, SampleBuffer>>> = OnceLock::new();
+static GLOBAL_CACHE_HITS: AtomicU32 = AtomicU32::new(0);
+static GLOBAL_CACHE_MISSES: AtomicU32 = AtomicU32::new(0);
+
+fn memory_cache() -> &'static Mutex<HashMap<String, SampleBuffer>> {
+    GLOBAL_SAMPLE_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn disk_cache_dir() -> PathBuf {
+    let base = std::env::var("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| std::env::temp_dir());
+    let dir = base.join("Tepui").join("SampleCache");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
+/// Retorna el total acumulado de aciertos (hits) en la caché de samples NPU (ODD).
+pub fn npu_cache_hits() -> u32 {
+    GLOBAL_CACHE_HITS.load(Ordering::Relaxed)
+}
+
+/// Retorna el total acumulado de fallos (misses) en la caché de samples NPU (ODD).
+pub fn npu_cache_misses() -> u32 {
+    GLOBAL_CACHE_MISSES.load(Ordering::Relaxed)
+}
+
+/// Consulta o genera un sample utilizando la caché determinista de dos niveles (RAM + Disco WAV IEEE Float 32-bit).
+/// Retorna `(SampleBuffer, backend_name, was_cache_hit)`.
+pub fn generate_sample_with_cache(
+    prompt: &str,
+    sample_rate: f32,
+) -> (SampleBuffer, &'static str, bool) {
+    let norm_prompt = prompt.trim().to_lowercase();
+    let sr_int = sample_rate.round().max(8000.0) as u32;
+    let key = format!("{:08x}_{}", fnv1a_hash(&norm_prompt), sr_int);
+
+    // 1. Nivel L1: Caché en memoria RAM
+    if let Ok(guard) = memory_cache().lock() {
+        if let Some(cached) = guard.get(&key) {
+            GLOBAL_CACHE_HITS.fetch_add(1, Ordering::Relaxed);
+            return (cached.clone(), "NPU-RAM-Cache", true);
+        }
+    }
+
+    // 2. Nivel L2: Caché persistente en disco (%LOCALAPPDATA%\Tepui\SampleCache)
+    let disk_path = disk_cache_dir().join(format!("{}.wav", key));
+    if disk_path.exists() {
+        if let Ok(bytes) = std::fs::read(&disk_path) {
+            if let Ok(mut decoded) = decode_wav(&bytes) {
+                let clean_title = prompt.trim();
+                if !clean_title.is_empty() {
+                    decoded.name = clean_title.chars().take(32).collect();
+                }
+                if let Ok(mut guard) = memory_cache().lock() {
+                    guard.insert(key, decoded.clone());
+                }
+                GLOBAL_CACHE_HITS.fetch_add(1, Ordering::Relaxed);
+                return (decoded, "NPU-Disk-Cache", true);
+            }
+        }
+    }
+
+    // 3. Miss: Generar mediante el motor físico-espectral y persistir en L1 + L2
+    GLOBAL_CACHE_MISSES.fetch_add(1, Ordering::Relaxed);
+    let (buf, backend) =
+        crate::fallback_synth::generate_sample_from_prompt_with_backend(prompt, sample_rate);
+    let wav_bytes = encode_wav_f32(&buf);
+    let _ = std::fs::write(&disk_path, &wav_bytes);
+    if let Ok(mut guard) = memory_cache().lock() {
+        if guard.len() >= 128 {
+            guard.clear();
+        }
+        guard.insert(key, buf.clone());
+    }
+    (buf, backend, false)
+}
 
 /// Vector acústico-semántico de 8 dimensiones extraído del prompt natural.
 #[derive(Debug, Clone, Copy)]
@@ -81,6 +163,16 @@ fn fnv1a_hash(text: &str) -> u32 {
         hash = hash.wrapping_mul(0x0100_0193);
     }
     hash
+}
+
+fn lower_has_urbano_or_reese(prompt: &str) -> bool {
+    let l = prompt.to_lowercase();
+    l.contains("808")
+        || l.contains("reggaeton")
+        || l.contains("dembow")
+        || l.contains("urbano")
+        || l.contains("reese")
+        || l.contains("furro")
 }
 
 /// Sonda opcional hacia OpenVINO en NPU Intel AI Boost cuando `TEPUI_ENABLE_NPU_SUBPROCESS=1`.
@@ -318,12 +410,35 @@ pub fn generate_neural_spectral_sample(
     // Capa Sub-Armónica (1 octava abajo + fundamental cálida) cuando sub_weight > 0.15
     if desc.sub_weight > 0.15 {
         let w_sub = 2.0 * PI * (f0 * 0.5).max(24.0) / sr;
+        let is_808_or_urbano = lower_has_urbano_or_reese(prompt);
         for i in 0..total_samples {
             let t = i as f32 / sr;
+            let pitch_drop = if is_808_or_urbano {
+                1.0 + 0.65 * (-t / 0.045).exp()
+            } else {
+                1.0
+            };
             let env = (1.0 - (-t / (attack_time * 0.5)).exp()) * (-t / (base_decay * 1.3)).exp();
-            let sub_val = (w_sub * i as f32).sin() * desc.sub_weight * 0.75 * env;
+            let raw_sub = (w_sub * pitch_drop * i as f32).sin();
+            let sub_val = (raw_sub + 0.25 * (raw_sub * 1.8).tanh()) * desc.sub_weight * 0.72 * env;
             left[i] += sub_val;
             right[i] += sub_val;
+        }
+    }
+
+    // Capa de Transitorio Físico (Rasgueo de Cuatro / Púa de Bandola / Charrasca / Martillo Rhodes)
+    if desc.attack_hardness > 0.55 {
+        let transient_samples = ((0.022 * sr) as usize).min(total_samples);
+        let mut rng_state = fnv1a_hash(prompt).max(1);
+        for i in 0..transient_samples {
+            rng_state ^= rng_state << 13;
+            rng_state ^= rng_state >> 17;
+            rng_state ^= rng_state << 5;
+            let white = (rng_state as f32 / u32::MAX as f32) * 2.0 - 1.0;
+            let env = (1.0 - i as f32 / transient_samples as f32).powi(2);
+            let burst = white * env * (desc.attack_hardness - 0.45) * 0.42;
+            left[i] += burst;
+            right[i] -= burst * 0.85;
         }
     }
 

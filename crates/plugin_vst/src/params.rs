@@ -153,6 +153,8 @@ pub struct TepuiPatch {
     pub zone_names: [Option<String>; 3],
     #[serde(default)]
     pub arp_mode: i32,
+    #[serde(default)]
+    pub mod_matrix_mask: u32,
 }
 
 impl TepuiPatch {
@@ -192,6 +194,7 @@ impl TepuiPatch {
             zone_wavs_b64,
             zone_names,
             arp_mode: live_params.arp_mode.load(Ordering::Relaxed),
+            mod_matrix_mask: live_params.get_mod_matrix_mask(),
         }
     }
 
@@ -232,6 +235,7 @@ impl TepuiPatch {
         live_params.set_loop_start_norm(self.loop_start_norm);
         live_params.set_loop_end_norm(self.loop_end_norm);
         live_params.set_arp_mode(self.arp_mode);
+        live_params.set_mod_matrix_mask(self.mod_matrix_mask);
         live_params.bump_patch_io_count();
         live_params.bump_revision();
         Ok(())
@@ -255,6 +259,8 @@ pub struct PersistedSamplerSession {
     pub zone_names: [Option<String>; 3],
     #[serde(default)]
     pub arp_mode: i32,
+    #[serde(default)]
+    pub mod_matrix_mask: u32,
 }
 
 impl Default for PersistedSamplerSession {
@@ -271,6 +277,7 @@ impl Default for PersistedSamplerSession {
             zone_wavs_b64: [None, None, None],
             zone_names: [None, None, None],
             arp_mode: 0,
+            mod_matrix_mask: 0,
         }
     }
 }
@@ -314,6 +321,7 @@ impl SessionPersistField {
             guard.loop_start_norm = self.live_params.get_loop_start_norm();
             guard.loop_end_norm = self.live_params.get_loop_end_norm();
             guard.arp_mode = self.live_params.arp_mode.load(Ordering::Relaxed);
+            guard.mod_matrix_mask = self.live_params.get_mod_matrix_mask();
         }
     }
 }
@@ -330,6 +338,8 @@ impl<'a> PersistentField<'a, PersistedSamplerSession> for SessionPersistField {
             .set_loop_start_norm(new_value.loop_start_norm);
         self.live_params.set_loop_end_norm(new_value.loop_end_norm);
         self.live_params.set_arp_mode(new_value.arp_mode);
+        self.live_params
+            .set_mod_matrix_mask(new_value.mod_matrix_mask);
         self.live_params.bump_persistence_restores();
         self.live_params.bump_revision();
 
@@ -605,6 +615,10 @@ pub struct LiveParamStore {
     pub ui_preset_loads: AtomicU32,
     pub ui_matrix_switches: AtomicU32,
     pub ui_resize_events: AtomicU32,
+    pub ui_fav_toggles: AtomicU32,
+    pub user_presets_saved: AtomicU32,
+    pub mod_matrix_mask: AtomicU32,
+    pub mod_matrix_dsp_frames: AtomicU32,
     pub active_keyzones_mask: AtomicU32,
     pub lfo_mod_value: AtomicU32,
     pub playhead_norm: AtomicU32,
@@ -649,6 +663,10 @@ impl Default for LiveParamStore {
             ui_preset_loads: AtomicU32::new(0),
             ui_matrix_switches: AtomicU32::new(0),
             ui_resize_events: AtomicU32::new(0),
+            ui_fav_toggles: AtomicU32::new(0),
+            user_presets_saved: AtomicU32::new(0),
+            mod_matrix_mask: AtomicU32::new(0),
+            mod_matrix_dsp_frames: AtomicU32::new(0),
             active_keyzones_mask: AtomicU32::new(0),
             lfo_mod_value: AtomicU32::new(0.0_f32.to_bits()),
             playhead_norm: AtomicU32::new(0.0_f32.to_bits()),
@@ -1088,6 +1106,58 @@ impl LiveParamStore {
     #[inline]
     pub fn get_ui_resize_events(&self) -> u32 {
         self.ui_resize_events.load(Ordering::Relaxed)
+    }
+
+    #[inline]
+    pub fn bump_ui_fav_toggles(&self) {
+        self.ui_fav_toggles.fetch_add(1, Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_ui_fav_toggles(&self) -> u32 {
+        self.ui_fav_toggles.load(Ordering::Relaxed)
+    }
+
+    #[inline]
+    pub fn bump_user_presets_saved(&self) {
+        self.user_presets_saved.fetch_add(1, Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_user_presets_saved(&self) -> u32 {
+        self.user_presets_saved.load(Ordering::Relaxed)
+    }
+
+    #[inline]
+    pub fn set_mod_matrix_mask(&self, mask: u32) {
+        self.mod_matrix_mask
+            .store(mask & 0x01FF_FFFF, Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_mod_matrix_mask(&self) -> u32 {
+        self.mod_matrix_mask.load(Ordering::Relaxed) & 0x01FF_FFFF
+    }
+    #[inline]
+    pub fn toggle_mod_matrix_pin(&self, row: u32, col: u32, explicit_active: Option<bool>) -> u32 {
+        if row >= 5 || col >= 5 {
+            return self.get_mod_matrix_mask();
+        }
+        let bit = 1u32 << (row * 5 + col);
+        let cur = self.get_mod_matrix_mask();
+        let next = match explicit_active {
+            Some(true) => cur | bit,
+            Some(false) => cur & !bit,
+            None => cur ^ bit,
+        };
+        self.set_mod_matrix_mask(next);
+        next
+    }
+
+    #[inline]
+    pub fn set_mod_matrix_dsp_frames(&self, count: u32) {
+        self.mod_matrix_dsp_frames.store(count, Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_mod_matrix_dsp_frames(&self) -> u32 {
+        self.mod_matrix_dsp_frames.load(Ordering::Relaxed)
     }
 
     #[allow(dead_code)]

@@ -459,6 +459,8 @@ impl Plugin for AiSamplerPlugin {
             self.live_params.get_lfo_depth(),
             self.live_params.get_lfo_target(),
         );
+        self.voice_manager
+            .set_mod_matrix_mask(self.live_params.get_mod_matrix_mask());
 
         let host_bpm = context
             .transport()
@@ -704,6 +706,8 @@ impl Plugin for AiSamplerPlugin {
         );
         self.live_params
             .set_arp_steps_triggered(self.voice_manager.arp_steps_triggered());
+        self.live_params
+            .set_mod_matrix_dsp_frames(self.voice_manager.mod_matrix_dsp_frames());
         self.live_params.add_limiter_activations(limiter_hits);
         self.live_params.add_nan_sanitized(nan_count);
         self.live_params.bump_dsp_blocks();

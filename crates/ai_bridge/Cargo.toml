@@ -9,7 +9,7 @@ description = "Asynchronous neural spectral synthesis bridge and Venezuelan phys
 
 [dependencies]
 synth_core = { path = "../synth_core" }
-arc-swap = "1.7"
+arc-swap = "1.9"
 crossbeam-channel = "0.5"
 
 [dev-dependencies]

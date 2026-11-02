@@ -77,7 +77,8 @@ const state = {
     lfo_rate: 3.5,
     lfo_depth: 0.0,
     lfo_target: 0,
-    arp_mode: 0
+    arp_mode: 0,
+    mod_matrix_mask: 2178
   },
   normalized: {
     attack: 0.002,
@@ -103,6 +104,8 @@ const state = {
   localUiPresetLoads: 0,
   localUiMatrixSwitches: 0,
   localUiResizeEvents: 0,
+  localUiFavToggles: 0,
+  localUserPresetsSaved: 0,
   waveform: []
 };
 
@@ -218,7 +221,35 @@ function refreshFooterOddText() {
   const presets = Math.max(odd.ui_preset_loads || 0, state.localUiPresetLoads || 0);
   const matrix = Math.max(odd.ui_matrix_switches || 0, state.localUiMatrixSwitches || 0);
   const resizes = Math.max(odd.ui_resize_events || 0, state.localUiResizeEvents || 0);
-  footerText.innerText = `ODD // BACKEND: ${backend} • SYNTH: ${durUs}µs (#${genCnt}) • LFO: ${lfoMod}% • PRESETS: ${presets} • MATRIX: ${matrix} • RESIZE: ${resizes} • DSP BLK: ${blk} • LIM: ${lim}`;
+  const favs = Math.max(odd.ui_fav_toggles || 0, state.localUiFavToggles || 0);
+  const routes = odd.mod_matrix_active_routes !== undefined
+    ? odd.mod_matrix_active_routes
+    : countMaskBits(state.params.mod_matrix_mask || 0);
+  const cacheHits = odd.npu_cache_hits || 0;
+  const cacheMiss = odd.npu_cache_misses || 0;
+  footerText.innerText = `ODD // BACKEND: ${backend} • SYNTH: ${durUs}µs (#${genCnt}) • CACHE: ${cacheHits}H/${cacheMiss}M • LFO: ${lfoMod}% • ROUTES: ${routes} • PRESETS: ${presets} • FAVS: ${favs} • MATRIX: ${matrix} • RESIZE: ${resizes} • DSP BLK: ${blk} • LIM: ${lim}`;
+}
+
+function countMaskBits(mask) {
+  let m = (mask >>> 0) & 0x01ffffff;
+  let c = 0;
+  while (m) {
+    c += m & 1;
+    m >>>= 1;
+  }
+  return c;
+}
+
+function syncMatrixPinsFromMask(mask) {
+  const cleanMask = (mask >>> 0) & 0x01ffffff;
+  state.params.mod_matrix_mask = cleanMask;
+  document.querySelectorAll('.mod-matrix-mini .matrix-row').forEach((rowEl, rowIdx) => {
+    const pins = rowEl.querySelectorAll('i');
+    pins.forEach((pinEl, colIdx) => {
+      const bit = 1 << (rowIdx * 5 + colIdx);
+      pinEl.classList.toggle('on', (cleanMask & bit) !== 0);
+    });
+  });
 }
 
 function updateOddMetricsDisplay(odd) {
@@ -332,6 +363,20 @@ function applyInitPayload(msg) {
   if (msg.sample_info) updateTelemetry(msg.sample_info);
   if (msg.region) updateRegionDisplay(msg.region);
   if (msg.odd_metrics) updateOddMetricsDisplay(msg.odd_metrics);
+  if (Array.isArray(msg.favorites) && msg.favorites.length > 0) {
+    msg.favorites.forEach((fid) => favoritePresets.add(fid));
+  }
+  if (Array.isArray(msg.user_presets) && msg.user_presets.length > 0) {
+    buildPresetCatalog();
+    msg.user_presets.forEach((up) => {
+      if (up && up.id && !PRESET_CATALOG.some((p) => p.id === up.id)) {
+        PRESET_CATALOG.unshift(up);
+      }
+    });
+  }
+  if (state.params.mod_matrix_mask !== undefined && state.params.mod_matrix_mask > 0) {
+    syncMatrixPinsFromMask(state.params.mod_matrix_mask);
+  }
   state.isGenerating = msg.is_generating || false;
   updateAllKnobsUI();
   updateFilterModeUI(state.params.filter_mode);
@@ -1991,8 +2036,18 @@ function initLfoAndKeyzoneControls() {
 
   document.querySelectorAll('.mod-matrix-mini .matrix-row').forEach((rowEl, rowIdx) => {
     const pins = rowEl.querySelectorAll('i');
-    const applyMatrixPin = (colIdx) => {
-      pins.forEach((p, idx) => p.classList.toggle('on', idx === colIdx));
+    const applyMatrixPin = (colIdx, forceSingleRow = false) => {
+      const bit = 1 << (rowIdx * 5 + colIdx);
+      let nextMask = (state.params.mod_matrix_mask || 0) & 0x01ffffff;
+      if (forceSingleRow) {
+        const rowClear = ~(0b11111 << (rowIdx * 5));
+        nextMask = (nextMask & rowClear) | bit;
+      } else {
+        nextMask ^= bit;
+      }
+      const isNowOn = (nextMask & bit) !== 0;
+      syncMatrixPinsFromMask(nextMask);
+
       const prof = MATRIX_ROW_PROFILES[rowIdx] || MATRIX_ROW_PROFILES[0];
       const depthScale = 0.35 + (colIdx / 4) * 0.65;
       const newDepth = Math.max(0.05, Math.min(1.0, prof.baseDepth * depthScale));
@@ -2010,16 +2065,16 @@ function initLfoAndKeyzoneControls() {
       sendIpc(`lt,${prof.target}`);
 
       state.localUiMatrixSwitches = (state.localUiMatrixSwitches || 0) + 1;
-      sendIpc(`matrix:${rowIdx},${colIdx}`);
+      sendIpc(`matrix:${rowIdx},${colIdx},${isNowOn ? 1 : 0}`);
       refreshFooterOddText();
     };
 
     pins.forEach((pinEl, colIdx) => {
-      pinEl.addEventListener('click', () => applyMatrixPin(colIdx));
+      pinEl.addEventListener('click', () => applyMatrixPin(colIdx, false));
     });
     const lbl = rowEl.querySelector('.m-lbl');
     if (lbl) {
-      lbl.addEventListener('click', () => applyMatrixPin(rowIdx % 5));
+      lbl.addEventListener('click', () => applyMatrixPin(rowIdx % 5, true));
     }
   });
 }
@@ -2049,6 +2104,26 @@ function initAiHub() {
     state.isGenerating = true;
     updateGeneratingUI(true);
     sendFastGenerate(prompt);
+    // Persistir también como preset de usuario en el catálogo y en disco
+    const customId = `usr-${Date.now()}`;
+    const userPreset = {
+      id: customId,
+      name: prompt.slice(0, 28),
+      pack: 'pack-03',
+      cat: 'Leads',
+      tags: 'AI Custom, User',
+      rhythm: '4/4',
+      arp: state.params.arp_mode || 0,
+      prompt,
+      root: state.params.root_note || 60,
+      matrixMask: state.params.mod_matrix_mask || 2178,
+      norm: { ...state.normalized }
+    };
+    PRESET_CATALOG.unshift(userPreset);
+    favoritePresets.add(customId);
+    state.localUserPresetsSaved = (state.localUserPresetsSaved || 0) + 1;
+    sendIpc(`user_preset_save:${JSON.stringify(userPreset)}`);
+    refreshFooterOddText();
   });
 
   input.addEventListener('keydown', (e) => {
@@ -2471,7 +2546,12 @@ function applyPresetFromCatalog(preset) {
     browserLbl.innerText = `PRESET: ${preset.name.toUpperCase()} (1,250)`;
   }
 
-  // Aplicar perfil DSP macro instantáneamente via IPC
+  // Aplicar perfil DSP macro y matriz 5x5 instantáneamente via IPC
+  const presetMask = preset.matrixMask !== undefined
+    ? preset.matrixMask
+    : ((1 << ((parseInt(preset.id.replace(/\D+/g, ''), 10) || 0) % 5)) | (1 << 6) | (1 << 11));
+  syncMatrixPinsFromMask(presetMask);
+
   if (preset.norm) {
     for (const [k, v] of Object.entries(preset.norm)) {
       state.normalized[k] = v;
@@ -2487,11 +2567,17 @@ function applyPresetFromCatalog(preset) {
     sendFastRootNote(preset.root);
   }
 
-  // Registrar evento ODD de carga de preset y sintetizar en el motor IA/Físico
+  // Registrar evento ODD de aplicación paramétrica completa y sintetizar en el motor IA/Físico con caché NPU
   state.localUiPresetLoads = (state.localUiPresetLoads || 0) + 1;
-  sendIpc(`preset:${preset.id}`);
+  const applyPayload = {
+    prompt: preset.prompt,
+    arp_mode: preset.arp !== undefined ? preset.arp : 0,
+    root_note: preset.root !== undefined ? preset.root : 60,
+    mod_matrix_mask: presetMask
+  };
+  sendIpc(`preset_apply:${JSON.stringify(applyPayload)}`);
   refreshFooterOddText();
-  sendFastGenerate(preset.prompt);
+  pollAiGeneration();
   renderPresetTable();
 }
 
@@ -2570,6 +2656,9 @@ function renderPresetTable() {
         e.stopPropagation();
         if (favoritePresets.has(p.id)) favoritePresets.delete(p.id);
         else favoritePresets.add(p.id);
+        state.localUiFavToggles = (state.localUiFavToggles || 0) + 1;
+        sendIpc(`fav_toggle:${p.id}`);
+        refreshFooterOddText();
         renderPresetTable();
       });
     }

@@ -13,7 +13,8 @@ pub use fallback_synth::{
     generate_grand_piano_c4, generate_sample_from_prompt, generate_sample_from_prompt_with_backend,
 };
 pub use npu_synth::{
-    extract_midi_note_from_prompt, generate_neural_spectral_sample, SemanticTimbreDescriptor,
+    extract_midi_note_from_prompt, generate_neural_spectral_sample, generate_sample_with_cache,
+    npu_cache_hits, npu_cache_misses, SemanticTimbreDescriptor,
 };
 pub use worker::{AiWorker, GenerateRequest, GenerationStatus};
 
@@ -189,5 +190,35 @@ mod tests {
             !crystal_harp.loop_enabled,
             "Pluck harp should have percussive non-looped envelope"
         );
+    }
+
+    #[test]
+    fn test_npu_sample_cache_hits_and_misses_odd() {
+        let unique_prompt = format!(
+            "Gran Sabana Reese Sub Urbano C2 #{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let hits_before = npu_cache_hits();
+        let misses_before = npu_cache_misses();
+
+        let (buf1, _backend1, is_hit1) = generate_sample_with_cache(&unique_prompt, 44100.0);
+        assert!(
+            !is_hit1,
+            "First request for unique prompt should be a cache miss"
+        );
+        assert!(!buf1.is_empty());
+        assert!(npu_cache_misses() > misses_before);
+
+        let (buf2, backend2, is_hit2) = generate_sample_with_cache(&unique_prompt, 44100.0);
+        assert!(
+            is_hit2,
+            "Second request for identical prompt should be a cache hit"
+        );
+        assert!(backend2 == "NPU-RAM-Cache" || backend2 == "NPU-Disk-Cache");
+        assert_eq!(buf1.len(), buf2.len());
+        assert!(npu_cache_hits() > hits_before);
     }
 }

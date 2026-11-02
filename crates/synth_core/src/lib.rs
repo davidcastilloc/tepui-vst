@@ -23,7 +23,7 @@ pub use buffer::{SampleBuffer, SharedSampleBuffer};
 pub use envelope::{AdsrEnvelope, AdsrStage};
 pub use filter::{FilterMode, StateVariableFilter};
 pub use fx::StereoFxRack;
-pub use lfo::{LfoState, LfoTarget};
+pub use lfo::{LfoState, LfoTarget, DEFAULT_MOD_MATRIX_MASK};
 pub use resampler::{calculate_playback_ratio, hermite_interpolate_4p, ResamplingQuality};
 pub use voice::{SampleRegionOverride, Voice};
 pub use voice_manager::VoiceManager;
@@ -478,5 +478,44 @@ mod tests {
         let steps_after_release = vm.arp_steps_triggered();
         vm.process_block_with_zones(&primary, &zones, &mut out_l, &mut out_r);
         assert_eq!(vm.arp_steps_triggered(), steps_after_release);
+    }
+
+    #[test]
+    fn test_mod_matrix_5x5_multiroute_dsp_and_odd_telemetry() {
+        let mut vm = VoiceManager::new(44100.0, 8);
+        let primary = SampleBuffer::new_mono(vec![0.6; 4410], 44100.0, 60);
+        let zones = [None, None, None];
+
+        // Activar 5 rutas simultáneas en la matriz 5x5:
+        // (0,0) LFO1->PITCH, (0,1) LFO1->CUTOFF, (1,3) LFO2->PAN, (2,2) ENV2->RESO, (4,4) MOD_W->MORPH
+        let mask: u32 = (1 << 0) | (1 << 1) | (1 << 8) | (1 << 12) | (1 << 24);
+        vm.set_mod_matrix_mask(mask);
+        assert_eq!(vm.mod_matrix_mask(), mask);
+        assert_eq!(vm.mod_matrix_active_routes(), 5);
+        assert_eq!(vm.mod_matrix_dsp_frames(), 0);
+
+        vm.update_envelope_params(0.002, 0.05, 0.85, 0.2);
+        vm.update_filter_params(2400.0, 1.5, FilterMode::Lowpass);
+        vm.update_lfo_params(5.0, 0.7, LfoTarget::Cutoff);
+        vm.set_mod_wheel(0.8);
+
+        vm.note_on_with_zones(60, 0.95, &primary, &zones);
+
+        let mut out_l = vec![0.0; 256];
+        let mut out_r = vec![0.0; 256];
+        vm.process_block_with_zones(&primary, &zones, &mut out_l, &mut out_r);
+
+        assert_eq!(vm.mod_matrix_dsp_frames(), 256);
+        assert!(vm.lfo_last_value().abs() > 0.0);
+        // Verificar diferenciación estéreo por ruta LFO2 -> PAN (bit 8) y ausencia de NaNs
+        let mut stereo_diff = 0.0_f32;
+        for i in 0..256 {
+            assert!(out_l[i].is_finite() && out_r[i].is_finite());
+            stereo_diff += (out_l[i] - out_r[i]).abs();
+        }
+        assert!(
+            stereo_diff > 0.01,
+            "LFO2->PAN route in 5x5 Mod Matrix should create stereo pan differentiation"
+        );
     }
 }

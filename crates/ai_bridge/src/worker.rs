@@ -14,7 +14,8 @@ use synth_core::{
     base64_decode, base64_encode, decode_wav, encode_wav_f32, SampleBuffer, SharedSampleBuffer,
 };
 
-use crate::fallback_synth::{generate_grand_piano_c4, generate_sample_from_prompt_with_backend};
+use crate::fallback_synth::generate_grand_piano_c4;
+use crate::npu_synth::{generate_sample_with_cache, npu_cache_hits, npu_cache_misses};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GenerationStatus {
@@ -345,6 +346,16 @@ impl AiWorker {
         self.generation_count.load(Ordering::Relaxed)
     }
 
+    /// Retorna el total acumulado de aciertos (hits) en la caché de samples NPU (ODD).
+    pub fn cache_hits(&self) -> u32 {
+        npu_cache_hits()
+    }
+
+    /// Retorna el total acumulado de fallos (misses) en la caché de samples NPU (ODD).
+    pub fn cache_misses(&self) -> u32 {
+        npu_cache_misses()
+    }
+
     fn try_load_from_endpoint(endpoint: &str, prompt: &str) -> Option<SampleBuffer> {
         let clean = endpoint
             .trim()
@@ -388,7 +399,9 @@ impl AiWorker {
             {
                 (buf, "AI-Endpoint-WAV")
             } else {
-                generate_sample_from_prompt_with_backend(&req.prompt, req.sample_rate)
+                let (buf, b_str, _is_hit) =
+                    generate_sample_with_cache(&req.prompt, req.sample_rate);
+                (buf, b_str)
             };
 
             let elapsed_us = t0.elapsed().as_micros().min(u32::MAX as u128) as u32;

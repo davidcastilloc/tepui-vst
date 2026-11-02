@@ -39,15 +39,20 @@ impl LfoTarget {
     }
 }
 
-/// Estado del oscilador de baja frecuencia (LFO) en tiempo real.
+/// Máscara por defecto de la matriz de modulación 5×5 (`LFO1->CUTOFF`, `LFO2->RESO`, `ENV2->CUTOFF`).
+pub const DEFAULT_MOD_MATRIX_MASK: u32 = (1 << 1) | (1 << 7) | (1 << 11);
+
+/// Estado del oscilador de baja frecuencia (LFO) en tiempo real (incluye oscilador secundario LFO 2 polirrítmico).
 #[derive(Debug, Clone)]
 pub struct LfoState {
     phase: f64,
+    phase2: f64,
     rate_hz: f32,
     depth: f32,
     target: LfoTarget,
     sample_rate: f32,
     last_value: f32,
+    last_value2: f32,
 }
 
 impl Default for LfoState {
@@ -60,11 +65,13 @@ impl LfoState {
     pub fn new(sample_rate: f32) -> Self {
         Self {
             phase: 0.0,
+            phase2: 0.25,
             rate_hz: 3.5,
             depth: 0.0,
             target: LfoTarget::Cutoff,
             sample_rate: sample_rate.max(8000.0),
             last_value: 0.0,
+            last_value2: 0.0,
         }
     }
 
@@ -105,17 +112,49 @@ impl LfoState {
         self.target
     }
 
-    /// Retorna la última señal de modulación calculada (`-1.0..=1.0` escalada por `depth`).
+    /// Retorna la última señal de modulación calculada de LFO 1 (`-1.0..=1.0` escalada por `depth`).
     #[inline]
     pub fn last_modulated_value(&self) -> f32 {
         self.last_value
     }
 
-    /// Reinicia la fase del LFO.
+    /// Retorna la última señal de modulación calculada de LFO 2 polirrítmico (`-1.0..=1.0`).
+    #[inline]
+    pub fn last_modulated_value2(&self) -> f32 {
+        self.last_value2
+    }
+
+    /// Reinicia la fase de ambos LFOs.
     #[inline]
     pub fn reset(&mut self) {
         self.phase = 0.0;
+        self.phase2 = 0.25;
         self.last_value = 0.0;
+        self.last_value2 = 0.0;
+    }
+
+    /// Avanza `num_samples` muestras para la matriz 5×5 independientemente de `LfoTarget`,
+    /// usando `min_depth` si `self.depth` está en 0 pero hay pines de matriz activos en LFO 1 o LFO 2.
+    #[inline]
+    pub fn advance_matrix_lfos(&mut self, num_samples: usize, min_depth: f32) -> (f32, f32) {
+        let eff_depth = self.depth.max(min_depth).clamp(0.0, 1.0);
+        if eff_depth <= 1e-5 {
+            self.last_value = 0.0;
+            self.last_value2 = 0.0;
+            return (0.0, 0.0);
+        }
+        let angle1 = self.phase * TAU;
+        let angle2 = self.phase2 * TAU;
+        let s1 = (angle1.sin() as f32) * eff_depth;
+        let s2 = (angle2.cos() as f32) * eff_depth;
+
+        let step1 = (self.rate_hz as f64 * num_samples as f64) / (self.sample_rate as f64);
+        let step2 = step1 * 1.618_033_988_75;
+        self.phase = (self.phase + step1).fract();
+        self.phase2 = (self.phase2 + step2).fract();
+        self.last_value = if s1.abs() < 1e-15 { 0.0 } else { s1 };
+        self.last_value2 = if s2.abs() < 1e-15 { 0.0 } else { s2 };
+        (self.last_value, self.last_value2)
     }
 
     /// Avanza `num_samples` muestras y retorna `(sin_val, cos_val)` escalados por `depth` (`-depth..=+depth`).
@@ -132,8 +171,10 @@ impl LfoState {
 
         let step = (self.rate_hz as f64 * num_samples as f64) / (self.sample_rate as f64);
         self.phase = (self.phase + step).fract();
+        self.phase2 = (self.phase2 + step * 1.618_033_988_75).fract();
         self.last_value = if s.abs() < 1e-15 { 0.0 } else { s };
+        self.last_value2 = if c.abs() < 1e-15 { 0.0 } else { c };
 
-        (self.last_value, if c.abs() < 1e-15 { 0.0 } else { c })
+        (self.last_value, self.last_value2)
     }
 }
