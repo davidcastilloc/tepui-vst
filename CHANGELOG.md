@@ -2,6 +2,16 @@
 
 Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
 
+## [1.6.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.5.0...v1.6.0) (2026-11-03)
+
+### Nuevas Funcionalidades (Features)
+
+* **ai:** integrar arquitecto Cloudflare de presets/samples y calibrador Piano-Roll YIN ([83fcbba](https://github.com/davidcastilloc/tepui-vst/commit/83fcbba5995b6766c2c0aedd81273158b3c5bac2))
+
+# Changelog
+
+Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
+
 ## [1.5.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.4.0...v1.5.0) (2026-11-03)
 
 ### Nuevas Funcionalidades (Features)
