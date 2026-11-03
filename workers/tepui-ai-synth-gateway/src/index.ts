@@ -6,8 +6,19 @@ export interface AiBinding {
   ): Promise<unknown>;
 }
 
+export interface KvNamespaceBinding {
+  get(key: string, type?: "text"): Promise<string | null>;
+  get<T = unknown>(key: string, type: "json"): Promise<T | null>;
+  put(
+    key: string,
+    value: string,
+    options?: { expirationTtl?: number }
+  ): Promise<void>;
+}
+
 export interface Env {
   AI: AiBinding;
+  TEPUI_KV: KvNamespaceBinding;
   AI_GATEWAY_URL?: string;
   AI_GATEWAY_TOKEN?: string;
 }
@@ -46,73 +57,26 @@ export interface AiSynthesizerPatchSpec {
   partials: ModalPartialSpec[];
 }
 
+interface LicenseRecord {
+  key: string;
+  plan: string;
+  credits_remaining: number;
+  total_used: number;
+  updated_at: string;
+}
+
 const MODEL_ID = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 
-const PATCH_JSON_SCHEMA = {
-  type: "object",
-  required: [
-    "name",
-    "category",
-    "root_note",
-    "attack",
-    "decay",
-    "sustain",
-    "release",
-    "cutoff",
-    "resonance",
-    "filter_mode",
-    "lfo_rate",
-    "lfo_depth",
-    "lfo_target",
-    "arp_mode",
-    "space_mix",
-    "mod_matrix_mask",
-    "brightness",
-    "exciter_noise",
-    "body_warmth",
-    "fm_index",
-    "fm_ratio",
-    "loop_enabled",
-    "partials"
-  ],
-  properties: {
-    name: { type: "string" },
-    category: { type: "string" },
-    root_note: { type: "integer", minimum: 24, maximum: 96 },
-    attack: { type: "number", minimum: 0.001, maximum: 5.0 },
-    decay: { type: "number", minimum: 0.01, maximum: 5.0 },
-    sustain: { type: "number", minimum: 0.0, maximum: 1.0 },
-    release: { type: "number", minimum: 0.01, maximum: 10.0 },
-    cutoff: { type: "number", minimum: 60.0, maximum: 20000.0 },
-    resonance: { type: "number", minimum: 0.1, maximum: 8.5 },
-    filter_mode: { type: "integer", minimum: 0, maximum: 3 },
-    lfo_rate: { type: "number", minimum: 0.1, maximum: 20.0 },
-    lfo_depth: { type: "number", minimum: 0.0, maximum: 1.0 },
-    lfo_target: { type: "integer", minimum: 0, maximum: 3 },
-    arp_mode: { type: "integer", minimum: 0, maximum: 4 },
-    space_mix: { type: "number", minimum: 0.0, maximum: 1.0 },
-    mod_matrix_mask: { type: "integer", minimum: 0, maximum: 33554431 },
-    brightness: { type: "number", minimum: 0.0, maximum: 1.0 },
-    exciter_noise: { type: "number", minimum: 0.0, maximum: 1.0 },
-    body_warmth: { type: "number", minimum: 0.0, maximum: 1.0 },
-    fm_index: { type: "number", minimum: 0.0, maximum: 6.0 },
-    fm_ratio: { type: "number", minimum: 0.5, maximum: 12.0 },
-    loop_enabled: { type: "boolean" },
-    partials: {
-      type: "array",
-      items: {
-        type: "object",
-        required: ["ratio", "amplitude", "decay_rate", "detune_cents", "pan"],
-        properties: {
-          ratio: { type: "number" },
-          amplitude: { type: "number" },
-          decay_rate: { type: "number" },
-          detune_cents: { type: "number" },
-          pan: { type: "number" }
-        }
-      }
-    }
-  }
+// Escudo Anti-Factura: 9,500 Neurons/día máximo (por debajo de los 10,000 Neurons/día gratuitos de Cloudflare = $0.00 riesgo)
+const MAX_DAILY_FREE_POOL_NEURONS = 9500;
+const ESTIMATED_NEURONS_PER_GEN = 85;
+const FREE_DAILY_CREDITS_PER_DEVICE = 15;
+
+// Claves Pro pre-autorizadas para activación inmediata en KV
+const BUILTIN_PRO_LICENSES: Record<string, { plan: string; initialCredits: number }> = {
+  "TEPUI-PRO-FOUNDER-2026": { plan: "PRO FOUNDER (1,000 CR)", initialCredits: 1000 },
+  "TEPUI-PRO-PACK-500": { plan: "CLOUD PACK (500 CR)", initialCredits: 500 },
+  "TEPUI-STUDIO-VIP": { plan: "STUDIO VIP (2,500 CR)", initialCredits: 2500 }
 };
 
 function clamp(v: number, lo: number, hi: number): number {
@@ -120,7 +84,22 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
 }
 
-function sanitizePatchSpec(raw: Partial<AiSynthesizerPatchSpec>, prompt: string): AiSynthesizerPatchSpec {
+function utcDateKey(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+async function sha256Hex(input: string): Promise<string> {
+  const bytes = new TextEncoder().encode(input);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function sanitizePatchSpec(
+  raw: Partial<AiSynthesizerPatchSpec>,
+  prompt: string
+): AiSynthesizerPatchSpec {
   const rawPartials = Array.isArray(raw.partials) ? raw.partials : [];
   const partials: ModalPartialSpec[] = [];
   for (let i = 0; i < Math.min(10, rawPartials.length); i++) {
@@ -171,15 +150,51 @@ function sanitizePatchSpec(raw: Partial<AiSynthesizerPatchSpec>, prompt: string)
   };
 }
 
-async function generatePatchSpecWithWorkersAi(env: Env, prompt: string): Promise<AiSynthesizerPatchSpec> {
-  const systemPrompt =
-    "You are TEPUI Gran Sabana Sonic Lab's synthesizer patch & modal-spectral sample architect. " +
-    "Given a user musical description, return ONLY a compact raw JSON object (no markdown fences) for a playable polyphonic Piano Roll instrument (NEVER speech or TTS) with these exact keys: " +
-    '{"name":string,"category":string,"root_note":int(24..96),"attack":float(0.001..2.0),"decay":float(0.05..3.0),"sustain":float(0..1),"release":float(0.05..4.0),"cutoff":float(120..20000),"resonance":float(0.5..6.0),"filter_mode":int(0=LP,1=HP,2=BP),"lfo_rate":float(0.2..16),"lfo_depth":float(0..0.9),"lfo_target":int(0=Cutoff,1=Pitch,2=Amp),"arp_mode":int(0=Off,1=Up,2=Down,3=Joropo 6/8,4=Merengue 5/8),"space_mix":float(0..0.8),"mod_matrix_mask":int(0..33554431),"brightness":float(0..1),"exciter_noise":float(0..1),"body_warmth":float(0..1),"fm_index":float(0..4),"fm_ratio":float(0.5..8),"loop_enabled":bool,"partials":[{"ratio":float,"amplitude":float,"decay_rate":float,"detune_cents":float,"pan":float}]} (8 partials).';
+const SYSTEM_PROMPT =
+  "You are TEPUI Gran Sabana Sonic Lab's synthesizer patch & modal-spectral sample architect. " +
+  "Given a user musical description, return ONLY a compact raw JSON object (no markdown fences) for a playable polyphonic Piano Roll instrument (NEVER speech or TTS) with these exact keys: " +
+  '{"name":string,"category":string,"root_note":int(24..96),"attack":float(0.001..2.0),"decay":float(0.05..3.0),"sustain":float(0..1),"release":float(0.05..4.0),"cutoff":float(120..20000),"resonance":float(0.5..6.0),"filter_mode":int(0=LP,1=HP,2=BP),"lfo_rate":float(0.2..16),"lfo_depth":float(0..0.9),"lfo_target":int(0=Cutoff,1=Pitch,2=Amp),"arp_mode":int(0=Off,1=Up,2=Down,3=Joropo 6/8,4=Merengue 5/8),"space_mix":float(0..0.8),"mod_matrix_mask":int(0..33554431),"brightness":float(0..1),"exciter_noise":float(0..1),"body_warmth":float(0..1),"fm_index":float(0..4),"fm_ratio":float(0.5..8),"loop_enabled":bool,"partials":[{"ratio":float,"amplitude":float,"decay_rate":float,"detune_cents":float,"pan":float}]} (8 partials).';
+
+async function generatePatchSpecWithWorkersAi(
+  env: Env,
+  prompt: string,
+  byokAccount?: string,
+  byokToken?: string
+): Promise<AiSynthesizerPatchSpec> {
+  if (byokAccount && byokToken) {
+    const url = `https://api.cloudflare.com/client/v4/accounts/${byokAccount.trim()}/ai/run/${MODEL_ID}`;
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${byokToken.trim()}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: prompt }
+        ],
+        temperature: 0.2,
+        max_tokens: 550,
+        response_format: { type: "json_object" }
+      })
+    });
+    if (!resp.ok) {
+      throw new Error(`BYOK Cloudflare API error: HTTP ${resp.status}`);
+    }
+    const data = (await resp.json()) as Record<string, unknown>;
+    const resObj = (data.result ?? data) as Record<string, unknown>;
+    const rawField = resObj.response ?? resObj;
+    const parsed =
+      typeof rawField === "string"
+        ? (JSON.parse(rawField) as Partial<AiSynthesizerPatchSpec>)
+        : (rawField as Partial<AiSynthesizerPatchSpec>);
+    return sanitizePatchSpec(parsed, prompt);
+  }
 
   const rawResult = await env.AI.run(MODEL_ID, {
     messages: [
-      { role: "system", content: systemPrompt },
+      { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: prompt }
     ],
     temperature: 0.2,
@@ -202,92 +217,135 @@ async function generatePatchSpecWithWorkersAi(env: Env, prompt: string): Promise
   return sanitizePatchSpec(parsed, prompt);
 }
 
-function encodeStereoFloat32Wav(left: Float32Array, right: Float32Array, sampleRate: number): Uint8Array {
-  const numFrames = Math.min(left.length, right.length);
-  const numChannels = 2;
-  const bytesPerSample = 4;
-  const dataSize = numFrames * numChannels * bytesPerSample;
-  const buffer = new ArrayBuffer(44 + dataSize);
-  const view = new DataView(buffer);
-
-  const writeStr = (offset: number, s: string) => {
-    for (let i = 0; i < s.length; i++) {
-      view.setUint8(offset + i, s.charCodeAt(i));
-    }
-  };
-
-  writeStr(0, "RIFF");
-  view.setUint32(4, 36 + dataSize, true);
-  writeStr(8, "WAVE");
-  writeStr(12, "fmt ");
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 3, true); // IEEE Float32
-  view.setUint16(22, numChannels, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * numChannels * bytesPerSample, true);
-  view.setUint16(32, numChannels * bytesPerSample, true);
-  view.setUint16(34, 32, true);
-  writeStr(36, "data");
-  view.setUint32(40, dataSize, true);
-
-  let offset = 44;
-  for (let i = 0; i < numFrames; i++) {
-    view.setFloat32(offset, left[i], true);
-    view.setFloat32(offset + 4, right[i], true);
-    offset += 8;
-  }
-  return new Uint8Array(buffer);
+async function getDailyNeuronsUsed(env: Env): Promise<number> {
+  const key = `budget:neurons:${utcDateKey()}`;
+  const raw = await env.TEPUI_KV.get(key, "text");
+  return raw ? parseInt(raw, 10) || 0 : 0;
 }
 
-function synthesizeModalStereoWav(spec: AiSynthesizerPatchSpec, sampleRate: number): Uint8Array {
-  const sr = clamp(sampleRate, 22050, 96000);
-  const durSecs = spec.loop_enabled ? 2.4 : 1.6;
-  const totalFrames = Math.floor(sr * durSecs);
-  const left = new Float32Array(totalFrames);
-  const right = new Float32Array(totalFrames);
-  const f0 = 440.0 * Math.pow(2.0, (spec.root_note - 69.0) / 12.0);
-  const attSecs = clamp(spec.attack * 0.25, 0.0005, 0.08);
-  let rng = (spec.mod_matrix_mask ^ 0x9e3779b9) >>> 0;
+async function addDailyNeuronsUsed(env: Env, delta: number): Promise<number> {
+  const key = `budget:neurons:${utcDateKey()}`;
+  const current = await getDailyNeuronsUsed(env);
+  const next = current + delta;
+  await env.TEPUI_KV.put(key, String(next), { expirationTtl: 60 * 60 * 48 });
+  return next;
+}
 
-  for (let i = 0; i < totalFrames; i++) {
-    const t = i / sr;
-    const envIn = t < attSecs ? t / attSecs : 1.0;
-    const fmMod =
-      spec.fm_index > 0.01
-        ? spec.fm_index * Math.exp(-t * 3.5) * Math.sin(2.0 * Math.PI * f0 * spec.fm_ratio * t)
-        : 0.0;
-
-    let sumL = 0.0;
-    let sumR = 0.0;
-    for (let pIdx = 0; pIdx < spec.partials.length; pIdx++) {
-      const p = spec.partials[pIdx];
-      const detuneRatio = Math.pow(2.0, p.detune_cents / 1200.0);
-      const freq = f0 * p.ratio * detuneRatio;
-      if (freq >= sr * 0.46) continue;
-      const phase = 2.0 * Math.PI * freq * t + fmMod / (1.0 + pIdx * 0.35);
-      const env = Math.exp(-t * p.decay_rate);
-      const sig = Math.sin(phase) * p.amplitude * env;
-      const panAngle = (clamp(p.pan, -1.0, 1.0) + 1.0) * 0.25 * Math.PI;
-      sumL += sig * Math.cos(panAngle);
-      sumR += sig * Math.sin(panAngle);
-    }
-
-    rng = (Math.imul(rng, 1664525) + 1013904223) >>> 0;
-    const white = (rng / 0xffffffff) * 2.0 - 1.0;
-    const exciter = white * spec.exciter_noise * Math.exp(-t * 42.0) * 0.25;
-    const body = Math.sin(2.0 * Math.PI * f0 * t) * spec.body_warmth * Math.exp(-t * 2.1) * 0.32;
-
-    left[i] = Math.tanh((sumL + exciter + body) * envIn * 0.85);
-    right[i] = Math.tanh((sumR - exciter * 0.6 + body) * envIn * 0.85);
+async function resolveLicenseOrDeviceQuota(
+  env: Env,
+  licenseKey: string,
+  deviceId: string,
+  byokAccount: string,
+  byokToken: string
+): Promise<{
+  allowed: boolean;
+  tier: string;
+  creditsRemaining: number;
+  errorCode?: string;
+  errorMessage?: string;
+  licenseRecord?: LicenseRecord;
+}> {
+  if (byokAccount && byokToken) {
+    return {
+      allowed: true,
+      tier: "BYOK (USER API)",
+      creditsRemaining: 999999
+    };
   }
 
-  return encodeStereoFloat32Wav(left, right, sr);
+  const cleanLicense = licenseKey.trim().toUpperCase();
+  if (cleanLicense.length >= 8) {
+    const kvKey = `license:${cleanLicense}`;
+    let record = await env.TEPUI_KV.get<LicenseRecord>(kvKey, "json");
+    if (!record && BUILTIN_PRO_LICENSES[cleanLicense]) {
+      const preset = BUILTIN_PRO_LICENSES[cleanLicense];
+      record = {
+        key: cleanLicense,
+        plan: preset.plan,
+        credits_remaining: preset.initialCredits,
+        total_used: 0,
+        updated_at: new Date().toISOString()
+      };
+      await env.TEPUI_KV.put(kvKey, JSON.stringify(record));
+    }
+    if (!record) {
+      return {
+        allowed: false,
+        tier: "INVALID LICENSE",
+        creditsRemaining: 0,
+        errorCode: "INVALID_LICENSE_KEY",
+        errorMessage: "La clave de licencia ingresada no existe o expiró."
+      };
+    }
+    if (record.credits_remaining <= 0) {
+      return {
+        allowed: false,
+        tier: record.plan,
+        creditsRemaining: 0,
+        errorCode: "CREDITS_EXHAUSTED",
+        errorMessage: "Tus créditos Cloud IA se agotaron. Recarga tu licencia o usa BYOK / NPU Local."
+      };
+    }
+    return {
+      allowed: true,
+      tier: record.plan,
+      creditsRemaining: record.credits_remaining,
+      licenseRecord: record
+    };
+  }
+
+  // Free Tier por Dispositivo (15 generaciones Cloud/día)
+  const dateStr = utcDateKey();
+  const quotaKey = `quota:${dateStr}:${deviceId}`;
+  const usedRaw = await env.TEPUI_KV.get(quotaKey, "text");
+  const usedToday = usedRaw ? parseInt(usedRaw, 10) || 0 : 0;
+  const remaining = Math.max(0, FREE_DAILY_CREDITS_PER_DEVICE - usedToday);
+  if (remaining <= 0) {
+    return {
+      allowed: false,
+      tier: "FREE TIER (0/15)",
+      creditsRemaining: 0,
+      errorCode: "FREE_QUOTA_EXCEEDED",
+      errorMessage:
+        "Alcanzaste las 15 generaciones Cloud IA gratuitas de hoy. Activa una Licencia Pro, usa BYOK o continúa con el motor NPU Local ilimitado."
+    };
+  }
+  return {
+    allowed: true,
+    tier: "FREE TIER",
+    creditsRemaining: remaining
+  };
+}
+
+async function consumeOneCredit(
+  env: Env,
+  deviceId: string,
+  licenseRecord?: LicenseRecord
+): Promise<number> {
+  if (licenseRecord) {
+    licenseRecord.credits_remaining = Math.max(0, licenseRecord.credits_remaining - 1);
+    licenseRecord.total_used = (licenseRecord.total_used || 0) + 1;
+    licenseRecord.updated_at = new Date().toISOString();
+    await env.TEPUI_KV.put(
+      `license:${licenseRecord.key}`,
+      JSON.stringify(licenseRecord)
+    );
+    return licenseRecord.credits_remaining;
+  }
+
+  const dateStr = utcDateKey();
+  const quotaKey = `quota:${dateStr}:${deviceId}`;
+  const usedRaw = await env.TEPUI_KV.get(quotaKey, "text");
+  const usedToday = (usedRaw ? parseInt(usedRaw, 10) || 0 : 0) + 1;
+  await env.TEPUI_KV.put(quotaKey, String(usedToday), { expirationTtl: 60 * 60 * 36 });
+  return Math.max(0, FREE_DAILY_CREDITS_PER_DEVICE - usedToday);
 }
 
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization"
+  "Access-Control-Allow-Headers":
+    "Content-Type, Authorization, X-Tepui-License-Key, X-Tepui-Device-Id, X-Tepui-Byok-Account, X-Tepui-Byok-Token"
 };
 
 export default {
@@ -298,15 +356,52 @@ export default {
 
     const url = new URL(request.url);
     const startMs = Date.now();
+    const clientIp = request.headers.get("CF-Connecting-IP") || "anon-ip";
+    const deviceId = (request.headers.get("X-Tepui-Device-Id") || clientIp)
+      .trim()
+      .slice(0, 64);
+    const licenseKey = (request.headers.get("X-Tepui-License-Key") || "").trim();
+    const byokAccount = (request.headers.get("X-Tepui-Byok-Account") || "").trim();
+    const byokToken = (request.headers.get("X-Tepui-Byok-Token") || "").trim();
 
     try {
       if (url.pathname === "/health" || url.pathname === "/") {
+        const dailyNeurons = await getDailyNeuronsUsed(env);
         return new Response(
           JSON.stringify({
             ok: true,
             service: "tepui-ai-synth-gateway",
             model: MODEL_ID,
-            engine: "CLOUDFLARE-WORKERS-AI"
+            engine: "CLOUDFLARE-WORKERS-AI",
+            kv_cache: true,
+            daily_neurons_used: dailyNeurons,
+            max_daily_neurons: MAX_DAILY_FREE_POOL_NEURONS
+          }),
+          {
+            status: 200,
+            headers: { ...CORS_HEADERS, "Content-Type": "application/json; charset=utf-8" }
+          }
+        );
+      }
+
+      if (url.pathname === "/v1/quota" || url.pathname === "/v1/license/verify") {
+        const quota = await resolveLicenseOrDeviceQuota(
+          env,
+          licenseKey,
+          deviceId,
+          byokAccount,
+          byokToken
+        );
+        const dailyNeurons = await getDailyNeuronsUsed(env);
+        return new Response(
+          JSON.stringify({
+            ok: quota.allowed,
+            tier: quota.tier,
+            credits_remaining: quota.creditsRemaining,
+            daily_neurons_used: dailyNeurons,
+            max_daily_neurons: MAX_DAILY_FREE_POOL_NEURONS,
+            error_code: quota.errorCode ?? null,
+            message: quota.errorMessage ?? "Cuenta activa y protegida con Escudo Anti-Costos KV."
           }),
           {
             status: 200,
@@ -318,21 +413,143 @@ export default {
       if (url.pathname === "/v1/preset" && request.method === "POST") {
         const body = (await request.json().catch(() => ({}))) as { prompt?: string };
         const prompt = String(body.prompt || "Concert Grand Piano C4").trim().slice(0, 280);
-        const spec = await generatePatchSpecWithWorkersAi(env, prompt);
+        const normalizedPrompt = prompt.toLowerCase().replace(/\s+/g, " ");
+        const promptHash = await sha256Hex(normalizedPrompt);
+        const cacheKey = `cache:preset:v1:${promptHash}`;
+
+        const quota = await resolveLicenseOrDeviceQuota(
+          env,
+          licenseKey,
+          deviceId,
+          byokAccount,
+          byokToken
+        );
+
+        // 1. Verificar Caché Global en Cloudflare KV (0 Neurons = $0.00 costo y <10ms latencia)
+        const cachedSpec = await env.TEPUI_KV.get<AiSynthesizerPatchSpec>(cacheKey, "json");
+        if (cachedSpec) {
+          const dailyNeurons = await getDailyNeuronsUsed(env);
+          const elapsedMs = Date.now() - startMs;
+          console.log(
+            JSON.stringify({
+              event: "preset_kv_cache_hit",
+              prompt,
+              tier: quota.tier,
+              neurons_used: 0,
+              elapsed_ms: elapsedMs
+            })
+          );
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              backend: "CLOUDFLARE-KV-EDGE-CACHE",
+              cached: true,
+              neurons_used: 0,
+              tier: quota.tier,
+              credits_remaining: quota.creditsRemaining,
+              daily_neurons_used: dailyNeurons,
+              max_daily_neurons: MAX_DAILY_FREE_POOL_NEURONS,
+              model: MODEL_ID,
+              elapsed_ms: elapsedMs,
+              spec: cachedSpec
+            }),
+            {
+              status: 200,
+              headers: { ...CORS_HEADERS, "Content-Type": "application/json; charset=utf-8" }
+            }
+          );
+        }
+
+        // 2. Si no está en caché, validar cuota de usuario / licencia
+        if (!quota.allowed) {
+          const dailyNeurons = await getDailyNeuronsUsed(env);
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              code: quota.errorCode || "QUOTA_EXCEEDED",
+              error: quota.errorMessage || "Sin créditos Cloud IA disponibles.",
+              fallback: "LOCAL_NPU",
+              tier: quota.tier,
+              credits_remaining: 0,
+              daily_neurons_used: dailyNeurons,
+              max_daily_neurons: MAX_DAILY_FREE_POOL_NEURONS
+            }),
+            {
+              status: 402,
+              headers: { ...CORS_HEADERS, "Content-Type": "application/json; charset=utf-8" }
+            }
+          );
+        }
+
+        // 3. Validar Cortafuegos Financiero Diario (9,500 Neurons/día máximo si no es BYOK)
+        const isByok = Boolean(byokAccount && byokToken);
+        const currentDailyNeurons = await getDailyNeuronsUsed(env);
+        if (
+          !isByok &&
+          currentDailyNeurons + ESTIMATED_NEURONS_PER_GEN > MAX_DAILY_FREE_POOL_NEURONS
+        ) {
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              code: "DAILY_BUDGET_GUARD",
+              error:
+                "Tope diario gratuito de seguridad alcanzado (9,500 Neurons = $0 costo). Conmutando automáticamente al motor NPU Local.",
+              fallback: "LOCAL_NPU",
+              tier: quota.tier,
+              credits_remaining: quota.creditsRemaining,
+              daily_neurons_used: currentDailyNeurons,
+              max_daily_neurons: MAX_DAILY_FREE_POOL_NEURONS
+            }),
+            {
+              status: 429,
+              headers: { ...CORS_HEADERS, "Content-Type": "application/json; charset=utf-8" }
+            }
+          );
+        }
+
+        // 4. Ejecutar inferencia en Cloudflare Workers AI (o cuenta BYOK del usuario)
+        const spec = await generatePatchSpecWithWorkersAi(
+          env,
+          prompt,
+          byokAccount || undefined,
+          byokToken || undefined
+        );
+
+        // 5. Guardar en Caché Global Cloudflare KV por 30 días para que futuras peticiones cuesten 0 Neurons
+        await env.TEPUI_KV.put(cacheKey, JSON.stringify(spec), {
+          expirationTtl: 60 * 60 * 24 * 30
+        });
+
+        // 6. Contabilizar Neurons y descontar 1 crédito (si no es BYOK)
+        const updatedDailyNeurons = isByok
+          ? currentDailyNeurons
+          : await addDailyNeuronsUsed(env, ESTIMATED_NEURONS_PER_GEN);
+        const updatedCredits = isByok
+          ? 999999
+          : await consumeOneCredit(env, deviceId, quota.licenseRecord);
+
         const elapsedMs = Date.now() - startMs;
         console.log(
           JSON.stringify({
-            event: "preset_synthesized",
+            event: "preset_synthesized_gpu",
             prompt,
-            root_note: spec.root_note,
-            partials: spec.partials.length,
+            tier: quota.tier,
+            credits_remaining: updatedCredits,
+            daily_neurons_used: updatedDailyNeurons,
             elapsed_ms: elapsedMs
           })
         );
+
         return new Response(
           JSON.stringify({
             ok: true,
-            backend: "CLOUDFLARE-WORKERS-AI",
+            backend: isByok ? "CLOUDFLARE-BYOK-AI" : "CLOUDFLARE-WORKERS-AI",
+            cached: false,
+            neurons_used: isByok ? 0 : ESTIMATED_NEURONS_PER_GEN,
+            tier: quota.tier,
+            credits_remaining: updatedCredits,
+            daily_neurons_used: updatedDailyNeurons,
+            max_daily_neurons: MAX_DAILY_FREE_POOL_NEURONS,
             model: MODEL_ID,
             elapsed_ms: elapsedMs,
             spec
@@ -342,26 +559,6 @@ export default {
             headers: { ...CORS_HEADERS, "Content-Type": "application/json; charset=utf-8" }
           }
         );
-      }
-
-      if (url.pathname === "/v1/sample.wav" && request.method === "POST") {
-        const body = (await request.json().catch(() => ({}))) as {
-          prompt?: string;
-          sample_rate?: number;
-        };
-        const prompt = String(body.prompt || "Concert Grand Piano C4").trim().slice(0, 280);
-        const sampleRate = clamp(Number(body.sample_rate || 48000), 22050, 96000);
-        const spec = await generatePatchSpecWithWorkersAi(env, prompt);
-        const wavBytes = synthesizeModalStereoWav(spec, sampleRate);
-        return new Response(wavBytes, {
-          status: 200,
-          headers: {
-            ...CORS_HEADERS,
-            "Content-Type": "audio/wav",
-            "X-Tepui-Backend": "CLOUDFLARE-WORKERS-AI",
-            "X-Tepui-Root-Note": String(spec.root_note)
-          }
-        });
       }
 
       return new Response(JSON.stringify({ ok: false, error: "Not Found" }), {

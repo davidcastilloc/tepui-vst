@@ -221,10 +221,46 @@ function updateRegionDisplay(regionObj) {
   }
 }
 
+function syncCloudCreditsBadgeUI(oddObj) {
+  const odd = oddObj || state.oddMetrics || {};
+  const tier = String(odd.cloud_tier || 'FREE TIER (15/DAY)').toUpperCase();
+  const cr = odd.cloud_credits_remaining !== undefined ? odd.cloud_credits_remaining : 15;
+  const dailyNeurons = odd.cloud_daily_neurons || 0;
+  const isProOrByok = tier.includes('PRO') || tier.includes('BYOK') || tier.includes('VIP');
+  const isLocalOnly = tier.includes('LOCAL');
+
+  const btnCredits = document.getElementById('btn-cloud-credits');
+  const txtCredits = document.getElementById('cloud-credits-text');
+  if (btnCredits && txtCredits) {
+    btnCredits.classList.toggle('tier-pro', isProOrByok);
+    if (tier.includes('BYOK')) {
+      txtCredits.innerText = 'CLOUD: BYOK ∞';
+    } else if (isLocalOnly) {
+      txtCredits.innerText = 'NPU LOCAL ($0)';
+    } else if (isProOrByok) {
+      txtCredits.innerText = `PRO: ${cr} CR`;
+    } else {
+      txtCredits.innerText = `CLOUD: ${cr} CR`;
+    }
+  }
+
+  const modalPill = document.getElementById('cloud-modal-tier-badge');
+  if (modalPill) {
+    modalPill.classList.toggle('tier-pro', isProOrByok);
+    modalPill.innerText = isLocalOnly ? 'LOCAL NPU • $0 CLOUD' : `${tier.split('(')[0].trim()} • ${cr} CR`;
+  }
+
+  const quotaSum = document.getElementById('cloud-quota-summary');
+  if (quotaSum) {
+    quotaSum.innerText = `Pool Gratuito Protegido: ${dailyNeurons} / 9,500 Neurons hoy ($0.00 facturación garantizada)`;
+  }
+}
+
 function refreshFooterOddText() {
   const footerText = document.getElementById('footer-text');
   if (!footerText) return;
   const odd = state.oddMetrics || {};
+  syncCloudCreditsBadgeUI(odd);
   const backend = (odd.synth_backend || 'HYBRID-PHYSICAL').toUpperCase();
   const durUs = odd.last_generation_duration_us || 0;
   const genCnt = odd.generation_count || 1;
@@ -238,8 +274,9 @@ function refreshFooterOddText() {
   const routes = odd.mod_matrix_active_routes !== undefined
     ? odd.mod_matrix_active_routes
     : countMaskBits(state.params.mod_matrix_mask || 0);
-  const cacheHits = odd.npu_cache_hits || 0;
+  const cacheHits = (odd.npu_cache_hits || 0) + (odd.cloud_kv_cache_hits || 0);
   const cacheMiss = odd.npu_cache_misses || 0;
+  const cloudCr = odd.cloud_credits_remaining !== undefined ? odd.cloud_credits_remaining : 15;
   const liveVel = (typeof odd.last_velocity === 'number' && odd.last_velocity > 0.01)
     ? odd.last_velocity
     : (state.lastPlayedVelocity || state.currentVelocity || 0.95);
@@ -248,7 +285,7 @@ function refreshFooterOddText() {
     ? odd.last_detected_pitch_hz.toFixed(1)
     : (440.0 * Math.pow(2.0, ((state.params.root_note || 60) - 69) / 12.0)).toFixed(1);
   const aiPresets = odd.ai_presets_synthesized !== undefined ? odd.ai_presets_synthesized : genCnt;
-  footerText.innerText = `ODD // BACKEND: ${backend} • SYNTH: ${durUs}µs (#${genCnt}) • AI-PATCH: #${aiPresets} • PITCH: ${pitchHz}Hz • CACHE: ${cacheHits}H/${cacheMiss}M • VEL: ${velPct}% • LFO: ${lfoMod}% • ROUTES: ${routes} • PRESETS: ${presets} • FAVS: ${favs} • MATRIX: ${matrix} • RESIZE: ${resizes} • DSP BLK: ${blk} • LIM: ${lim}`;
+  footerText.innerText = `ODD // BACKEND: ${backend} • CLOUD: ${cloudCr}CR • SYNTH: ${durUs}µs (#${genCnt}) • AI-PATCH: #${aiPresets} • PITCH: ${pitchHz}Hz • CACHE: ${cacheHits}H/${cacheMiss}M • VEL: ${velPct}% • LFO: ${lfoMod}% • ROUTES: ${routes} • PRESETS: ${presets} • FAVS: ${favs} • MATRIX: ${matrix} • RESIZE: ${resizes} • DSP BLK: ${blk} • LIM: ${lim}`;
 }
 
 function syncExpressionWheelsUI() {
@@ -2607,11 +2644,85 @@ function initAudioSettingsModal() {
     }
   }
 
-  btnOpen.addEventListener('click', () => {
+  const openSettingsModal = () => {
     hideStatus();
     modal.classList.remove('hidden');
     loadAudioDevices(true);
-  });
+    loadCloudLicenseState();
+  };
+
+  btnOpen.addEventListener('click', openSettingsModal);
+  const btnCloudCredits = document.getElementById('btn-cloud-credits');
+  if (btnCloudCredits) {
+    btnCloudCredits.addEventListener('click', openSettingsModal);
+  }
+
+  async function loadCloudLicenseState() {
+    try {
+      const resp = await fetch('/api/cloud-license');
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const cfg = data.config || {};
+      const quota = data.quota || {};
+      const licInput = document.getElementById('input-cloud-license');
+      const modeSel = document.getElementById('select-cloud-mode');
+      const byokAcc = document.getElementById('input-byok-account');
+      const byokTok = document.getElementById('input-byok-token');
+      if (licInput) licInput.value = cfg.license_key || '';
+      if (modeSel) modeSel.value = cfg.local_npu_only ? 'local_only' : 'cloud';
+      if (byokAcc) byokAcc.value = cfg.byok_account_id || '';
+      if (byokTok) byokTok.value = cfg.byok_api_token || '';
+      if (state.oddMetrics && quota.tier) {
+        state.oddMetrics.cloud_tier = quota.tier;
+        state.oddMetrics.cloud_credits_remaining = quota.credits_remaining;
+        state.oddMetrics.cloud_daily_neurons = quota.daily_neurons_used || quota.daily_neurons || 0;
+      }
+      refreshFooterOddText();
+    } catch (e) {
+      console.warn('[TEPUI CLOUD LICENSE FETCH]', e);
+    }
+  }
+
+  const btnVerifyCloud = document.getElementById('btn-verify-cloud-license');
+  if (btnVerifyCloud) {
+    btnVerifyCloud.addEventListener('click', async () => {
+      const licInput = document.getElementById('input-cloud-license');
+      const modeSel = document.getElementById('select-cloud-mode');
+      const byokAcc = document.getElementById('input-byok-account');
+      const byokTok = document.getElementById('input-byok-token');
+      const payload = {
+        license_key: licInput && licInput.value.trim() ? licInput.value.trim() : '',
+        device_id: '',
+        byok_account_id: byokAcc && byokAcc.value.trim() ? byokAcc.value.trim() : '',
+        byok_api_token: byokTok && byokTok.value.trim() ? byokTok.value.trim() : '',
+        local_npu_only: !!(modeSel && modeSel.value === 'local_only')
+      };
+      showStatus('Verificando licencia y sincronizando con Cloudflare Edge KV...');
+      sendIpc('save_cloud_license:' + JSON.stringify(payload));
+      try {
+        const resp = await fetch('/api/save-cloud-license', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (resp.ok) {
+          const res = await resp.json();
+          if (res.quota) {
+            if (!state.oddMetrics) state.oddMetrics = {};
+            state.oddMetrics.cloud_tier = res.quota.tier;
+            state.oddMetrics.cloud_credits_remaining = res.quota.credits_remaining;
+            state.oddMetrics.cloud_daily_neurons = res.quota.daily_neurons_used || res.quota.daily_neurons || 0;
+            refreshFooterOddText();
+            showStatus(`[OK] Cloud AI activo: ${res.quota.tier} • ${res.quota.credits_remaining} créditos disponibles (Riesgo facturación: $0.00)`);
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn('[TEPUI SAVE CLOUD LICENSE]', e);
+      }
+      showStatus('[OK] Configuración de Cloud AI y Licencia guardada localmente.');
+    });
+  }
 
   const closeModal = () => {
     modal.classList.add('hidden');

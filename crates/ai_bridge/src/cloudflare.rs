@@ -17,9 +17,116 @@ pub const DEFAULT_CF_PRESET_MODEL: &str = "@cf/meta/llama-3.3-70b-instruct-fp8-f
 pub const DEFAULT_CF_SAMPLE_DIFFUSION_MODEL: &str = "stability-ai/stable-audio-open-1.0";
 
 /// Endpoint Edge en vivo desplegado en Cloudflare Workers (`PC911 IT Services Global`)
-/// con binding nativo a Cloudflare Workers AI (`env.AI`).
+/// con binding nativo a Cloudflare Workers AI (`env.AI`) y caché global en Cloudflare KV (`env.TEPUI_KV`).
 pub const DEFAULT_CF_EDGE_WORKER_URL: &str =
     "https://tepui-ai-synth-gateway.pc911itservices.workers.dev";
+
+/// Tope diario de seguridad en Cloudflare Workers AI (por debajo de los 10,000 Neurons gratuitos/día = $0 riesgo).
+pub const MAX_DAILY_FREE_POOL_NEURONS: u32 = 9500;
+
+fn default_device_id() -> String {
+    let host = std::env::var("COMPUTERNAME")
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .unwrap_or_else(|_| "tepui-node".to_string());
+    let user = std::env::var("USERNAME")
+        .or_else(|_| std::env::var("USER"))
+        .unwrap_or_else(|_| "studio".to_string());
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for b in format!("{}:{}", host, user).bytes() {
+        hash ^= u64::from(b);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("tepui-dev-{:012x}", hash & 0xffff_ffff_ffff)
+}
+
+/// Configuración persistente de Monetización Cloud IA, Licencia Pro, BYOK y Escudo Anti-Costos.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CloudLicenseConfig {
+    /// Clave de licencia Pro (`TEPUI-PRO-...`)
+    #[serde(default)]
+    pub license_key: String,
+    /// Identificador único anónimo del dispositivo para las 15 generaciones gratuitas diarias
+    #[serde(default = "default_device_id")]
+    pub device_id: String,
+    /// Account ID propio de Cloudflare del usuario (modo BYOK 0 costo para nosotros)
+    #[serde(default)]
+    pub byok_account_id: String,
+    /// API Token propio de Cloudflare del usuario (modo BYOK 0 costo para nosotros)
+    #[serde(default)]
+    pub byok_api_token: String,
+    /// Si es `true`, desactiva todas las llamadas a la nube y usa exclusivamente el motor NPU/Modal local ($0 costo)
+    #[serde(default)]
+    pub local_npu_only: bool,
+}
+
+impl Default for CloudLicenseConfig {
+    fn default() -> Self {
+        Self {
+            license_key: String::new(),
+            device_id: default_device_id(),
+            byok_account_id: String::new(),
+            byok_api_token: String::new(),
+            local_npu_only: false,
+        }
+    }
+}
+
+/// Reporte en vivo de cuota, créditos, caché KV y consumo de Neurons devuelto por el Worker Edge.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CloudEdgeQuotaReport {
+    pub tier: String,
+    pub credits_remaining: u32,
+    pub daily_neurons_used: u32,
+    pub max_daily_neurons: u32,
+    pub cached: bool,
+    pub budget_guard_tripped: bool,
+    pub message: String,
+}
+
+impl Default for CloudEdgeQuotaReport {
+    fn default() -> Self {
+        Self {
+            tier: "FREE TIER".to_string(),
+            credits_remaining: 15,
+            daily_neurons_used: 0,
+            max_daily_neurons: MAX_DAILY_FREE_POOL_NEURONS,
+            cached: false,
+            budget_guard_tripped: false,
+            message: "Escudo Anti-Costos KV activo (Tope gratuito: 9,500 Neurons/día)".to_string(),
+        }
+    }
+}
+
+fn cloud_license_config_path() -> std::path::PathBuf {
+    let base = std::env::var("APPDATA")
+        .or_else(|_| std::env::var("LOCALAPPDATA"))
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::env::temp_dir());
+    let dir = base.join("Tepui");
+    let _ = std::fs::create_dir_all(&dir);
+    dir.join("cloud_license_config.json")
+}
+
+/// Carga desde disco la configuración de Licencia Pro / BYOK / Escudo Anti-Costos.
+pub fn load_cloud_license_config() -> CloudLicenseConfig {
+    let path = cloud_license_config_path();
+    if let Ok(bytes) = std::fs::read(&path) {
+        if let Ok(mut cfg) = serde_json::from_slice::<CloudLicenseConfig>(&bytes) {
+            if cfg.device_id.trim().is_empty() {
+                cfg.device_id = default_device_id();
+            }
+            return cfg;
+        }
+    }
+    CloudLicenseConfig::default()
+}
+
+/// Guarda en disco la configuración de Licencia Pro / BYOK / Escudo Anti-Costos.
+pub fn save_cloud_license_config(cfg: &CloudLicenseConfig) -> Result<(), String> {
+    let path = cloud_license_config_path();
+    let json = serde_json::to_vec_pretty(cfg).map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| e.to_string())
+}
 
 fn configure_silent_command(cmd: &mut Command) {
     #[cfg(windows)]
@@ -178,14 +285,114 @@ pub fn build_cloudflare_workers_ai_preset_request(prompt: &str) -> serde_json::V
     })
 }
 
+/// Consulta el estado de cuota/licencia en el Worker Edge (`/v1/quota`).
+pub fn verify_cloud_license_quota(cfg: &CloudLicenseConfig) -> CloudEdgeQuotaReport {
+    if cfg.local_npu_only {
+        return CloudEdgeQuotaReport {
+            tier: "LOCAL NPU ONLY ($0)".to_string(),
+            credits_remaining: 0,
+            daily_neurons_used: 0,
+            max_daily_neurons: MAX_DAILY_FREE_POOL_NEURONS,
+            cached: false,
+            budget_guard_tripped: false,
+            message: "Modo 100% Local NPU activo (0 consumo en nube).".to_string(),
+        };
+    }
+
+    let base_url = std::env::var("TEPUI_CF_EDGE_WORKER_URL")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_CF_EDGE_WORKER_URL.to_string());
+    let endpoint = format!("{}/v1/quota", base_url.trim_end_matches('/'));
+
+    let mut cmd = Command::new("curl");
+    configure_silent_command(&mut cmd);
+    cmd.args([
+        "-sS",
+        "--max-time",
+        "6",
+        "-X",
+        "GET",
+        &endpoint,
+        "-H",
+        &format!("X-Tepui-Device-Id: {}", cfg.device_id.trim()),
+    ]);
+    if !cfg.license_key.trim().is_empty() {
+        cmd.args([
+            "-H",
+            &format!("X-Tepui-License-Key: {}", cfg.license_key.trim()),
+        ]);
+    }
+    if !cfg.byok_account_id.trim().is_empty() && !cfg.byok_api_token.trim().is_empty() {
+        cmd.args([
+            "-H",
+            &format!("X-Tepui-Byok-Account: {}", cfg.byok_account_id.trim()),
+            "-H",
+            &format!("X-Tepui-Byok-Token: {}", cfg.byok_api_token.trim()),
+        ]);
+    }
+
+    if let Ok(output) = cmd.output() {
+        if let Ok(resp_json) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+            return CloudEdgeQuotaReport {
+                tier: resp_json
+                    .get("tier")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("FREE TIER")
+                    .to_string(),
+                credits_remaining: resp_json
+                    .get("credits_remaining")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(15) as u32,
+                daily_neurons_used: resp_json
+                    .get("daily_neurons_used")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as u32,
+                max_daily_neurons: resp_json
+                    .get("max_daily_neurons")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(MAX_DAILY_FREE_POOL_NEURONS as u64)
+                    as u32,
+                cached: false,
+                budget_guard_tripped: false,
+                message: resp_json
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Cuenta activa y protegida con Escudo Anti-Costos KV.")
+                    .to_string(),
+            };
+        }
+    }
+
+    CloudEdgeQuotaReport::default()
+}
+
 /// Consulta en vivo el Worker Edge desplegado en Cloudflare (`https://tepui-ai-synth-gateway.pc911itservices.workers.dev/v1/preset`)
-/// que utiliza el binding nativo `env.AI` (`@cf/meta/llama-3.3-70b-instruct-fp8-fast`).
-pub fn try_fetch_cloudflare_edge_worker_patch(prompt: &str) -> Option<AiSynthesizerPatchSpec> {
+/// que utiliza el binding nativo `env.AI` (`@cf/meta/llama-3.3-70b-instruct-fp8-fast`) y `env.TEPUI_KV`.
+pub fn try_fetch_cloudflare_edge_worker_patch_with_report(
+    prompt: &str,
+) -> (Option<AiSynthesizerPatchSpec>, Option<CloudEdgeQuotaReport>) {
     if std::env::var("TEPUI_OFFLINE_ONLY")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false)
     {
-        return None;
+        return (None, None);
+    }
+
+    let cfg = load_cloud_license_config();
+    if cfg.local_npu_only {
+        return (
+            None,
+            Some(CloudEdgeQuotaReport {
+                tier: "LOCAL NPU ONLY ($0)".to_string(),
+                credits_remaining: 0,
+                daily_neurons_used: 0,
+                max_daily_neurons: MAX_DAILY_FREE_POOL_NEURONS,
+                cached: false,
+                budget_guard_tripped: false,
+                message: "Modo 100% Local NPU activo.".to_string(),
+            }),
+        );
     }
 
     let base_url = std::env::var("TEPUI_CF_EDGE_WORKER_URL")
@@ -197,34 +404,99 @@ pub fn try_fetch_cloudflare_edge_worker_patch(prompt: &str) -> Option<AiSynthesi
 
     let mut cmd = Command::new("curl");
     configure_silent_command(&mut cmd);
-    let output = cmd
-        .args([
-            "-sS",
-            "--max-time",
-            "28",
-            "-X",
-            "POST",
-            &endpoint,
+    cmd.args([
+        "-sS",
+        "--max-time",
+        "28",
+        "-X",
+        "POST",
+        &endpoint,
+        "-H",
+        "Content-Type: application/json",
+        "-H",
+        &format!("X-Tepui-Device-Id: {}", cfg.device_id.trim()),
+    ]);
+    if !cfg.license_key.trim().is_empty() {
+        cmd.args([
             "-H",
-            "Content-Type: application/json",
-            "-d",
-            &body,
-        ])
-        .output()
-        .ok()?;
+            &format!("X-Tepui-License-Key: {}", cfg.license_key.trim()),
+        ]);
+    }
+    if !cfg.byok_account_id.trim().is_empty() && !cfg.byok_api_token.trim().is_empty() {
+        cmd.args([
+            "-H",
+            &format!("X-Tepui-Byok-Account: {}", cfg.byok_account_id.trim()),
+            "-H",
+            &format!("X-Tepui-Byok-Token: {}", cfg.byok_api_token.trim()),
+        ]);
+    }
+    cmd.args(["-d", &body]);
 
+    let output = match cmd.output() {
+        Ok(o) => o,
+        Err(_) => return (None, None),
+    };
     if !output.status.success() {
-        return None;
+        return (None, None);
     }
 
-    let resp_json: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
+    let resp_json: serde_json::Value = match serde_json::from_slice(&output.stdout) {
+        Ok(v) => v,
+        Err(_) => return (None, None),
+    };
+
+    let code = resp_json.get("code").and_then(|v| v.as_str()).unwrap_or("");
+    let report = CloudEdgeQuotaReport {
+        tier: resp_json
+            .get("tier")
+            .and_then(|v| v.as_str())
+            .unwrap_or("FREE TIER")
+            .to_string(),
+        credits_remaining: resp_json
+            .get("credits_remaining")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32,
+        daily_neurons_used: resp_json
+            .get("daily_neurons_used")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32,
+        max_daily_neurons: resp_json
+            .get("max_daily_neurons")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(MAX_DAILY_FREE_POOL_NEURONS as u64) as u32,
+        cached: resp_json
+            .get("cached")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        budget_guard_tripped: code == "DAILY_BUDGET_GUARD"
+            || code == "FREE_QUOTA_EXCEEDED"
+            || code == "CREDITS_EXHAUSTED",
+        message: resp_json
+            .get("error")
+            .or_else(|| resp_json.get("message"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("OK")
+            .to_string(),
+    };
+
     if resp_json.get("ok").and_then(|v| v.as_bool()) != Some(true) {
-        return None;
+        return (None, Some(report));
     }
-    let spec_val = resp_json.get("spec")?;
-    let mut spec: AiSynthesizerPatchSpec = serde_json::from_value(spec_val.clone()).ok()?;
+    let spec_val = match resp_json.get("spec") {
+        Some(s) => s,
+        None => return (None, Some(report)),
+    };
+    let mut spec: AiSynthesizerPatchSpec = match serde_json::from_value(spec_val.clone()) {
+        Ok(s) => s,
+        Err(_) => return (None, Some(report)),
+    };
     sanitize_patch_spec(&mut spec);
-    Some(spec)
+    (Some(spec), Some(report))
+}
+
+/// Consulta en vivo el Worker Edge desplegado en Cloudflare (`https://tepui-ai-synth-gateway.pc911itservices.workers.dev/v1/preset`).
+pub fn try_fetch_cloudflare_edge_worker_patch(prompt: &str) -> Option<AiSynthesizerPatchSpec> {
+    try_fetch_cloudflare_edge_worker_patch_with_report(prompt).0
 }
 
 /// Intenta consultar Cloudflare Workers AI si el usuario configuró `TEPUI_CF_ACCOUNT_ID` y `TEPUI_CF_API_TOKEN`.
@@ -368,19 +640,30 @@ fn sanitize_patch_spec(spec: &mut AiSynthesizerPatchSpec) {
 }
 
 /// Consulta primero el Worker Edge desplegado en Cloudflare (`https://tepui-ai-synth-gateway.pc911itservices.workers.dev`)
-/// o la API directa de Workers AI; si no hay red, retorna el diseño determinista local NPU/DSP.
-/// El tercer elemento de la tupla indica `true` cuando provino en vivo de Cloudflare Workers AI.
+/// o la API directa de Workers AI; si no hay red o se activa el Escudo Anti-Costos, retorna el diseño determinista local NPU/DSP.
 pub fn design_patch_spec_with_cloudflare_live(
     prompt: &str,
-) -> (AiSynthesizerPatchSpec, &'static str, bool) {
-    if let Some(edge_spec) = try_fetch_cloudflare_edge_worker_patch(prompt) {
-        return (edge_spec, "Cloudflare-Workers-AI", true);
+) -> (
+    AiSynthesizerPatchSpec,
+    &'static str,
+    bool,
+    Option<CloudEdgeQuotaReport>,
+) {
+    let (edge_opt, report_opt) = try_fetch_cloudflare_edge_worker_patch_with_report(prompt);
+    if let Some(edge_spec) = edge_opt {
+        let is_kv_hit = report_opt.as_ref().map(|r| r.cached).unwrap_or(false);
+        let backend_label = if is_kv_hit {
+            "Cloudflare-KV-Edge-Cache"
+        } else {
+            "Cloudflare-Workers-AI"
+        };
+        return (edge_spec, backend_label, true, report_opt);
     }
     if let Some(cf_spec) = try_fetch_cloudflare_workers_ai_patch(prompt) {
-        return (cf_spec, "Cloudflare-Workers-AI-JSON", true);
+        return (cf_spec, "Cloudflare-Workers-AI-JSON", true, report_opt);
     }
     let (local_spec, backend) = design_patch_spec_from_prompt(prompt);
-    (local_spec, backend, false)
+    (local_spec, backend, false, report_opt)
 }
 
 /// Diseña el `AiSynthesizerPatchSpec` completo (Preset de sintetizador + Receta de parciales modales)

@@ -17,6 +17,7 @@ use synth_core::{
 use crate::cloudflare::{
     design_patch_spec_from_prompt, design_patch_spec_with_cloudflare_live,
     synthesize_sample_from_patch_spec, try_fetch_cloudflare_ai_gateway_wav, AiSynthesizerPatchSpec,
+    CloudEdgeQuotaReport,
 };
 use crate::fallback_synth::generate_grand_piano_c4;
 use crate::npu_synth::{generate_sample_with_cache, npu_cache_hits, npu_cache_misses};
@@ -60,6 +61,11 @@ pub struct AiWorker {
     piano_roll_auto_trims: Arc<AtomicU32>,
     last_detected_pitch_hz: Arc<AtomicU32>,
     last_trimmed_samples: Arc<AtomicU32>,
+    cloud_tier: Arc<ArcSwap<String>>,
+    cloud_credits_remaining: Arc<AtomicU32>,
+    cloud_kv_cache_hits: Arc<AtomicU32>,
+    cloud_daily_neurons: Arc<AtomicU32>,
+    cloud_budget_guard_trips: Arc<AtomicU32>,
 }
 
 impl AiWorker {
@@ -91,6 +97,11 @@ impl AiWorker {
         let piano_roll_auto_trims = Arc::new(AtomicU32::new(0));
         let last_detected_pitch_hz = Arc::new(AtomicU32::new(261.63_f32.to_bits()));
         let last_trimmed_samples = Arc::new(AtomicU32::new(0));
+        let cloud_tier = Arc::new(ArcSwap::from_pointee("FREE TIER".to_string()));
+        let cloud_credits_remaining = Arc::new(AtomicU32::new(15));
+        let cloud_kv_cache_hits = Arc::new(AtomicU32::new(0));
+        let cloud_daily_neurons = Arc::new(AtomicU32::new(0));
+        let cloud_budget_guard_trips = Arc::new(AtomicU32::new(0));
 
         let current_sample_clone = current_sample.clone();
         let is_busy_clone = is_busy.clone();
@@ -106,6 +117,11 @@ impl AiWorker {
         let auto_trims_clone = piano_roll_auto_trims.clone();
         let pitch_hz_clone = last_detected_pitch_hz.clone();
         let trimmed_smp_clone = last_trimmed_samples.clone();
+        let tier_clone = cloud_tier.clone();
+        let credits_clone = cloud_credits_remaining.clone();
+        let kv_hits_clone = cloud_kv_cache_hits.clone();
+        let neurons_clone = cloud_daily_neurons.clone();
+        let guard_trips_clone = cloud_budget_guard_trips.clone();
 
         let handle = thread::Builder::new()
             .name("ai-sample-worker".to_string())
@@ -126,6 +142,11 @@ impl AiWorker {
                     auto_trims_clone,
                     pitch_hz_clone,
                     trimmed_smp_clone,
+                    tier_clone,
+                    credits_clone,
+                    kv_hits_clone,
+                    neurons_clone,
+                    guard_trips_clone,
                 );
             })
             .expect("Failed to spawn ai-sample-worker thread");
@@ -151,6 +172,11 @@ impl AiWorker {
             piano_roll_auto_trims,
             last_detected_pitch_hz,
             last_trimmed_samples,
+            cloud_tier,
+            cloud_credits_remaining,
+            cloud_kv_cache_hits,
+            cloud_daily_neurons,
+            cloud_budget_guard_trips,
         }
     }
 
@@ -437,6 +463,40 @@ impl AiWorker {
         self.last_trimmed_samples.load(Ordering::Relaxed)
     }
 
+    /// Retorna el plan/tier activo de Cloudflare IA (`FREE TIER`, `PRO FOUNDER`, `BYOK`, `LOCAL NPU ONLY`) (ODD).
+    pub fn cloud_tier(&self) -> String {
+        (**self.cloud_tier.load()).clone()
+    }
+
+    /// Retorna la cantidad de créditos Cloud IA restantes (ODD).
+    pub fn cloud_credits_remaining(&self) -> u32 {
+        self.cloud_credits_remaining.load(Ordering::Relaxed)
+    }
+
+    /// Retorna el total acumulado de aciertos en la caché global Cloudflare KV (`0 Neurons`) (ODD).
+    pub fn cloud_kv_cache_hits(&self) -> u32 {
+        self.cloud_kv_cache_hits.load(Ordering::Relaxed)
+    }
+
+    /// Retorna el consumo diario acumulado de Neurons en Cloudflare Workers AI (ODD).
+    pub fn cloud_daily_neurons(&self) -> u32 {
+        self.cloud_daily_neurons.load(Ordering::Relaxed)
+    }
+
+    /// Retorna cuántas veces se activó el Cortafuegos Financiero Diario o límite de cuota (ODD).
+    pub fn cloud_budget_guard_trips(&self) -> u32 {
+        self.cloud_budget_guard_trips.load(Ordering::Relaxed)
+    }
+
+    /// Actualiza en memoria la telemetría de cuota/licencia tras verificar en el modal de configuración.
+    pub fn apply_cloud_quota_report(&self, report: &CloudEdgeQuotaReport) {
+        self.cloud_tier.store(Arc::new(report.tier.clone()));
+        self.cloud_credits_remaining
+            .store(report.credits_remaining, Ordering::Relaxed);
+        self.cloud_daily_neurons
+            .store(report.daily_neurons_used, Ordering::Relaxed);
+    }
+
     fn try_load_from_endpoint(endpoint: &str, prompt: &str) -> Option<SampleBuffer> {
         let clean = endpoint
             .trim()
@@ -472,18 +532,34 @@ impl AiWorker {
         piano_roll_auto_trims: Arc<AtomicU32>,
         last_detected_pitch_hz: Arc<AtomicU32>,
         last_trimmed_samples: Arc<AtomicU32>,
+        cloud_tier: Arc<ArcSwap<String>>,
+        cloud_credits_remaining: Arc<AtomicU32>,
+        cloud_kv_cache_hits: Arc<AtomicU32>,
+        cloud_daily_neurons: Arc<AtomicU32>,
+        cloud_budget_guard_trips: Arc<AtomicU32>,
     ) {
         while let Ok(req) = rx.recv() {
             is_busy.store(true, Ordering::SeqCst);
             let t0 = Instant::now();
 
-            // 1. Diseñar el Preset del sintetizador + Receta de parciales modales (Cloudflare Workers AI Edge en vivo / NPU fallback)
-            let (patch_spec, spec_backend, is_live_cloudflare) = if cfg!(test) {
+            // 1. Diseñar el Preset del sintetizador + Receta de parciales modales (Cloudflare Workers AI Edge + KV Cache / NPU fallback)
+            let (patch_spec, spec_backend, is_live_cloudflare, cloud_report) = if cfg!(test) {
                 let (s, b) = design_patch_spec_from_prompt(&req.prompt);
-                (s, b, false)
+                (s, b, false, None)
             } else {
                 design_patch_spec_with_cloudflare_live(&req.prompt)
             };
+            if let Some(rep) = cloud_report {
+                cloud_tier.store(Arc::new(rep.tier));
+                cloud_credits_remaining.store(rep.credits_remaining, Ordering::Relaxed);
+                cloud_daily_neurons.store(rep.daily_neurons_used, Ordering::Relaxed);
+                if rep.cached {
+                    cloud_kv_cache_hits.fetch_add(1, Ordering::Relaxed);
+                }
+                if rep.budget_guard_tripped {
+                    cloud_budget_guard_trips.fetch_add(1, Ordering::Relaxed);
+                }
+            }
             last_patch_spec.store(Arc::new(Some(patch_spec.clone())));
             if is_live_cloudflare {
                 has_pending_cloud_spec.store(true, Ordering::Release);

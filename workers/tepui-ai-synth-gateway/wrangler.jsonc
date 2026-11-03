@@ -11,5 +11,11 @@
   },
   "ai": {
     "binding": "AI"
-  }
+  },
+  "kv_namespaces": [
+    {
+      "binding": "TEPUI_KV",
+      "id": "ee612ebbc37e43ea9ae6f79077cc32c2"
+    }
+  ]
 }

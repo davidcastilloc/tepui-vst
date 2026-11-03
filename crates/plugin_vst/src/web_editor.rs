@@ -176,6 +176,11 @@ struct OddMetrics {
     piano_roll_auto_trims: u32,
     last_detected_pitch_hz: f32,
     last_trimmed_samples: u32,
+    cloud_tier: String,
+    cloud_credits_remaining: u32,
+    cloud_kv_cache_hits: u32,
+    cloud_daily_neurons: u32,
+    cloud_budget_guard_trips: u32,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -735,6 +740,11 @@ pub fn build_init_state_json(
         piano_roll_auto_trims: ai_worker.piano_roll_auto_trims(),
         last_detected_pitch_hz: ai_worker.last_detected_pitch_hz(),
         last_trimmed_samples: ai_worker.last_trimmed_samples(),
+        cloud_tier: ai_worker.cloud_tier(),
+        cloud_credits_remaining: ai_worker.cloud_credits_remaining(),
+        cloud_kv_cache_hits: ai_worker.cloud_kv_cache_hits(),
+        cloud_daily_neurons: ai_worker.cloud_daily_neurons(),
+        cloud_budget_guard_trips: ai_worker.cloud_budget_guard_trips(),
     };
     let preset_store = load_persisted_preset_store();
 
@@ -913,6 +923,11 @@ pub fn build_telemetry_json(
             piano_roll_auto_trims: ai_worker.piano_roll_auto_trims(),
             last_detected_pitch_hz: ai_worker.last_detected_pitch_hz(),
             last_trimmed_samples: ai_worker.last_trimmed_samples(),
+            cloud_tier: ai_worker.cloud_tier(),
+            cloud_credits_remaining: ai_worker.cloud_credits_remaining(),
+            cloud_kv_cache_hits: ai_worker.cloud_kv_cache_hits(),
+            cloud_daily_neurons: ai_worker.cloud_daily_neurons(),
+            cloud_budget_guard_trips: ai_worker.cloud_budget_guard_trips(),
         },
     };
     serde_json::to_string(&msg).unwrap_or_else(|_| "{}".to_string())
@@ -1287,6 +1302,30 @@ fn handle_native_ipc_message(
                     clean_json, e
                 );
             }
+        }
+        return;
+    }
+
+    if let Some(rest) = trimmed.strip_prefix("save_cloud_license:") {
+        let mut clean_json = rest.trim();
+        if clean_json.ends_with(r#"\""#) {
+            clean_json = &clean_json[..clean_json.len() - 2];
+        } else if clean_json.ends_with('"') && !clean_json.starts_with('"') {
+            clean_json = &clean_json[..clean_json.len() - 1];
+        }
+        let parsed =
+            serde_json::from_str::<ai_bridge::CloudLicenseConfig>(clean_json).or_else(|_| {
+                let unescaped = clean_json.replace(r#"\""#, r#"""#);
+                serde_json::from_str::<ai_bridge::CloudLicenseConfig>(&unescaped)
+            });
+        if let Ok(mut cfg) = parsed {
+            if cfg.device_id.trim().is_empty() {
+                cfg.device_id = ai_bridge::load_cloud_license_config().device_id;
+            }
+            let _ = ai_bridge::save_cloud_license_config(&cfg);
+            let quota = ai_bridge::verify_cloud_license_quota(&cfg);
+            ai_worker.apply_cloud_quota_report(&quota);
+            live_params.bump_revision();
         }
         return;
     }
@@ -2029,6 +2068,64 @@ impl Editor for WebViewEditor {
                                 .header("Access-Control-Allow-Origin", "*")
                                 .body(Cow::Owned(resp_json.into_bytes()))
                                 .unwrap()
+                        } else if path.ends_with("api/cloud-license") {
+                            let cfg = ai_bridge::load_cloud_license_config();
+                            let quota = ai_bridge::CloudEdgeQuotaReport {
+                                tier: ai_worker_proto.cloud_tier(),
+                                credits_remaining: ai_worker_proto.cloud_credits_remaining(),
+                                daily_neurons_used: ai_worker_proto.cloud_daily_neurons(),
+                                max_daily_neurons: 9500,
+                                cached: false,
+                                budget_guard_tripped: ai_worker_proto.cloud_budget_guard_trips() > 0,
+                                message: "Escudo Anti-Costos KV activo (Tope gratuito: 9,500 Neurons/día)".to_string(),
+                            };
+                            let json = serde_json::json!({
+                                "config": cfg,
+                                "quota": quota,
+                            })
+                            .to_string();
+                            Response::builder()
+                                .header(CONTENT_TYPE, "application/json; charset=utf-8")
+                                .header("Access-Control-Allow-Origin", "*")
+                                .body(Cow::Owned(json.into_bytes()))
+                                .unwrap()
+                        } else if path.ends_with("api/save-cloud-license") {
+                            let body = req.body();
+                            let resp_json = match serde_json::from_slice::<ai_bridge::CloudLicenseConfig>(body) {
+                                Ok(mut cfg) => {
+                                    if cfg.device_id.trim().is_empty() {
+                                        cfg.device_id = ai_bridge::load_cloud_license_config().device_id;
+                                    }
+                                    match ai_bridge::save_cloud_license_config(&cfg) {
+                                        Ok(_) => {
+                                            let quota = ai_bridge::verify_cloud_license_quota(&cfg);
+                                            ai_worker_proto.apply_cloud_quota_report(&quota);
+                                            live_params_proto.bump_revision();
+                                            serde_json::json!({
+                                                "success": true,
+                                                "config": cfg,
+                                                "quota": quota,
+                                            })
+                                            .to_string()
+                                        }
+                                        Err(e) => serde_json::json!({
+                                            "success": false,
+                                            "error": e,
+                                        })
+                                        .to_string(),
+                                    }
+                                }
+                                Err(e) => serde_json::json!({
+                                    "success": false,
+                                    "error": format!("JSON inválido: {}", e),
+                                })
+                                .to_string(),
+                            };
+                            Response::builder()
+                                .header(CONTENT_TYPE, "application/json; charset=utf-8")
+                                .header("Access-Control-Allow-Origin", "*")
+                                .body(Cow::Owned(resp_json.into_bytes()))
+                                .unwrap()
                         } else {
                             Response::builder()
                                 .status(StatusCode::NOT_FOUND)
@@ -2684,6 +2781,10 @@ mod tests {
         assert!(telem_odd_json.contains(r#""ai_presets_synthesized":"#));
         assert!(telem_odd_json.contains(r#""piano_roll_auto_trims":"#));
         assert!(telem_odd_json.contains(r#""last_detected_pitch_hz":"#));
+        assert!(telem_odd_json.contains(r#""cloud_tier":"#));
+        assert!(telem_odd_json.contains(r#""cloud_credits_remaining":"#));
+        assert!(telem_odd_json.contains(r#""cloud_kv_cache_hits":"#));
+        assert!(telem_odd_json.contains(r#""cloud_daily_neurons":"#));
 
         // 8. Probar arquitecto IA de Presets + Samples (gen:<prompt>) auto-poblando LiveParamStore
         handle_native_ipc_message(

@@ -1759,7 +1759,9 @@ body {
 }
 .modal-card {
   width: 92%;
-  max-width: 520px;
+  max-width: 600px;
+  max-height: 92vh;
+  overflow-y: auto;
   background: #101622;
   border: 1.5px solid var(--color-cyan);
   border-radius: 8px;
@@ -1936,6 +1938,72 @@ body {
 .btn-ui-scale:hover {
   background: rgba(0, 235, 255, 0.2);
   box-shadow: 0 0 10px rgba(0, 235, 255, 0.35);
+}
+
+.btn-cloud-credits {
+  color: var(--color-amber);
+  border-color: rgba(255, 170, 0, 0.45);
+  background: rgba(255, 170, 0, 0.08);
+  padding: 0 8px;
+  gap: 5px;
+}
+.btn-cloud-credits:hover {
+  background: rgba(255, 170, 0, 0.18);
+  box-shadow: 0 0 10px rgba(255, 170, 0, 0.3);
+}
+.btn-cloud-credits.tier-pro {
+  color: var(--color-green);
+  border-color: rgba(16, 185, 129, 0.55);
+  background: rgba(16, 185, 129, 0.1);
+}
+.cloud-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 6px currentColor;
+}
+
+.cloud-license-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #080c14;
+  border: 1px solid rgba(0, 235, 255, 0.32);
+  padding: 9px 10px;
+  border-radius: 5px;
+}
+.cloud-license-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.cloud-tier-pill {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 800;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(255, 170, 0, 0.14);
+  border: 1px solid var(--color-amber);
+  color: var(--color-amber);
+  white-space: nowrap;
+}
+.cloud-tier-pill.tier-pro {
+  background: rgba(16, 185, 129, 0.14);
+  border-color: var(--color-green);
+  color: var(--color-green);
+}
+.studio-text-input {
+  font-family: var(--font-mono);
+}
+.cloud-license-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding-top: 2px;
 }
 
 .resize-grip {
