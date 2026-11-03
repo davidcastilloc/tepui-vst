@@ -77,8 +77,17 @@ const state = {
     lfo_rate: 3.5,
     lfo_depth: 0.0,
     lfo_target: 0,
+    lfo_shape: 0,
     arp_mode: 0,
-    mod_matrix_mask: 2178
+    mod_matrix_mask: 2178,
+    wt_pos: 0.25,
+    wt_warp: 0.15,
+    unison_voices: 1,
+    unison_detune: 0.20,
+    sub_level: 0.0,
+    drive_amount: 0.0,
+    ott_amount: 0.0,
+    macros: [0.0, 0.0, 0.0, 0.0]
   },
   normalized: {
     attack: 0.002,
@@ -91,8 +100,19 @@ const state = {
     space_mix: 0.15,
     root_note: 0.4724,
     lfo_rate: 0.32,
-    lfo_depth: 0.0
+    lfo_depth: 0.0,
+    wt_pos: 0.25,
+    wt_warp: 0.15,
+    unison_detune: 0.20,
+    sub_level: 0.0,
+    drive: 0.0,
+    ott: 0.0,
+    macro1: 0.0,
+    macro2: 0.0,
+    macro3: 0.0,
+    macro4: 0.0
   },
+  wt3dMode: true,
   region: {
     trim_start_norm: 0.0,
     trim_end_norm: 1.0,
@@ -453,9 +473,30 @@ function sendFastGenerate(prompt) {
   pollAiGeneration();
 }
 
+function syncVitalSerumParamsToUI(p) {
+  if (!p) return;
+  if (typeof p.wt_pos === 'number') state.normalized.wt_pos = p.wt_pos;
+  if (typeof p.wt_warp === 'number') state.normalized.wt_warp = p.wt_warp;
+  if (typeof p.unison_detune === 'number') state.normalized.unison_detune = p.unison_detune;
+  if (typeof p.sub_level === 'number') state.normalized.sub_level = p.sub_level;
+  if (typeof p.drive_amount === 'number') state.normalized.drive = p.drive_amount;
+  if (typeof p.ott_amount === 'number') state.normalized.ott = p.ott_amount;
+  if (Array.isArray(p.macros) && p.macros.length >= 4) {
+    state.normalized.macro1 = p.macros[0] || 0;
+    state.normalized.macro2 = p.macros[1] || 0;
+    state.normalized.macro3 = p.macros[2] || 0;
+    state.normalized.macro4 = p.macros[3] || 0;
+  }
+  if (typeof p.unison_voices === 'number') updateUnisonVoicesUI(p.unison_voices);
+  if (typeof p.lfo_shape === 'number') updateLfoShapeUI(p.lfo_shape);
+}
+
 function applyInitPayload(msg) {
   if (!msg) return;
-  if (msg.params) Object.assign(state.params, msg.params);
+  if (msg.params) {
+    Object.assign(state.params, msg.params);
+    syncVitalSerumParamsToUI(msg.params);
+  }
   if (msg.normalized) Object.assign(state.normalized, msg.normalized);
   if (msg.param_revision !== undefined) state.lastParamRevision = msg.param_revision;
   if (msg.peak_l !== undefined) state.dspPeakL = msg.peak_l;
@@ -530,7 +571,10 @@ function startTelemetryLoop() {
       if (data.param_revision !== undefined && data.param_revision !== state.lastParamRevision) {
         state.lastParamRevision = data.param_revision;
         if (!state.isDraggingKnob && !state.isDraggingRegion) {
-          if (data.params) Object.assign(state.params, data.params);
+          if (data.params) {
+            Object.assign(state.params, data.params);
+            syncVitalSerumParamsToUI(data.params);
+          }
           if (data.normalized) Object.assign(state.normalized, data.normalized);
           if (state.params.mod_matrix_mask !== undefined && state.params.mod_matrix_mask > 0) {
             syncMatrixPinsFromMask(state.params.mod_matrix_mask);
@@ -669,6 +713,8 @@ function initKnobs() {
       if (paramId === 'decay') defNorm = 0.05;
       if (paramId === 'sustain') defNorm = 0.8;
       if (paramId === 'release') defNorm = 0.03;
+      if (['wt_pos', 'wt_warp', 'sub_level', 'drive', 'ott', 'macro1', 'macro2', 'macro3', 'macro4'].includes(paramId)) defNorm = 0.0;
+      if (paramId === 'unison_detune') defNorm = 0.20;
       
       state.normalized[paramId] = defNorm;
       updateKnobUI(paramId, defNorm);
@@ -678,14 +724,14 @@ function initKnobs() {
 }
 
 function getAccentClass(id) {
-  if (['attack', 'decay', 'sustain', 'release'].includes(id)) return 'cyan-accent';
-  if (['cutoff', 'resonance'].includes(id)) return 'amber-accent';
+  if (['attack', 'decay', 'sustain', 'release', 'wt_pos', 'macro1', 'macro4'].includes(id)) return 'cyan-accent';
+  if (['cutoff', 'resonance', 'wt_warp', 'drive', 'macro2'].includes(id)) return 'amber-accent';
   return 'green-accent';
 }
 
 function getAccentColor(id) {
-  if (['attack', 'decay', 'sustain', 'release'].includes(id)) return '#00ebff';
-  if (['cutoff', 'resonance'].includes(id)) return '#ffaa00';
+  if (['attack', 'decay', 'sustain', 'release', 'wt_pos', 'macro1', 'macro4'].includes(id)) return '#00ebff';
+  if (['cutoff', 'resonance', 'wt_warp', 'drive', 'macro2'].includes(id)) return '#ffaa00';
   return '#10b981';
 }
 
@@ -750,7 +796,7 @@ function formatKnobValue(id, norm) {
     const db = -60.0 + norm * 66.0;
     return `${db.toFixed(1)} dB`;
   }
-  if (id === 'space_mix' || id === 'lfo_depth') {
+  if (id === 'space_mix' || id === 'lfo_depth' || ['wt_pos', 'wt_warp', 'unison_detune', 'sub_level', 'drive', 'ott', 'macro1', 'macro2', 'macro3', 'macro4'].includes(id)) {
     return `${Math.round(norm * 100)} %`;
   }
   if (id === 'lfo_rate') {
@@ -761,6 +807,7 @@ function formatKnobValue(id, norm) {
 }
 
 const LFO_TARGET_LABELS = ['LFO → CUTOFF', 'LFO → VIBRATO', 'LFO → TREMOLO', 'LFO → OFF'];
+const LFO_SHAPE_LABELS = ['SINE', 'TRI', 'SAW', 'RAMP', 'SQR', 'S&H'];
 
 function updateLfoTargetUI(targetInt) {
   const t = Math.max(0, Math.min(3, Math.round(Number(targetInt) || 0)));
@@ -768,6 +815,25 @@ function updateLfoTargetUI(targetInt) {
   const btn = document.getElementById('btn-lfo-target');
   if (btn) {
     btn.innerText = LFO_TARGET_LABELS[t] || 'LFO → CUTOFF';
+  }
+}
+
+function updateLfoShapeUI(shapeInt) {
+  const s = Math.max(0, Math.min(5, Math.round(Number(shapeInt) || 0)));
+  state.params.lfo_shape = s;
+  const btn = document.getElementById('btn-lfo-shape');
+  if (btn) {
+    btn.innerText = LFO_SHAPE_LABELS[s] || 'SINE';
+  }
+}
+
+function updateUnisonVoicesUI(voicesInt) {
+  const v = Math.max(1, Math.min(8, Math.round(Number(voicesInt) || 1)));
+  state.params.unison_voices = v;
+  const btn = document.getElementById('btn-unison-voices');
+  if (btn) {
+    btn.innerText = `UNI: ${v}V`;
+    btn.classList.toggle('active', v > 1);
   }
 }
 
@@ -847,6 +913,27 @@ function initOscilloscope() {
     loopBtn.addEventListener('click', () => {
       state.region.loop_enabled = !state.region.loop_enabled;
       sendFastRegion();
+    });
+  }
+
+  const wt3dBtn = document.getElementById('btn-wt3d-toggle');
+  if (wt3dBtn) {
+    wt3dBtn.addEventListener('click', () => {
+      state.wt3dMode = !state.wt3dMode;
+      wt3dBtn.classList.toggle('active', !!state.wt3dMode);
+      wt3dBtn.innerText = state.wt3dMode ? '3D WT' : '2D WAV';
+    });
+  }
+
+  const uniBtn = document.getElementById('btn-unison-voices');
+  if (uniBtn) {
+    const UNISON_STEPS = [1, 2, 4, 7, 8];
+    uniBtn.addEventListener('click', () => {
+      const cur = state.params.unison_voices || 1;
+      const idx = UNISON_STEPS.indexOf(cur);
+      const next = UNISON_STEPS[(idx + 1) % UNISON_STEPS.length];
+      updateUnisonVoicesUI(next);
+      sendIpc(`uv,${next}`);
     });
   }
 
@@ -1143,8 +1230,22 @@ function drawLfoOled() {
 
   const rateNorm = state.normalized.lfo_rate !== undefined ? state.normalized.lfo_rate : 0.32;
   const depthNorm = state.normalized.lfo_depth !== undefined ? state.normalized.lfo_depth : 0.0;
+  const shape = state.params.lfo_shape || 0;
   const cycles = 1.5 + rateNorm * 4.5;
   const amp = Math.max(0.18, depthNorm) * (h * 0.38);
+
+  const evalLfoShape = (phaseNorm) => {
+    const p = ((phaseNorm % 1.0) + 1.0) % 1.0;
+    if (shape === 1) return 1.0 - 4.0 * Math.abs(p - 0.5); // TRI
+    if (shape === 2) return 1.0 - 2.0 * p; // SAW
+    if (shape === 3) return 2.0 * p - 1.0; // RAMP
+    if (shape === 4) return p < 0.5 ? 1.0 : -1.0; // SQR
+    if (shape === 5) { // S&H stepped
+      const step = Math.floor(p * 8.0);
+      return Math.sin(step * 12.9898 + 4.1414) >= 0 ? (0.4 + (step % 3) * 0.25) : -(0.35 + (step % 4) * 0.2);
+    }
+    return Math.sin(p * Math.PI * 2); // SINE
+  };
 
   const grad = ctx.createLinearGradient(0, 0, 0, h);
   grad.addColorStop(0, 'rgba(16, 185, 129, 0.25)');
@@ -1155,7 +1256,7 @@ function drawLfoOled() {
   ctx.moveTo(0, midY);
   for (let x = 0; x <= w; x += 2) {
     const t = x / w;
-    const y = midY - Math.sin(t * Math.PI * 2 * cycles + animPhase) * amp;
+    const y = midY - evalLfoShape(t * cycles + animPhase * 0.16) * amp;
     ctx.lineTo(x, y);
   }
   ctx.lineTo(w, midY);
@@ -1165,7 +1266,7 @@ function drawLfoOled() {
   ctx.beginPath();
   for (let x = 0; x <= w; x += 2) {
     const t = x / w;
-    const y = midY - Math.sin(t * Math.PI * 2 * cycles + animPhase) * amp;
+    const y = midY - evalLfoShape(t * cycles + animPhase * 0.16) * amp;
     if (x === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   }
@@ -1309,7 +1410,7 @@ function drawOscilloscope() {
     ctx.stroke();
   }
 
-  // Silueta topográfica del Tepui Roraima en el sector derecho del OLED (Concept 2 Signature)
+  // Silueta topográfica del Tepui Roraima + Terreno 3D Isometric Wavetable (Vital / Serum Mode)
   ctx.save();
   const tepuiPts = [
     [0.44, 0.88], [0.50, 0.82], [0.55, 0.70], [0.58, 0.56],
@@ -1323,15 +1424,58 @@ function drawOscilloscope() {
     if (idx === 0) ctx.moveTo(px, py);
     else ctx.lineTo(px, py);
   });
-  ctx.strokeStyle = 'rgba(0, 235, 255, 0.55)';
-  ctx.lineWidth = 1.4 * dpr;
+  ctx.strokeStyle = 'rgba(0, 235, 255, 0.35)';
+  ctx.lineWidth = 1.2 * dpr;
   ctx.stroke();
   ctx.lineTo(0.98 * w, h);
   ctx.lineTo(0.44 * w, h);
   ctx.closePath();
-  ctx.fillStyle = 'rgba(0, 235, 255, 0.06)';
+  ctx.fillStyle = 'rgba(0, 235, 255, 0.04)';
   ctx.fill();
   ctx.restore();
+
+  if (state.wt3dMode) {
+    ctx.save();
+    const wtPos = Math.min(1.0, (state.normalized.wt_pos || 0) + (state.normalized.macro1 || 0) * 0.65);
+    const wtWarp = Math.min(1.0, (state.normalized.wt_warp || 0) + (state.normalized.macro2 || 0) * 0.65);
+    const numSlices = 9;
+    const activeSliceFloat = wtPos * (numSlices - 1);
+    for (let s = numSlices - 1; s >= 0; s--) {
+      const zNorm = s / (numSlices - 1); // 0 = front, 1 = back
+      const xOffset = zNorm * w * 0.20;
+      const yBase = h * (0.76 - zNorm * 0.48);
+      const sliceW = w * 0.74;
+      const amp = h * 0.17 * (1.0 - zNorm * 0.25);
+      const isActiveSlice = Math.abs(s - activeSliceFloat) < 0.65;
+
+      ctx.beginPath();
+      for (let i = 0; i <= 48; i++) {
+        const t = i / 48;
+        const warpedT = Math.pow(t, 1.0 - wtWarp * 0.55);
+        const p = warpedT * Math.PI * 2;
+        const f0 = Math.sin(p);
+        const f1 = f0 + 0.5 * Math.sin(2 * p) + 0.25 * Math.sin(3 * p);
+        const f2 = Math.sin(p + Math.sin(3 * p) * 0.85);
+        const f3 = Math.sin(p + Math.sin(5 * p) * (1.2 + wtWarp));
+        const wave = (1 - zNorm) * ((1 - zNorm) * f0 + zNorm * f1) + zNorm * ((1 - zNorm) * f2 + zNorm * f3);
+        const px = 8 * dpr + xOffset + t * sliceW;
+        const py = yBase - wave * amp;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.strokeStyle = isActiveSlice
+        ? '#ffaa00'
+        : `rgba(0, 235, 255, ${(0.18 + (1.0 - zNorm) * 0.28).toFixed(2)})`;
+      ctx.lineWidth = (isActiveSlice ? 2.1 : 1.0) * dpr;
+      if (isActiveSlice) {
+        ctx.shadowColor = '#ffaa00';
+        ctx.shadowBlur = 6 * dpr;
+      }
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+    ctx.restore();
+  }
 
   // Trazar forma de onda
   const pts = state.waveform;
@@ -2255,6 +2399,15 @@ function initLfoAndKeyzoneControls() {
       const nextTarget = ((state.params.lfo_target || 0) + 1) % 4;
       updateLfoTargetUI(nextTarget);
       sendIpc(`lt,${nextTarget}`);
+    });
+  }
+
+  const btnLfoShape = document.getElementById('btn-lfo-shape');
+  if (btnLfoShape) {
+    btnLfoShape.addEventListener('click', () => {
+      const nextShape = ((state.params.lfo_shape || 0) + 1) % 6;
+      updateLfoShapeUI(nextShape);
+      sendIpc(`ls,${nextShape}`);
     });
   }
 

@@ -5,7 +5,7 @@ use crate::arp::{ArpMode, TepuiArpeggiator};
 use crate::buffer::SampleBuffer;
 use crate::envelope::AdsrStage;
 use crate::filter::FilterMode;
-use crate::lfo::{LfoState, LfoTarget};
+use crate::lfo::{LfoShape, LfoState, LfoTarget};
 use crate::resampler::ResamplingQuality;
 use crate::voice::{SampleRegionOverride, Voice};
 
@@ -46,6 +46,15 @@ pub struct VoiceManager {
     last_velocity: f32,
     velocity_events_count: u32,
     arp: TepuiArpeggiator,
+
+    // Motor Vital / Serum: Wavetable 3D + Super-Unison + Sub-Oscillator + 4 Macros + LFO Shape
+    wt_pos: f32,
+    wt_warp: f32,
+    unison_voices: u8,
+    unison_detune: f32,
+    sub_level: f32,
+    macros: [f32; 4],
+    vital_serum_dsp_frames: u32,
 }
 
 impl Default for VoiceManager {
@@ -93,7 +102,70 @@ impl VoiceManager {
             last_velocity: 0.95,
             velocity_events_count: 0,
             arp: TepuiArpeggiator::new(sample_rate),
+            wt_pos: 0.0,
+            wt_warp: 0.0,
+            unison_voices: 1,
+            unison_detune: 0.20,
+            sub_level: 0.0,
+            macros: [0.0; 4],
+            vital_serum_dsp_frames: 0,
         }
+    }
+
+    /// Configura el motor Wavetable 3D, Super-Unison, Sub-Oscilador, forma de LFO y 4 Macros estilo Vital / Serum.
+    #[inline]
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_vital_serum_params(
+        &mut self,
+        wt_pos: f32,
+        wt_warp: f32,
+        unison_voices: u8,
+        unison_detune: f32,
+        sub_level: f32,
+        lfo_shape: LfoShape,
+        macros: [f32; 4],
+    ) {
+        self.wt_pos = wt_pos.clamp(0.0, 1.0);
+        self.wt_warp = wt_warp.clamp(0.0, 1.0);
+        self.unison_voices = unison_voices.clamp(1, 8);
+        self.unison_detune = unison_detune.clamp(0.0, 1.0);
+        self.sub_level = sub_level.clamp(0.0, 1.0);
+        self.lfo.set_shape(lfo_shape);
+        self.macros = [
+            macros[0].clamp(0.0, 1.0),
+            macros[1].clamp(0.0, 1.0),
+            macros[2].clamp(0.0, 1.0),
+            macros[3].clamp(0.0, 1.0),
+        ];
+
+        // Aplicar Macros (M1: Timbre/WT, M2: Warp/Reso, M3: Unison/Sub) a todas las voces
+        let eff_wt_pos = (self.wt_pos + self.macros[0] * 0.55).clamp(0.0, 1.0);
+        let eff_wt_warp = (self.wt_warp + self.macros[1] * 0.70).clamp(0.0, 1.0);
+        let eff_unison_voices = if self.macros[2] > 0.15 && self.unison_voices < 4 {
+            4
+        } else {
+            self.unison_voices
+        };
+        let eff_detune = (self.unison_detune + self.macros[2] * 0.55).clamp(0.0, 1.0);
+        let eff_sub = (self.sub_level + self.macros[2] * 0.45).clamp(0.0, 1.0);
+
+        for voice in &mut self.voices {
+            voice.wt_pos = eff_wt_pos;
+            voice.wt_warp = eff_wt_warp;
+            voice.unison_voices = eff_unison_voices;
+            voice.unison_detune = eff_detune;
+            voice.sub_level = eff_sub;
+        }
+    }
+
+    #[inline]
+    pub fn vital_serum_dsp_frames(&self) -> u32 {
+        self.vital_serum_dsp_frames
+    }
+
+    #[inline]
+    pub fn lfo_shape(&self) -> LfoShape {
+        self.lfo.shape()
     }
 
     /// Configura la máscara de 25 bits (`5×5`) de la matriz de modulación en tiempo real (0 asignaciones).
@@ -220,10 +292,11 @@ impl VoiceManager {
         }
     }
 
-    /// Calcula la frecuencia de corte efectiva combinando `cutoff_hz`, `CC #74 (Brightness)` y `Aftertouch`.
+    /// Calcula la frecuencia de corte efectiva combinando `cutoff_hz`, `CC #74 (Brightness)`, `Aftertouch` y `Macro 1 (TIMBRE)`.
     #[inline]
     pub fn effective_cutoff_hz(&self) -> f32 {
-        let boost_octaves = (self.brightness_cc74 + self.channel_aftertouch) * 1.5;
+        let boost_octaves =
+            (self.brightness_cc74 + self.channel_aftertouch + self.macros[0] * 0.85) * 1.5;
         (self.cutoff_hz * 2.0_f32.powf(boost_octaves)).clamp(20.0, 20000.0)
     }
 
@@ -530,6 +603,15 @@ impl VoiceManager {
             voice.filter_r.mode = self.filter_mode;
             voice.quality = self.resampling_quality;
             voice.region_override = self.region_override;
+            voice.wt_pos = (self.wt_pos + self.macros[0] * 0.55).clamp(0.0, 1.0);
+            voice.wt_warp = (self.wt_warp + self.macros[1] * 0.70).clamp(0.0, 1.0);
+            voice.unison_voices = if self.macros[2] > 0.15 && self.unison_voices < 4 {
+                4
+            } else {
+                self.unison_voices
+            };
+            voice.unison_detune = (self.unison_detune + self.macros[2] * 0.55).clamp(0.0, 1.0);
+            voice.sub_level = (self.sub_level + self.macros[2] * 0.45).clamp(0.0, 1.0);
             voice.note_on_with_root(note, velocity, target_buf, eff_root, time);
             voice.update_pitch_bend(self.pitch_bend_multiplier);
         }
@@ -763,6 +845,15 @@ impl VoiceManager {
                     3 => zones[2].unwrap_or(primary_buffer),
                     _ => primary_buffer,
                 };
+
+                if voice.wt_pos > 0.001
+                    || voice.wt_warp > 0.001
+                    || voice.unison_voices > 1
+                    || voice.sub_level > 0.001
+                {
+                    self.vital_serum_dsp_frames =
+                        self.vital_serum_dsp_frames.wrapping_add(chunk_len as u32);
+                }
 
                 for i in offset..chunk_end {
                     let (mut vl, mut vr) = voice.process_sample(voice_buf);

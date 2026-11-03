@@ -101,8 +101,17 @@ struct ParamValues {
     lfo_rate: f32,
     lfo_depth: f32,
     lfo_target: i32,
+    lfo_shape: i32,
     arp_mode: i32,
     mod_matrix_mask: u32,
+    wt_pos: f32,
+    wt_warp: f32,
+    unison_voices: u8,
+    unison_detune: f32,
+    sub_level: f32,
+    drive_amount: f32,
+    ott_amount: f32,
+    macros: [f32; 4],
 }
 
 #[derive(Debug, Serialize)]
@@ -181,6 +190,7 @@ struct OddMetrics {
     cloud_kv_cache_hits: u32,
     cloud_daily_neurons: u32,
     cloud_budget_guard_trips: u32,
+    vital_serum_dsp_frames: u32,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -745,6 +755,7 @@ pub fn build_init_state_json(
         cloud_kv_cache_hits: ai_worker.cloud_kv_cache_hits(),
         cloud_daily_neurons: ai_worker.cloud_daily_neurons(),
         cloud_budget_guard_trips: ai_worker.cloud_budget_guard_trips(),
+        vital_serum_dsp_frames: live_params.get_vital_serum_dsp_frames(),
     };
     let preset_store = load_persisted_preset_store();
 
@@ -769,8 +780,17 @@ pub fn build_init_state_json(
             lfo_rate: live_params.get_lfo_rate(),
             lfo_depth: live_params.get_lfo_depth(),
             lfo_target: live_params.get_lfo_target().as_i32(),
+            lfo_shape: live_params.get_lfo_shape().as_i32(),
             arp_mode: live_params.get_arp_mode().as_i32(),
             mod_matrix_mask: live_params.get_mod_matrix_mask(),
+            wt_pos: live_params.get_wt_pos(),
+            wt_warp: live_params.get_wt_warp(),
+            unison_voices: live_params.get_unison_voices(),
+            unison_detune: live_params.get_unison_detune(),
+            sub_level: live_params.get_sub_level(),
+            drive_amount: live_params.get_drive_amount(),
+            ott_amount: live_params.get_ott_amount(),
+            macros: live_params.get_macros(),
         },
         normalized: ParamNormalized {
             attack: params.attack.preview_normalized(live_params.get_attack()),
@@ -846,8 +866,17 @@ pub fn build_telemetry_json(
             lfo_rate: live_params.get_lfo_rate(),
             lfo_depth: live_params.get_lfo_depth(),
             lfo_target: live_params.get_lfo_target().as_i32(),
+            lfo_shape: live_params.get_lfo_shape().as_i32(),
             arp_mode: live_params.get_arp_mode().as_i32(),
             mod_matrix_mask: live_params.get_mod_matrix_mask(),
+            wt_pos: live_params.get_wt_pos(),
+            wt_warp: live_params.get_wt_warp(),
+            unison_voices: live_params.get_unison_voices(),
+            unison_detune: live_params.get_unison_detune(),
+            sub_level: live_params.get_sub_level(),
+            drive_amount: live_params.get_drive_amount(),
+            ott_amount: live_params.get_ott_amount(),
+            macros: live_params.get_macros(),
         },
         normalized: ParamNormalized {
             attack: params.attack.preview_normalized(live_params.get_attack()),
@@ -928,6 +957,7 @@ pub fn build_telemetry_json(
             cloud_kv_cache_hits: ai_worker.cloud_kv_cache_hits(),
             cloud_daily_neurons: ai_worker.cloud_daily_neurons(),
             cloud_budget_guard_trips: ai_worker.cloud_budget_guard_trips(),
+            vital_serum_dsp_frames: live_params.get_vital_serum_dsp_frames(),
         },
     };
     serde_json::to_string(&msg).unwrap_or_else(|_| "{}".to_string())
@@ -1168,6 +1198,60 @@ pub fn set_param_from_client(
         "arp_mode" => {
             let mode = (norm_val.round() as i32).clamp(0, 4);
             live_params.set_arp_mode(mode);
+            live_params.bump_revision();
+        }
+        "wt_pos" => {
+            live_params.set_wt_pos(clamped);
+            live_params.bump_revision();
+        }
+        "wt_warp" => {
+            live_params.set_wt_warp(clamped);
+            live_params.bump_revision();
+        }
+        "unison_voices" => {
+            let v = if norm_val > 1.05 {
+                (norm_val.round() as u8).clamp(1, 8)
+            } else {
+                (1.0 + clamped * 7.0).round() as u8
+            };
+            live_params.set_unison_voices(v);
+            live_params.bump_revision();
+        }
+        "unison_detune" => {
+            live_params.set_unison_detune(clamped);
+            live_params.bump_revision();
+        }
+        "sub_level" => {
+            live_params.set_sub_level(clamped);
+            live_params.bump_revision();
+        }
+        "drive" | "drive_amount" => {
+            live_params.set_drive_amount(clamped);
+            live_params.bump_revision();
+        }
+        "ott" | "ott_amount" => {
+            live_params.set_ott_amount(clamped);
+            live_params.bump_revision();
+        }
+        "lfo_shape" => {
+            let shape = (norm_val.round() as i32).clamp(0, 5);
+            live_params.set_lfo_shape(shape);
+            live_params.bump_revision();
+        }
+        "macro1" => {
+            live_params.set_macro(0, clamped);
+            live_params.bump_revision();
+        }
+        "macro2" => {
+            live_params.set_macro(1, clamped);
+            live_params.bump_revision();
+        }
+        "macro3" => {
+            live_params.set_macro(2, clamped);
+            live_params.bump_revision();
+        }
+        "macro4" => {
+            live_params.set_macro(3, clamped);
             live_params.bump_revision();
         }
         "trim_start" => {
@@ -1465,6 +1549,30 @@ fn handle_native_ipc_message(
         }
     }
 
+    // 4a-uv. Ultra-fast compact path: "uv,<1..8>" (Unison Voices)
+    let uv_rest = trimmed
+        .strip_prefix("uv,")
+        .or_else(|| trimmed.strip_prefix("uv:"));
+    if let Some(rest) = uv_rest {
+        if let Ok(v) = rest.trim().parse::<u8>() {
+            live_params.set_unison_voices(v.clamp(1, 8));
+            live_params.bump_revision();
+            return;
+        }
+    }
+
+    // 4a-ls. Ultra-fast compact path: "ls,<0..5>" (LFO Shape)
+    let ls_rest = trimmed
+        .strip_prefix("ls,")
+        .or_else(|| trimmed.strip_prefix("ls:"));
+    if let Some(rest) = ls_rest {
+        if let Ok(s) = rest.trim().parse::<i32>() {
+            live_params.set_lfo_shape(s.clamp(0, 5));
+            live_params.bump_revision();
+            return;
+        }
+    }
+
     // 4a-rec. Ultra-fast compact path: "rec,start" | "rec,stop" (Grabadora Master en Vivo)
     let rec_rest = trimmed
         .strip_prefix("rec,")
@@ -1576,6 +1684,15 @@ fn handle_native_ipc_message(
             arp_mode: Option<i32>,
             root_note: Option<i32>,
             mod_matrix_mask: Option<u32>,
+            wt_pos: Option<f32>,
+            wt_warp: Option<f32>,
+            unison_voices: Option<u8>,
+            unison_detune: Option<f32>,
+            sub_level: Option<f32>,
+            drive_amount: Option<f32>,
+            ott_amount: Option<f32>,
+            lfo_shape: Option<i32>,
+            macros: Option<[f32; 4]>,
         }
         if let Ok(p) = serde_json::from_str::<PresetApplyPayload>(json_str.trim()) {
             if let Some(v) = p.attack {
@@ -1614,6 +1731,9 @@ fn handle_native_ipc_message(
             if let Some(v) = p.lfo_target {
                 live_params.set_lfo_target(v.clamp(0, 3));
             }
+            if let Some(v) = p.lfo_shape {
+                live_params.set_lfo_shape(v.clamp(0, 5));
+            }
             if let Some(v) = p.arp_mode {
                 live_params.set_arp_mode(v.clamp(0, 4));
             }
@@ -1622,6 +1742,32 @@ fn handle_native_ipc_message(
             }
             if let Some(mask) = p.mod_matrix_mask {
                 live_params.set_mod_matrix_mask(mask);
+            }
+            if let Some(v) = p.wt_pos {
+                live_params.set_wt_pos(v.clamp(0.0, 1.0));
+            }
+            if let Some(v) = p.wt_warp {
+                live_params.set_wt_warp(v.clamp(0.0, 1.0));
+            }
+            if let Some(v) = p.unison_voices {
+                live_params.set_unison_voices(v.clamp(1, 8));
+            }
+            if let Some(v) = p.unison_detune {
+                live_params.set_unison_detune(v.clamp(0.0, 1.0));
+            }
+            if let Some(v) = p.sub_level {
+                live_params.set_sub_level(v.clamp(0.0, 1.0));
+            }
+            if let Some(v) = p.drive_amount {
+                live_params.set_drive_amount(v.clamp(0.0, 1.0));
+            }
+            if let Some(v) = p.ott_amount {
+                live_params.set_ott_amount(v.clamp(0.0, 1.0));
+            }
+            if let Some(m) = p.macros {
+                for (i, val) in m.iter().enumerate() {
+                    live_params.set_macro(i, val.clamp(0.0, 1.0));
+                }
             }
             if let Some(prompt) = p.prompt {
                 if !prompt.trim().is_empty() {

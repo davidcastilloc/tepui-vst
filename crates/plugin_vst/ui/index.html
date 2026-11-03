@@ -164,12 +164,16 @@
         </div>
       </div>
 
-      <!-- MODULE 1: WAVEFORM & LOOP (Top-Left) -->
+      <!-- MODULE 1: WAVEFORM, 3D WAVETABLE & SUPER-UNISON (Top-Left) -->
       <div class="eurorack-module mod-waveform" id="mod-waveform">
         <i class="hex-screw tl"></i><i class="hex-screw tr"></i><i class="hex-screw bl"></i><i class="hex-screw br"></i>
         <div class="mod-header">
-          <span class="mod-title">WAVEFORM &amp; LOOP</span>
-          <button id="btn-loop-toggle" class="oled-pill-btn active" title="Activar/Desactivar Loop Sostenido" type="button">LOOP: ON</button>
+          <span class="mod-title">3D WAVETABLE &amp; UNISON</span>
+          <div class="mod-header-pills">
+            <button id="btn-wt3d-toggle" class="oled-pill-btn amber active" title="Alternar vista 3D Wavetable / Osciloscopio 2D" type="button">3D WT</button>
+            <button id="btn-unison-voices" class="oled-pill-btn green" title="Voces de Super-Unison Estéreo (1V..8V)" type="button">UNI: 1V</button>
+            <button id="btn-loop-toggle" class="oled-pill-btn active" title="Activar/Desactivar Loop Sostenido" type="button">LOOP: ON</button>
+          </div>
         </div>
 
         <div class="oled-bezel cyan-bezel screen-body">
@@ -190,20 +194,42 @@
           </div>
         </div>
 
-        <div class="mod-controls-row">
+        <div class="mod-controls-row vital-osc-row">
           <div class="hw-btn-stack">
             <button id="btn-root-down" class="hw-sq-btn cyan-led" title="Bajar nota raíz 1 semitono" type="button">ROOT -</button>
             <span id="t-root-val" class="hw-readout">C4 (60)</span>
             <button id="btn-root-up" class="hw-sq-btn cyan-led" title="Subir nota raíz 1 semitono" type="button">ROOT +</button>
           </div>
-          <div class="encoder-pair">
+          <div class="vital-osc-knobs">
+            <div class="knob-container mini-vital-knob" data-param="wt_pos" data-unit="%" data-min="0.0" data-max="1.0" data-skew="1.0">
+              <div class="knob-widget"></div>
+              <div class="knob-val" id="val-wt_pos">0 %</div>
+              <div class="knob-label">WT POS</div>
+            </div>
+            <div class="knob-container mini-vital-knob" data-param="wt_warp" data-unit="%" data-min="0.0" data-max="1.0" data-skew="1.0">
+              <div class="knob-widget"></div>
+              <div class="knob-val" id="val-wt_warp">0 %</div>
+              <div class="knob-label">WARP</div>
+            </div>
+            <div class="knob-container mini-vital-knob" data-param="unison_detune" data-unit="%" data-min="0.0" data-max="1.0" data-skew="1.0">
+              <div class="knob-widget"></div>
+              <div class="knob-val" id="val-unison_detune">20 %</div>
+              <div class="knob-label">DETUNE</div>
+            </div>
+            <div class="knob-container mini-vital-knob" data-param="sub_level" data-unit="%" data-min="0.0" data-max="1.0" data-skew="1.0">
+              <div class="knob-widget"></div>
+              <div class="knob-val" id="val-sub_level">0 %</div>
+              <div class="knob-label">SUB -1</div>
+            </div>
+          </div>
+          <div class="encoder-pair hidden-encoders">
             <div class="mini-encoder" id="enc-trim-start" title="Arrastra verticalmente para ajustar Trim Start">
               <div class="brushed-cap"><div class="cap-line"></div></div>
-              <span class="enc-label">TRIM START</span>
+              <span class="enc-label">TRIM S</span>
             </div>
             <div class="mini-encoder" id="enc-trim-end" title="Arrastra verticalmente para ajustar Trim End">
               <div class="brushed-cap"><div class="cap-line"></div></div>
-              <span class="enc-label">TRIM END</span>
+              <span class="enc-label">TRIM E</span>
             </div>
           </div>
           <div class="hw-btn-stack">
@@ -304,7 +330,10 @@
         <i class="hex-screw tl"></i><i class="hex-screw tr"></i><i class="hex-screw bl"></i><i class="hex-screw br"></i>
         <div class="mod-header">
           <span class="mod-title">LFO &amp; MOD MATRIX</span>
-          <button id="btn-lfo-target" class="oled-pill-btn green" title="Cambiar destino de modulación LFO" type="button">LFO → CUTOFF</button>
+          <div class="mod-header-pills">
+            <button id="btn-lfo-shape" class="oled-pill-btn cyan" title="Cambiar forma de onda del LFO (SINE, TRI, SAW, RAMP, SQR, S&H)" type="button">SINE</button>
+            <button id="btn-lfo-target" class="oled-pill-btn green" title="Cambiar destino de modulación LFO" type="button">LFO → CUTOFF</button>
+          </div>
         </div>
 
         <div class="oled-bezel green-bezel">
@@ -361,12 +390,12 @@
         </div>
       </div>
 
-      <!-- MODULE 6: TEPUI CANYON REVERB & MASTER (Bottom-Right - remains visible when Preset Browser is open) -->
+      <!-- MODULE 6: OTT, DRIVE & TEPUI CANYON REVERB (Bottom-Right - remains visible when Preset Browser is open) -->
       <div class="eurorack-module mod-reverb" id="mod-reverb">
         <i class="hex-screw tl"></i><i class="hex-screw tr"></i><i class="hex-screw bl"></i><i class="hex-screw br"></i>
         <div class="mod-header">
-          <span class="mod-title">TEPUI CANYON REVERB</span>
-          <span class="mod-sub-tag cyan">SPATIAL DSP</span>
+          <span class="mod-title">OTT, DRIVE &amp; CANYON</span>
+          <span class="mod-sub-tag cyan">VITAL FX RACK</span>
         </div>
 
         <div class="reverb-oled-and-vu">
@@ -386,13 +415,23 @@
         </div>
 
         <div class="mod-controls-row reverb-controls-row">
-          <div class="knob-row">
-            <div class="knob-container" data-param="space_mix" data-unit="%" data-min="0.0" data-max="1.0" data-skew="1.0">
+          <div class="knob-row vital-fx-knobs">
+            <div class="knob-container mini-vital-knob" data-param="drive" data-unit="%" data-min="0.0" data-max="1.0" data-skew="1.0">
+              <div class="knob-widget"></div>
+              <div class="knob-val" id="val-drive">0 %</div>
+              <div class="knob-label">DRIVE</div>
+            </div>
+            <div class="knob-container mini-vital-knob" data-param="ott" data-unit="%" data-min="0.0" data-max="1.0" data-skew="1.0">
+              <div class="knob-widget"></div>
+              <div class="knob-val" id="val-ott">0 %</div>
+              <div class="knob-label">OTT</div>
+            </div>
+            <div class="knob-container mini-vital-knob" data-param="space_mix" data-unit="%" data-min="0.0" data-max="1.0" data-skew="1.0">
               <div class="knob-widget"></div>
               <div class="knob-val" id="val-space_mix">15 %</div>
               <div class="knob-label">SPATIAL</div>
             </div>
-            <div class="knob-container" data-param="gain" data-unit="dB" data-min="-60.0" data-max="6.0" data-skew="1.0">
+            <div class="knob-container mini-vital-knob" data-param="gain" data-unit="dB" data-min="-60.0" data-max="6.0" data-skew="1.0">
               <div class="knob-widget"></div>
               <div class="knob-val" id="val-gain">0.0 dB</div>
               <div class="knob-label">MASTER</div>
@@ -437,6 +476,29 @@
           <span class="pad-led"></span>
           <span class="pad-name">FURRUCO</span>
         </button>
+      </div>
+
+      <div class="vital-macros-bay" title="4 Macros estilo Vital / Serum (M1: Timbre/WT, M2: Warp/Reso, M3: Unison/Sub, M4: OTT/Drive/Space)">
+        <div class="knob-container macro-knob" data-param="macro1" data-unit="%" data-min="0.0" data-max="1.0" data-skew="1.0">
+          <div class="knob-widget"></div>
+          <div class="knob-val" id="val-macro1">0 %</div>
+          <div class="knob-label">M1 TIMBRE</div>
+        </div>
+        <div class="knob-container macro-knob" data-param="macro2" data-unit="%" data-min="0.0" data-max="1.0" data-skew="1.0">
+          <div class="knob-widget"></div>
+          <div class="knob-val" id="val-macro2">0 %</div>
+          <div class="knob-label">M2 WARP</div>
+        </div>
+        <div class="knob-container macro-knob" data-param="macro3" data-unit="%" data-min="0.0" data-max="1.0" data-skew="1.0">
+          <div class="knob-widget"></div>
+          <div class="knob-val" id="val-macro3">0 %</div>
+          <div class="knob-label">M3 UNISON</div>
+        </div>
+        <div class="knob-container macro-knob" data-param="macro4" data-unit="%" data-min="0.0" data-max="1.0" data-skew="1.0">
+          <div class="knob-widget"></div>
+          <div class="knob-val" id="val-macro4">0 %</div>
+          <div class="knob-label">M4 OTT/FX</div>
+        </div>
       </div>
 
       <div class="studio-chips-bay">

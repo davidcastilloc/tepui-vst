@@ -9,8 +9,8 @@ use nih_plug::params::persist::PersistentField;
 use nih_plug::prelude::*;
 use serde::{Deserialize, Serialize};
 use synth_core::{
-    base64_decode, base64_encode, encode_wav_f32, ArpMode, FilterMode, LfoTarget, SampleBuffer,
-    SampleRegionOverride,
+    base64_decode, base64_encode, encode_wav_f32, ArpMode, FilterMode, LfoShape, LfoTarget,
+    SampleBuffer, SampleRegionOverride,
 };
 
 /// Capacidad máxima prealocada para grabación Master en vivo (~15 segundos a 48 kHz estéreo).
@@ -625,6 +625,18 @@ pub struct LiveParamStore {
     pub mod_wheel: AtomicU32,
     pub sustain_pedal: AtomicI32,
     pub wav_zone_drops: AtomicU32,
+    // Suite Vital / Serum: Wavetable 3D, Super-Unison, Sub-Osc, OTT/Drive FX, LFO Shapes y 4 Macros
+    pub wt_pos: AtomicU32,
+    pub wt_warp: AtomicU32,
+    pub unison_voices: AtomicU32,
+    pub unison_detune: AtomicU32,
+    pub sub_level: AtomicU32,
+    pub drive_amount: AtomicU32,
+    pub ott_amount: AtomicU32,
+    pub lfo_shape: AtomicI32,
+    pub macros: [AtomicU32; 4],
+    pub vital_serum_dsp_frames: AtomicU32,
+
     pub active_keyzones_mask: AtomicU32,
     pub lfo_mod_value: AtomicU32,
     pub playhead_norm: AtomicU32,
@@ -679,6 +691,21 @@ impl Default for LiveParamStore {
             mod_wheel: AtomicU32::new(0.0_f32.to_bits()),
             sustain_pedal: AtomicI32::new(0),
             wav_zone_drops: AtomicU32::new(0),
+            wt_pos: AtomicU32::new(0.0_f32.to_bits()),
+            wt_warp: AtomicU32::new(0.0_f32.to_bits()),
+            unison_voices: AtomicU32::new(1),
+            unison_detune: AtomicU32::new(0.20_f32.to_bits()),
+            sub_level: AtomicU32::new(0.0_f32.to_bits()),
+            drive_amount: AtomicU32::new(0.0_f32.to_bits()),
+            ott_amount: AtomicU32::new(0.0_f32.to_bits()),
+            lfo_shape: AtomicI32::new(0),
+            macros: [
+                AtomicU32::new(0.0_f32.to_bits()),
+                AtomicU32::new(0.0_f32.to_bits()),
+                AtomicU32::new(0.0_f32.to_bits()),
+                AtomicU32::new(0.0_f32.to_bits()),
+            ],
+            vital_serum_dsp_frames: AtomicU32::new(0),
             active_keyzones_mask: AtomicU32::new(0),
             lfo_mod_value: AtomicU32::new(0.0_f32.to_bits()),
             playhead_norm: AtomicU32::new(0.0_f32.to_bits()),
@@ -1252,6 +1279,148 @@ impl LiveParamStore {
     #[inline]
     pub fn get_wav_zone_drops(&self) -> u32 {
         self.wav_zone_drops.load(Ordering::Relaxed)
+    }
+
+    // Suite Vital / Serum Getters & Setters
+    #[inline]
+    pub fn set_wt_pos(&self, val: f32) {
+        let c = if val.is_finite() {
+            val.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        self.wt_pos.store(c.to_bits(), Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_wt_pos(&self) -> f32 {
+        f32::from_bits(self.wt_pos.load(Ordering::Relaxed))
+    }
+
+    #[inline]
+    pub fn set_wt_warp(&self, val: f32) {
+        let c = if val.is_finite() {
+            val.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        self.wt_warp.store(c.to_bits(), Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_wt_warp(&self) -> f32 {
+        f32::from_bits(self.wt_warp.load(Ordering::Relaxed))
+    }
+
+    #[inline]
+    pub fn set_unison_voices(&self, voices: u8) {
+        self.unison_voices
+            .store((voices.clamp(1, 8)) as u32, Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_unison_voices(&self) -> u8 {
+        (self.unison_voices.load(Ordering::Relaxed).clamp(1, 8)) as u8
+    }
+
+    #[inline]
+    pub fn set_unison_detune(&self, val: f32) {
+        let c = if val.is_finite() {
+            val.clamp(0.0, 1.0)
+        } else {
+            0.20
+        };
+        self.unison_detune.store(c.to_bits(), Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_unison_detune(&self) -> f32 {
+        f32::from_bits(self.unison_detune.load(Ordering::Relaxed))
+    }
+
+    #[inline]
+    pub fn set_sub_level(&self, val: f32) {
+        let c = if val.is_finite() {
+            val.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        self.sub_level.store(c.to_bits(), Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_sub_level(&self) -> f32 {
+        f32::from_bits(self.sub_level.load(Ordering::Relaxed))
+    }
+
+    #[inline]
+    pub fn set_drive_amount(&self, val: f32) {
+        let c = if val.is_finite() {
+            val.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        self.drive_amount.store(c.to_bits(), Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_drive_amount(&self) -> f32 {
+        f32::from_bits(self.drive_amount.load(Ordering::Relaxed))
+    }
+
+    #[inline]
+    pub fn set_ott_amount(&self, val: f32) {
+        let c = if val.is_finite() {
+            val.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        self.ott_amount.store(c.to_bits(), Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_ott_amount(&self) -> f32 {
+        f32::from_bits(self.ott_amount.load(Ordering::Relaxed))
+    }
+
+    #[inline]
+    pub fn set_lfo_shape(&self, val: i32) {
+        self.lfo_shape.store(val.clamp(0, 5), Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_lfo_shape(&self) -> LfoShape {
+        LfoShape::from_i32(self.lfo_shape.load(Ordering::Relaxed))
+    }
+
+    #[inline]
+    pub fn set_macro(&self, index: usize, val: f32) {
+        if index < 4 {
+            let c = if val.is_finite() {
+                val.clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            self.macros[index].store(c.to_bits(), Ordering::Relaxed);
+        }
+    }
+    #[inline]
+    pub fn get_macro(&self, index: usize) -> f32 {
+        if index < 4 {
+            f32::from_bits(self.macros[index].load(Ordering::Relaxed))
+        } else {
+            0.0
+        }
+    }
+    #[inline]
+    pub fn get_macros(&self) -> [f32; 4] {
+        [
+            self.get_macro(0),
+            self.get_macro(1),
+            self.get_macro(2),
+            self.get_macro(3),
+        ]
+    }
+
+    #[inline]
+    pub fn set_vital_serum_dsp_frames(&self, count: u32) {
+        self.vital_serum_dsp_frames.store(count, Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_vital_serum_dsp_frames(&self) -> u32 {
+        self.vital_serum_dsp_frames.load(Ordering::Relaxed)
     }
 
     #[allow(dead_code)]

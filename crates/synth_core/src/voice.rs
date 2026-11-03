@@ -84,6 +84,15 @@ pub struct Voice {
     pub quality: ResamplingQuality,
     pub region_override: SampleRegionOverride,
 
+    // Motor Wavetable 3D + Super-Unison + Sub-Oscillator estilo Vital / Serum (0 asignaciones)
+    pub wt_pos: f32,
+    pub wt_warp: f32,
+    pub unison_voices: u8,
+    pub unison_detune: f32,
+    pub sub_level: f32,
+    sub_phase: f32,
+    unison_phases: [f32; 8],
+
     sample_rate: f32,
 }
 
@@ -103,6 +112,13 @@ impl Voice {
             filter_r: StateVariableFilter::new(sample_rate),
             quality: ResamplingQuality::HermiteCubic,
             region_override: SampleRegionOverride::default(),
+            wt_pos: 0.0,
+            wt_warp: 0.0,
+            unison_voices: 1,
+            unison_detune: 0.20,
+            sub_level: 0.0,
+            sub_phase: 0.0,
+            unison_phases: [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875],
             sample_rate,
         }
     }
@@ -255,8 +271,113 @@ impl Voice {
             (0.06 + 0.94 * self.velocity.powf(1.25)).clamp(0.0, 1.0)
         };
         let gain = env_gain * vel_gain;
-        let amp_left = raw_left * gain;
-        let amp_right = raw_right * gain;
+        let mut sig_left = raw_left;
+        let mut sig_right = raw_right;
+
+        // Motor Vital / Serum: Oscilador Wavetable 3D Morfable + Super-Unison Estéreo + Sub-Oscilador (-1 Oct) + Spectral Warp
+        let u_voices = self.unison_voices.clamp(1, 8);
+        if self.wt_pos > 0.001 || self.wt_warp > 0.001 || u_voices > 1 || self.sub_level > 0.001 {
+            let sr = self.sample_rate.max(8000.0);
+            let bend_factor = (self.playback_ratio / self.base_ratio.max(1e-6)) as f32;
+            let base_freq = 440.0
+                * 2.0_f32.powf((self.note as f32 - 69.0) / 12.0)
+                * bend_factor.clamp(0.25, 4.0);
+
+            // 1. Super-Unison + 3D Wavetable Morphing (4 cuadros espectrales: Sub-Tri -> Saw -> Formant -> Metallic FM)
+            if self.wt_pos > 0.001 || u_voices > 1 {
+                let mut uni_l = 0.0_f32;
+                let mut uni_r = 0.0_f32;
+                let center = (u_voices as f32 - 1.0) * 0.5;
+                let detune_max_semi = self.unison_detune.clamp(0.0, 1.0) * 0.42; // hasta ±42 cents
+                let pos = self.wt_pos.clamp(0.0, 1.0);
+
+                for idx in 0..(u_voices as usize) {
+                    let spread = if u_voices > 1 {
+                        (idx as f32 - center) / center.max(0.5)
+                    } else {
+                        0.0
+                    };
+                    let detune_mult = 2.0_f32.powf((spread * detune_max_semi) / 12.0);
+                    let ph = self.unison_phases[idx];
+                    let next_ph = (ph + (base_freq * detune_mult) / sr).fract();
+                    self.unison_phases[idx] = next_ph;
+
+                    let ang = ph * std::f32::consts::TAU;
+                    // Cuadro 0: Fundamental cálida + 2º armónico
+                    let f0 = ang.sin() * 0.8 + (ang * 2.0).sin() * 0.2;
+                    // Cuadro 1: Sawtooth analógica rica
+                    let f1 = (1.0 - 2.0 * ph) * 0.75 + ang.sin() * 0.25;
+                    // Cuadro 2: Formante vocal / Sync
+                    let f2 = (ang * 3.0).sin() * (1.0 - ph) + (ang * 5.0).sin() * 0.45;
+                    // Cuadro 3: Metálica FM / Cyber
+                    let f3 = (ang + 2.4 * (ang * 2.0).sin()).sin();
+
+                    let wt_sample = if pos < 0.333 {
+                        let t = pos * 3.0;
+                        f0 * (1.0 - t) + f1 * t
+                    } else if pos < 0.666 {
+                        let t = (pos - 0.333) * 3.0;
+                        f1 * (1.0 - t) + f2 * t
+                    } else {
+                        let t = (pos - 0.666) * 3.0;
+                        f2 * (1.0 - t) + f3 * t
+                    };
+
+                    let pan = (spread * 0.75).clamp(-1.0, 1.0);
+                    let pan_l = ((1.0 - pan) * 0.5).sqrt();
+                    let pan_r = ((1.0 + pan) * 0.5).sqrt();
+                    uni_l += wt_sample * pan_l;
+                    uni_r += wt_sample * pan_r;
+                }
+
+                let norm_u = 1.0 / (u_voices as f32).sqrt();
+                uni_l *= norm_u;
+                uni_r *= norm_u;
+
+                // Si Unison > 1 también ensanchamos la muestra acústica/neural con ligero desfase estéreo
+                if u_voices > 1 && loop_end > loop_start + 32 {
+                    let offset_smp = (self.unison_detune * 18.0 + 4.0) as f64;
+                    let alt_pos = if self.playback_pos + offset_smp < loop_end as f64 {
+                        self.playback_pos + offset_smp
+                    } else {
+                        loop_start as f64 + offset_smp
+                    };
+                    let det_l = read_interpolated_sample(buffer, 0, alt_pos, self.quality);
+                    let det_r = read_interpolated_sample(buffer, 1, alt_pos, self.quality);
+                    let u_mix = (self.unison_detune * 0.45).clamp(0.12, 0.45);
+                    sig_left = sig_left * (1.0 - u_mix * 0.4) + det_r * u_mix;
+                    sig_right = sig_right * (1.0 - u_mix * 0.4) + det_l * u_mix;
+                }
+
+                let wt_blend =
+                    (pos * 0.68 + if u_voices > 1 { 0.22 } else { 0.0 }).clamp(0.0, 0.82);
+                sig_left = sig_left * (1.0 - wt_blend * 0.55) + uni_l * wt_blend * 0.55;
+                sig_right = sig_right * (1.0 - wt_blend * 0.55) + uni_r * wt_blend * 0.55;
+            }
+
+            // 2. Sub-Oscilador dedicado a -1 Octava (Seno/Triángulo saturado)
+            if self.sub_level > 0.001 {
+                self.sub_phase = (self.sub_phase + (base_freq * 0.5) / sr).fract();
+                let sub_ang = self.sub_phase * std::f32::consts::TAU;
+                let sub_wave =
+                    (sub_ang.sin() * 1.25).tanh() * self.sub_level.clamp(0.0, 1.0) * 0.48;
+                sig_left += sub_wave;
+                sig_right += sub_wave;
+            }
+
+            // 3. Spectral Warp / Wavefold (Bend +/- & Wavefolder estilo Serum/Vital)
+            if self.wt_warp > 0.001 {
+                let w = self.wt_warp.clamp(0.0, 1.0);
+                let fold_drive = 1.0 + w * 2.8;
+                let folded_l = (sig_left * fold_drive).sin();
+                let folded_r = (sig_right * fold_drive).sin();
+                sig_left = sig_left * (1.0 - w * 0.65) + folded_l * (w * 0.65);
+                sig_right = sig_right * (1.0 - w * 0.65) + folded_r * (w * 0.65);
+            }
+        }
+
+        let amp_left = sig_left * gain;
+        let amp_right = sig_right * gain;
 
         // Filtrado por voz (SVF Estéreo Real)
         let (out_left, out_right) = if self.filter_l.mode == FilterMode::Bypass {

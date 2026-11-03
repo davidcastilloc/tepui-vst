@@ -39,6 +39,73 @@ impl LfoTarget {
     }
 }
 
+/// Forma de onda del LFO estilo Vital / Serum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LfoShape {
+    /// Onda sinusoidal suave clásica.
+    Sine = 0,
+    /// Onda triangular simétrica lineal.
+    Triangle = 1,
+    /// Diente de sierra descendente (Saw Down).
+    Saw = 2,
+    /// Rampa ascendente (Ramp Up).
+    Ramp = 3,
+    /// Onda cuadrada / pulso bipolar.
+    Square = 4,
+    /// Sample & Hold escalonado pseudo-aleatorio (8 pasos por ciclo).
+    SampleAndHold = 5,
+}
+
+impl LfoShape {
+    #[inline]
+    pub fn from_i32(val: i32) -> Self {
+        match val {
+            0 => LfoShape::Sine,
+            1 => LfoShape::Triangle,
+            2 => LfoShape::Saw,
+            3 => LfoShape::Ramp,
+            4 => LfoShape::Square,
+            5 => LfoShape::SampleAndHold,
+            _ => LfoShape::Sine,
+        }
+    }
+
+    #[inline]
+    pub fn as_i32(self) -> i32 {
+        match self {
+            LfoShape::Sine => 0,
+            LfoShape::Triangle => 1,
+            LfoShape::Saw => 2,
+            LfoShape::Ramp => 3,
+            LfoShape::Square => 4,
+            LfoShape::SampleAndHold => 5,
+        }
+    }
+
+    #[inline]
+    pub fn eval(self, phase: f64) -> f32 {
+        let p = phase.rem_euclid(1.0) as f32;
+        match self {
+            LfoShape::Sine => (phase * TAU).sin() as f32,
+            LfoShape::Triangle => 1.0 - 4.0 * ((p - 0.25).rem_euclid(1.0) - 0.5).abs(),
+            LfoShape::Saw => 1.0 - 2.0 * p,
+            LfoShape::Ramp => 2.0 * p - 1.0,
+            LfoShape::Square => {
+                if p < 0.5 {
+                    1.0
+                } else {
+                    -1.0
+                }
+            }
+            LfoShape::SampleAndHold => {
+                let step = (p * 8.0) as u32;
+                let hash = step.wrapping_mul(0x9E37_79B9) ^ 0x85EB_CA6B;
+                ((hash & 0xFFFF) as f32 / 32767.5) - 1.0
+            }
+        }
+    }
+}
+
 /// Máscara por defecto de la matriz de modulación 5×5 (`LFO1->CUTOFF`, `LFO2->RESO`, `ENV2->CUTOFF`).
 pub const DEFAULT_MOD_MATRIX_MASK: u32 = (1 << 1) | (1 << 7) | (1 << 11);
 
@@ -50,6 +117,7 @@ pub struct LfoState {
     rate_hz: f32,
     depth: f32,
     target: LfoTarget,
+    shape: LfoShape,
     sample_rate: f32,
     last_value: f32,
     last_value2: f32,
@@ -69,10 +137,21 @@ impl LfoState {
             rate_hz: 3.5,
             depth: 0.0,
             target: LfoTarget::Cutoff,
+            shape: LfoShape::Sine,
             sample_rate: sample_rate.max(8000.0),
             last_value: 0.0,
             last_value2: 0.0,
         }
+    }
+
+    #[inline]
+    pub fn set_shape(&mut self, shape: LfoShape) {
+        self.shape = shape;
+    }
+
+    #[inline]
+    pub fn shape(&self) -> LfoShape {
+        self.shape
     }
 
     #[inline]
@@ -143,10 +222,8 @@ impl LfoState {
             self.last_value2 = 0.0;
             return (0.0, 0.0);
         }
-        let angle1 = self.phase * TAU;
-        let angle2 = self.phase2 * TAU;
-        let s1 = (angle1.sin() as f32) * eff_depth;
-        let s2 = (angle2.cos() as f32) * eff_depth;
+        let s1 = self.shape.eval(self.phase) * eff_depth;
+        let s2 = self.shape.eval(self.phase2 + 0.25) * eff_depth;
 
         let step1 = (self.rate_hz as f64 * num_samples as f64) / (self.sample_rate as f64);
         let step2 = step1 * 1.618_033_988_75;
@@ -165,9 +242,8 @@ impl LfoState {
             return (0.0, 0.0);
         }
 
-        let angle = self.phase * TAU;
-        let s = (angle.sin() as f32) * self.depth;
-        let c = (angle.cos() as f32) * self.depth;
+        let s = self.shape.eval(self.phase) * self.depth;
+        let c = self.shape.eval(self.phase2 + 0.25) * self.depth;
 
         let step = (self.rate_hz as f64 * num_samples as f64) / (self.sample_rate as f64);
         self.phase = (self.phase + step).fract();

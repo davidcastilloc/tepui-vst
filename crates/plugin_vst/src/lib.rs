@@ -465,6 +465,16 @@ impl Plugin for AiSamplerPlugin {
         self.voice_manager
             .set_mod_matrix_mask(self.live_params.get_mod_matrix_mask());
 
+        self.voice_manager.update_vital_serum_params(
+            self.live_params.get_wt_pos(),
+            self.live_params.get_wt_warp(),
+            self.live_params.get_unison_voices(),
+            self.live_params.get_unison_detune(),
+            self.live_params.get_sub_level(),
+            self.live_params.get_lfo_shape(),
+            self.live_params.get_macros(),
+        );
+
         let host_bpm = context
             .transport()
             .tempo
@@ -644,10 +654,16 @@ impl Plugin for AiSamplerPlugin {
             next_event = context.next_event();
         }
 
-        // 7a. Aplicar Master Stereo FX Rack (Chorus en Cuadratura + Delay Cruzado Sincronizado al Tempo y Compás)
+        // 7a. Aplicar Master Stereo FX Rack (Tube Drive + OTT Multibanda + Chorus en Cuadratura + Delay Cruzado Sincronizado al Tempo y Compás)
         self.fx_rack
             .set_tempo_sync(host_bpm, self.live_params.get_arp_mode());
-        self.fx_rack.set_mix(self.live_params.get_space_mix());
+        let m4_fx = self.live_params.get_macro(3);
+        self.fx_rack
+            .set_drive((self.live_params.get_drive_amount() + m4_fx * 0.55).clamp(0.0, 1.0));
+        self.fx_rack
+            .set_ott((self.live_params.get_ott_amount() + m4_fx * 0.65).clamp(0.0, 1.0));
+        self.fx_rack
+            .set_mix((self.live_params.get_space_mix() + m4_fx * 0.35).clamp(0.0, 1.0));
         self.fx_rack.process_block(left_channel, right_channel);
 
         // 7b. Aplicar Master Gain suavizado, saturaciÃ³n analÃ³gica suave anti-clipping, sanitizaciÃ³n NaN y medir pico L/R + mÃ©tricas ODD
@@ -728,6 +744,11 @@ impl Plugin for AiSamplerPlugin {
             .set_arp_steps_triggered(self.voice_manager.arp_steps_triggered());
         self.live_params
             .set_mod_matrix_dsp_frames(self.voice_manager.mod_matrix_dsp_frames());
+        self.live_params.set_vital_serum_dsp_frames(
+            self.voice_manager
+                .vital_serum_dsp_frames()
+                .wrapping_add(self.fx_rack.vital_fx_frames()),
+        );
         self.live_params
             .set_last_velocity(self.voice_manager.last_velocity());
         self.live_params
@@ -1487,5 +1508,114 @@ mod tests {
         let decoded = synth_core::decode_wav(&wav_bytes).expect("decode_wav of live rec failed");
         assert_eq!(decoded.len(), 512);
         assert!((decoded.sample_rate - 44100.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_vital_serum_live_params_ipc_and_dsp_telemetry() {
+        let mut plugin = AiSamplerPlugin::default();
+        plugin.voice_manager.set_sample_rate(44100.0);
+
+        web_editor::set_param_from_client(
+            &plugin.params,
+            &plugin.live_params,
+            &None,
+            "wt_pos",
+            0.65,
+        );
+        web_editor::set_param_from_client(
+            &plugin.params,
+            &plugin.live_params,
+            &None,
+            "wt_warp",
+            0.45,
+        );
+        web_editor::set_param_from_client(
+            &plugin.params,
+            &plugin.live_params,
+            &None,
+            "unison_voices",
+            7.0,
+        );
+        web_editor::set_param_from_client(
+            &plugin.params,
+            &plugin.live_params,
+            &None,
+            "unison_detune",
+            0.55,
+        );
+        web_editor::set_param_from_client(
+            &plugin.params,
+            &plugin.live_params,
+            &None,
+            "sub_level",
+            0.50,
+        );
+        web_editor::set_param_from_client(
+            &plugin.params,
+            &plugin.live_params,
+            &None,
+            "drive",
+            0.40,
+        );
+        web_editor::set_param_from_client(&plugin.params, &plugin.live_params, &None, "ott", 0.60);
+        web_editor::set_param_from_client(
+            &plugin.params,
+            &plugin.live_params,
+            &None,
+            "lfo_shape",
+            5.0,
+        );
+        web_editor::set_param_from_client(
+            &plugin.params,
+            &plugin.live_params,
+            &None,
+            "macro1",
+            0.30,
+        );
+        web_editor::set_param_from_client(
+            &plugin.params,
+            &plugin.live_params,
+            &None,
+            "macro4",
+            0.50,
+        );
+
+        assert!((plugin.live_params.get_wt_pos() - 0.65).abs() < 1e-4);
+        assert_eq!(plugin.live_params.get_unison_voices(), 7);
+        assert_eq!(
+            plugin.live_params.get_lfo_shape(),
+            synth_core::LfoShape::SampleAndHold
+        );
+
+        plugin.voice_manager.update_vital_serum_params(
+            plugin.live_params.get_wt_pos(),
+            plugin.live_params.get_wt_warp(),
+            plugin.live_params.get_unison_voices(),
+            plugin.live_params.get_unison_detune(),
+            plugin.live_params.get_sub_level(),
+            plugin.live_params.get_lfo_shape(),
+            plugin.live_params.get_macros(),
+        );
+        plugin
+            .fx_rack
+            .set_drive(plugin.live_params.get_drive_amount());
+        plugin.fx_rack.set_ott(plugin.live_params.get_ott_amount());
+
+        let sample = plugin.ai_worker.get_sample();
+        plugin.voice_manager.note_on(60, 0.95, &sample);
+        let mut left = vec![0.0_f32; 256];
+        let mut right = vec![0.0_f32; 256];
+        plugin
+            .voice_manager
+            .process_block(&sample, &mut left, &mut right);
+        plugin.fx_rack.process_block(&mut left, &mut right);
+
+        plugin.live_params.set_vital_serum_dsp_frames(
+            plugin
+                .voice_manager
+                .vital_serum_dsp_frames()
+                .wrapping_add(plugin.fx_rack.vital_fx_frames()),
+        );
+        assert!(plugin.live_params.get_vital_serum_dsp_frames() >= 512);
     }
 }

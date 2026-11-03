@@ -23,7 +23,7 @@ pub use buffer::{PianoRollPrepReport, SampleBuffer, SharedSampleBuffer};
 pub use envelope::{AdsrEnvelope, AdsrStage};
 pub use filter::{FilterMode, StateVariableFilter};
 pub use fx::StereoFxRack;
-pub use lfo::{LfoState, LfoTarget, DEFAULT_MOD_MATRIX_MASK};
+pub use lfo::{LfoShape, LfoState, LfoTarget, DEFAULT_MOD_MATRIX_MASK};
 pub use resampler::{calculate_playback_ratio, hermite_interpolate_4p, ResamplingQuality};
 pub use voice::{SampleRegionOverride, Voice};
 pub use voice_manager::VoiceManager;
@@ -627,5 +627,57 @@ mod tests {
             report.detected_f0_hz
         );
         assert!(report.confidence > 0.80);
+    }
+
+    #[test]
+    fn test_vital_serum_wavetable_unison_sub_ott_drive_and_macros() {
+        let sr = 48000.0;
+        let samples: Vec<f32> = (0..4800)
+            .map(|i| (i as f32 * 261.63 * 2.0 * std::f32::consts::PI / sr).sin() * 0.5)
+            .collect();
+        let mut buf = SampleBuffer::new_mono(samples, sr, 60);
+        buf.loop_enabled = true;
+        buf.loop_start = 480;
+        buf.loop_end = 4200;
+
+        let mut vm = VoiceManager::new(sr, 8);
+        vm.update_vital_serum_params(
+            0.65,
+            0.40,
+            6,
+            0.35,
+            0.50,
+            LfoShape::Saw,
+            [0.30, 0.25, 0.40, 0.50],
+        );
+        assert_eq!(vm.lfo_shape(), LfoShape::Saw);
+
+        vm.note_on(60, 0.90, &buf);
+        let mut l = vec![0.0; 256];
+        let mut r = vec![0.0; 256];
+        vm.process_block(&buf, &mut l, &mut r);
+
+        assert!(vm.vital_serum_dsp_frames() >= 256);
+        // Verificar que Super-Unison (6 voces) crea diferencia estéreo real entre L y R
+        let stereo_diff: f32 = l
+            .iter()
+            .zip(r.iter())
+            .map(|(a, b)| (a - b).abs())
+            .sum::<f32>();
+        assert!(
+            stereo_diff > 0.05,
+            "Super-Unison debe abrir el campo estéreo: diff={}",
+            stereo_diff
+        );
+
+        // Probar Drive + OTT Multiband Compressor en StereoFxRack
+        let mut fx = StereoFxRack::new(sr);
+        fx.set_mix(0.20);
+        fx.set_drive(0.65);
+        fx.set_ott(0.75);
+        fx.process_block(&mut l, &mut r);
+        assert_eq!(fx.vital_fx_frames(), 256);
+        assert!(l.iter().all(|x| x.is_finite()));
+        assert!(r.iter().all(|x| x.is_finite()));
     }
 }

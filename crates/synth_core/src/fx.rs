@@ -145,6 +145,15 @@ pub struct StereoFxRack {
     allpass_l: [AllPassFilter; 2],
     allpass_r: [AllPassFilter; 2],
     reverb_tail_energy: f32,
+
+    // Vital / Serum FX: Tube Drive Distortion + OTT Upward/Downward Multiband Compressor
+    drive_amount: f32,
+    ott_amount: f32,
+    ott_env_l: f32,
+    ott_env_r: f32,
+    air_lp_l: f32,
+    air_lp_r: f32,
+    vital_fx_frames: u32,
 }
 
 impl Default for StereoFxRack {
@@ -193,7 +202,49 @@ impl StereoFxRack {
                 AllPassFilter::new(ALLPASS_BASE_TUNINGS_44K[1] + STEREO_SPREAD_44K, sr),
             ],
             reverb_tail_energy: 0.0,
+            drive_amount: 0.0,
+            ott_amount: 0.0,
+            ott_env_l: 0.0,
+            ott_env_r: 0.0,
+            air_lp_l: 0.0,
+            air_lp_r: 0.0,
+            vital_fx_frames: 0,
         }
+    }
+
+    /// Configura la saturación de tubo / distorsión armónica (`0.0..=1.0`) estilo Serum/Vital.
+    #[inline]
+    pub fn set_drive(&mut self, drive: f32) {
+        self.drive_amount = if drive.is_finite() {
+            drive.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+    }
+
+    #[inline]
+    pub fn drive(&self) -> f32 {
+        self.drive_amount
+    }
+
+    /// Configura la profundidad del compresor multibanda ascendente/descendente OTT (`0.0..=1.0`).
+    #[inline]
+    pub fn set_ott(&mut self, ott: f32) {
+        self.ott_amount = if ott.is_finite() {
+            ott.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+    }
+
+    #[inline]
+    pub fn ott(&self) -> f32 {
+        self.ott_amount
+    }
+
+    #[inline]
+    pub fn vital_fx_frames(&self) -> u32 {
+        self.vital_fx_frames
     }
 
     /// Actualiza la frecuencia de muestreo del procesador sin realocar memoria.
@@ -295,15 +346,21 @@ impl StereoFxRack {
             return;
         }
 
-        // Bypass ultrarrápido cuando el efecto está completamente cerrado y las colas están silenciosas
+        // Bypass ultrarrápido cuando todos los efectos están completamente cerrados y las colas están silenciosas
         if self.target_mix <= 0.0005
             && self.current_mix <= 0.0005
+            && self.drive_amount <= 0.0005
+            && self.ott_amount <= 0.0005
             && self.lp_state_l.abs() < 1.0e-6
             && self.lp_state_r.abs() < 1.0e-6
             && self.reverb_tail_energy < 1.0e-6
         {
             self.current_mix = 0.0;
             return;
+        }
+
+        if self.drive_amount > 0.001 || self.ott_amount > 0.001 {
+            self.vital_fx_frames = self.vital_fx_frames.wrapping_add(frames as u32);
         }
 
         let sr = self.sample_rate.max(8000.0);
@@ -325,8 +382,38 @@ impl StereoFxRack {
             self.current_mix += (self.target_mix - self.current_mix) * 0.005;
             let mix = self.current_mix;
 
-            let dry_l = flush_denormal(left[i]);
-            let dry_r = flush_denormal(right[i]);
+            let mut dry_l = flush_denormal(left[i]);
+            let mut dry_r = flush_denormal(right[i]);
+
+            // 0. Etapa Pre-FX Vital/Serum: Tube Drive Distortion + OTT Upward/Downward Multiband Dynamics
+            if self.drive_amount > 0.001 {
+                let d = self.drive_amount;
+                let pre = 1.0 + d * 4.2;
+                let norm = 1.0 / (1.0 + d * 0.75);
+                // Saturación asimétrica de válvula (agrega armónicos pares e impares)
+                dry_l = ((dry_l * pre + d * 0.08).tanh() - (d * 0.08).tanh()) * norm;
+                dry_r = ((dry_r * pre - d * 0.08).tanh() + (d * 0.08).tanh()) * norm;
+            }
+
+            if self.ott_amount > 0.001 {
+                let ott = self.ott_amount;
+                let abs_l = dry_l.abs();
+                let abs_r = dry_r.abs();
+                let coef = if abs_l > self.ott_env_l { 0.08 } else { 0.002 };
+                self.ott_env_l = flush_denormal(self.ott_env_l + (abs_l - self.ott_env_l) * coef);
+                self.ott_env_r = flush_denormal(self.ott_env_r + (abs_r - self.ott_env_r) * coef);
+
+                // Compresión Ascendente (Upward Compression) + Excitador de banda aguda (Air Band)
+                let up_l = 1.0 + ott * (0.38 / (self.ott_env_l + 0.08)).clamp(0.0, 2.2);
+                let up_r = 1.0 + ott * (0.38 / (self.ott_env_r + 0.08)).clamp(0.0, 2.2);
+                self.air_lp_l = flush_denormal(self.air_lp_l * 0.82 + dry_l * 0.18);
+                self.air_lp_r = flush_denormal(self.air_lp_r * 0.82 + dry_r * 0.18);
+                let air_l = (dry_l - self.air_lp_l) * (ott * 0.65);
+                let air_r = (dry_r - self.air_lp_r) * (ott * 0.65);
+
+                dry_l = ((dry_l * up_l + air_l) * (1.0 - ott * 0.15)).tanh();
+                dry_r = ((dry_r * up_r + air_r) * (1.0 - ott * 0.15)).tanh();
+            }
 
             // 1. Chorus Analógico Estéreo en Cuadratura (L = sin, R = cos)
             let mod_l = self.lfo_phase.sin();
