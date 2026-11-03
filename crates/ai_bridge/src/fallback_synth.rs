@@ -117,6 +117,8 @@ pub fn is_dedicated_dsp_preset(prompt: &str) -> bool {
         || lower.contains("choir")
         || lower.contains("karplus")
         || lower.contains("nylon guitar")
+        || lower.contains("concert harp")
+        || lower.contains("plectrum lute")
         || lower.contains("cuatro")
         || lower.contains("camburpinton")
         || lower.contains("camburpintón")
@@ -183,11 +185,21 @@ pub fn generate_sample_from_prompt_with_backend(
             generate_vocal_formant_pad(sample_rate),
             "Wavetable-Pro-Synth",
         )
+    } else if lower.contains("concert harp") {
+        let mut buf = generate_arpa_llanera(sample_rate);
+        buf.name = "Karplus Concert Harp".to_string();
+        (buf, "Physical-Model-Preset")
+    } else if lower.contains("plectrum lute") {
+        let mut buf = generate_bandola_llanera(sample_rate);
+        buf.name = "Karplus Plectrum Lute".to_string();
+        (buf, "Physical-Model-Preset")
+    } else if lower.contains("karplus") || lower.contains("nylon guitar") {
+        let mut buf = generate_cuatro_venezolano(sample_rate);
+        buf.name = "Karplus Nylon Guitar".to_string();
+        (buf, "Physical-Model-Preset")
     } else if lower.contains("cuatro")
         || lower.contains("camburpinton")
         || lower.contains("camburpintón")
-        || lower.contains("karplus")
-        || lower.contains("nylon guitar")
     {
         (
             generate_cuatro_venezolano(sample_rate),

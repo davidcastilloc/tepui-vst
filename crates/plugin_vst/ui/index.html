@@ -15,8 +15,8 @@
         <img src="tepui-icon.png" alt="TEPUI" class="brand-logo">
         <h1 class="brand-title">TEPUI</h1>
         <span class="brand-separator">//</span>
-        <span class="brand-subtitle">GRAN SABANA SONIC LAB - EURORACK MATRIX</span>
-        <span class="brand-badge">VST3 / CLAP • 24-BIT</span>
+        <span class="brand-subtitle">EURORACK MATRIX</span>
+        <span class="brand-badge">VST3 • CLAP • 24-BIT</span>
       </div>
       <div class="header-right">
         <div class="io-toolbar">
@@ -168,13 +168,13 @@
       <div class="eurorack-module mod-waveform" id="mod-waveform">
         <i class="hex-screw tl"></i><i class="hex-screw tr"></i><i class="hex-screw bl"></i><i class="hex-screw br"></i>
         <div class="mod-header">
-          <span class="mod-title">3D WAVETABLE &amp; UNISON</span>
+          <span class="mod-title">WAVETABLE &amp; UNISON</span>
           <div class="mod-header-pills">
-            <button id="btn-wav-to-wt" class="oled-pill-btn green" title="Resintetizar ciclo armónico de 64 puntos desde la muestra activa (Vital/Serum Audio-to-Wavetable)" type="button">WAV → WT</button>
+            <button id="btn-wav-to-wt" class="oled-pill-btn green" title="Resintetizar ciclo armónico de 64 puntos desde la muestra activa (Vital/Serum Audio-to-Wavetable)" type="button">WAV→WT</button>
             <button id="btn-wtdraw-toggle" class="oled-pill-btn cyan" title="Dibujar tu propia tabla de ondas con el mouse sobre el OLED (Doble clic para limpiar)" type="button">WT DRAW</button>
             <button id="btn-wt3d-toggle" class="oled-pill-btn amber active" title="Alternar vista 3D Wavetable / Osciloscopio 2D" type="button">3D WT</button>
-            <button id="btn-unison-voices" class="oled-pill-btn green" title="Voces de Super-Unison Estéreo (1V..8V)" type="button">UNI: 1V</button>
-            <button id="btn-loop-toggle" class="oled-pill-btn active" title="Activar/Desactivar Loop Sostenido" type="button">LOOP: ON</button>
+            <button id="btn-unison-voices" class="oled-pill-btn green" title="Voces de Super-Unison Estéreo (1V..8V)" type="button">UNI:1V</button>
+            <button id="btn-loop-toggle" class="oled-pill-btn active" title="Activar/Desactivar Loop Sostenido" type="button">LOOP:ON</button>
           </div>
         </div>
 
@@ -365,12 +365,12 @@
         </div>
       </div>
 
-      <!-- MODULE 5: 6/8 JOROPO ARP (Bottom-Center) -->
+      <!-- MODULE 5: POLY ARPEGGIATOR (Bottom-Center) -->
       <div class="eurorack-module mod-arp" id="mod-arp">
         <i class="hex-screw tl"></i><i class="hex-screw tr"></i><i class="hex-screw bl"></i><i class="hex-screw br"></i>
         <div class="mod-header">
-          <span class="mod-title">6/8 JOROPO ARP</span>
-          <button id="btn-arp-mode" class="oled-pill-btn amber" title="Ciclar modo del Arpegiador Venezolano" type="button">ARP: OFF</button>
+          <span class="mod-title">POLY ARPEGGIATOR</span>
+          <button id="btn-arp-mode" class="oled-pill-btn amber" title="Ciclar modo del Arpegiador Polifónico" type="button">ARP: OFF</button>
         </div>
 
         <div class="oled-bezel amber-bezel">
@@ -382,8 +382,8 @@
             <button class="arp-mode-btn active" data-arp="0" type="button">OFF</button>
             <button class="arp-mode-btn" data-arp="1" type="button">UP</button>
             <button class="arp-mode-btn" data-arp="2" type="button">DOWN</button>
-            <button class="arp-mode-btn joropo-btn" data-arp="3" type="button">6/8 JOROPO</button>
-            <button class="arp-mode-btn merengue-btn" data-arp="4" type="button">5/8 MERENGUE</button>
+            <button class="arp-mode-btn joropo-btn" data-arp="3" title="Patrón Polirrítmico Sincopado 6/8" type="button">6/8 SYNC</button>
+            <button class="arp-mode-btn merengue-btn" data-arp="4" title="Patrón Rítmico Sincopado 5/8" type="button">5/8 SYNC</button>
           </div>
           <div class="arp-status-strip">
             <span class="arp-stat">COMPÁS: <strong id="arp-meter-label">4/4 FREE</strong></span>

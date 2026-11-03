@@ -288,7 +288,7 @@ mod tests {
             ),
             (
                 "Karplus Nylon Guitar Pluck C4",
-                "Cuatro Venezolano",
+                "Karplus Nylon Guitar",
                 60u8,
                 false,
             ),

@@ -275,8 +275,8 @@ impl Plugin for AiSamplerPlugin {
 
     fn editor(&mut self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
         Some(Box::new(web_editor::WebViewEditor::new(
-            980,
-            720,
+            1180,
+            780,
             self.gui_midi_tx.clone(),
             self.params.clone(),
             self.live_params.clone(),

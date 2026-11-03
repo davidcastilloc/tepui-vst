@@ -237,7 +237,7 @@ function updateRegionDisplay(regionObj) {
   const loopBtn = document.getElementById('btn-loop-toggle');
   if (loopBtn) {
     loopBtn.classList.toggle('active', !!r.loop_enabled);
-    loopBtn.innerText = r.loop_enabled ? 'LOOP: ON' : 'LOOP: OFF';
+    loopBtn.innerText = r.loop_enabled ? 'LOOP:ON' : 'LOOP:OFF';
   }
 }
 
@@ -424,7 +424,7 @@ function updateRootNoteDisplay(rootNote, sampleName) {
   const telemRootEl = document.getElementById('telemetry-root');
   if (telemRootEl) {
     const upperName = (state.sampleName || 'CUSTOM SAMPLE').toUpperCase();
-    telemRootEl.innerText = `SAMPLE: ${upperName} • ROOT: ${noteLabel}`;
+    telemRootEl.innerText = `${upperName} • ${midiNoteToName(root)}`;
   }
 }
 
@@ -832,7 +832,7 @@ function updateUnisonVoicesUI(voicesInt) {
   state.params.unison_voices = v;
   const btn = document.getElementById('btn-unison-voices');
   if (btn) {
-    btn.innerText = `UNI: ${v}V`;
+    btn.innerText = `UNI:${v}V`;
     btn.classList.toggle('active', v > 1);
   }
 }
@@ -1801,11 +1801,11 @@ function updateTelemetry(info) {
   }
   if (info.duration_secs !== undefined) {
     const durEl = document.getElementById('telemetry-dur');
-    if (durEl) durEl.innerText = `DUR: ${info.duration_secs.toFixed(2)}s`;
+    if (durEl) durEl.innerText = `${info.duration_secs.toFixed(2)}s`;
   }
   if (info.num_samples !== undefined) {
     const sampEl = document.getElementById('telemetry-samples');
-    if (sampEl) sampEl.innerText = `SAMPLES: ${info.num_samples.toLocaleString()}`;
+    if (sampEl) sampEl.innerText = `${info.num_samples.toLocaleString()} smp`;
   }
   if (info.sample_rate !== undefined) {
     const srEl = document.getElementById('telemetry-sr');
@@ -3137,9 +3137,9 @@ const MASTER_PRESET_SEEDS = [
   { name: 'Salto Ángel Shimmer Pad', pack: 'pack-03', cat: 'Pads', tags: 'Pads, Ambient, Shimmer', rhythm: '4/4', arp: 0, prompt: 'Bright Crystal Shimmer Choir Pad E4', root: 64, norm: { attack: 0.42, decay: 0.55, sustain: 0.90, release: 0.65, cutoff: 0.82, resonance: 0.16, space_mix: 0.68, lfo_rate: 0.22, lfo_depth: 0.28 } },
   { name: 'Catatumbo 808 Sub', pack: 'pack-02', cat: 'Basses', tags: 'Basses, 808 Sub', rhythm: '4/4', arp: 0, prompt: 'Deep 808 Sub Bass', root: 36, norm: { attack: 0.002, decay: 0.28, sustain: 0.75, release: 0.32, cutoff: 0.38, resonance: 0.25, space_mix: 0.08, lfo_rate: 0.20, lfo_depth: 0.0, sub_level: 0.85, drive: 0.38, ott: 0.30 } },
   { name: 'Cyberpunk Neon Arp', pack: 'pack-04', cat: 'Leads', tags: 'Synthwave, Plucks, Arp', rhythm: '4/4', arp: 1, prompt: 'Cyberpunk Pluck Lead Synth', root: 60, norm: { attack: 0.002, decay: 0.20, sustain: 0.68, release: 0.30, cutoff: 0.85, resonance: 0.28, space_mix: 0.35, lfo_rate: 0.48, lfo_depth: 0.18, wt_pos: 0.56, wt_warp: 0.34, unison_detune: 0.36, drive: 0.28, ott: 0.45 } },
-  { name: 'Karplus Nylon Guitar', pack: 'pack-05', cat: 'Plucks', tags: 'Karplus-Strong, Nylon, Acoustic', rhythm: '6/8', arp: 3, prompt: 'Cuatro Venezolano Camburpinton C4', root: 60, norm: { attack: 0.002, decay: 0.22, sustain: 0.62, release: 0.26, cutoff: 0.90, resonance: 0.12, space_mix: 0.22, lfo_rate: 0.35, lfo_depth: 0.05 } },
-  { name: 'Karplus Concert Harp', pack: 'pack-05', cat: 'Strings', tags: 'Karplus-Strong, Harp, Strings', rhythm: '6/8', arp: 3, prompt: 'Arpa Llanera Venezolana C4', root: 60, norm: { attack: 0.002, decay: 0.28, sustain: 0.68, release: 0.35, cutoff: 0.92, resonance: 0.14, space_mix: 0.28, lfo_rate: 0.35, lfo_depth: 0.08 } },
-  { name: 'Karplus Plectrum Lute', pack: 'pack-05', cat: 'Plucks', tags: 'Karplus-Strong, Bandola, Plucks', rhythm: '6/8', arp: 3, prompt: 'Bandola Llanera Venezolana A3', root: 57, norm: { attack: 0.002, decay: 0.24, sustain: 0.70, release: 0.28, cutoff: 0.88, resonance: 0.18, space_mix: 0.22, lfo_rate: 0.42, lfo_depth: 0.10 } },
+  { name: 'Karplus Nylon Guitar', pack: 'pack-05', cat: 'Plucks', tags: 'Karplus-Strong, Nylon, Acoustic', rhythm: '6/8', arp: 3, prompt: 'Karplus Nylon Guitar Pluck C4', root: 60, norm: { attack: 0.002, decay: 0.22, sustain: 0.62, release: 0.26, cutoff: 0.90, resonance: 0.12, space_mix: 0.22, lfo_rate: 0.35, lfo_depth: 0.05 } },
+  { name: 'Karplus Concert Harp', pack: 'pack-05', cat: 'Strings', tags: 'Karplus-Strong, Harp, Strings', rhythm: '6/8', arp: 3, prompt: 'Karplus Concert Harp Pluck C4', root: 60, norm: { attack: 0.002, decay: 0.28, sustain: 0.68, release: 0.35, cutoff: 0.92, resonance: 0.14, space_mix: 0.28, lfo_rate: 0.35, lfo_depth: 0.08 } },
+  { name: 'Karplus Plectrum Lute', pack: 'pack-05', cat: 'Plucks', tags: 'Karplus-Strong, Bandola, Plucks', rhythm: '6/8', arp: 3, prompt: 'Karplus Plectrum Lute Pluck A3', root: 57, norm: { attack: 0.002, decay: 0.24, sustain: 0.70, release: 0.28, cutoff: 0.88, resonance: 0.18, space_mix: 0.22, lfo_rate: 0.42, lfo_depth: 0.10 } },
   { name: 'Kukenan Crystal Bell', pack: 'pack-01', cat: 'Plucks', tags: 'Plucks, FM Bell, Wavetable', rhythm: '5/8', arp: 4, prompt: 'Metallic FM Bell Chime', root: 72, norm: { attack: 0.001, decay: 0.32, sustain: 0.50, release: 0.48, cutoff: 0.94, resonance: 0.16, space_mix: 0.45, lfo_rate: 0.30, lfo_depth: 0.10 } },
   { name: 'Auyantepui Warm Analog', pack: 'pack-03', cat: 'Pads', tags: 'Pads, Warm Analog', rhythm: '4/4', arp: 0, prompt: 'Warm Analog Synth Pad', root: 60, norm: { attack: 0.32, decay: 0.45, sustain: 0.88, release: 0.58, cutoff: 0.72, resonance: 0.15, space_mix: 0.52, lfo_rate: 0.25, lfo_depth: 0.22 } },
   { name: 'Canaima Brass Ensemble', pack: 'pack-04', cat: 'Leads', tags: 'Leads, Brass, Analog', rhythm: '4/4', arp: 1, prompt: 'Vintage Brass Ensemble Horns', root: 60, norm: { attack: 0.06, decay: 0.28, sustain: 0.82, release: 0.35, cutoff: 0.80, resonance: 0.18, space_mix: 0.32, lfo_rate: 0.34, lfo_depth: 0.12 } }
@@ -3505,8 +3505,8 @@ if (document.readyState === 'loading') {
 // -------------------------------------------------------------
 // 10. REDIMENSIONADO NATIVO Y ESCALADO RESPONSIVO (STANDALONE & DAW)
 // -------------------------------------------------------------
-const BASE_UI_W = 980;
-const BASE_UI_H = 720;
+const BASE_UI_W = 1180;
+const BASE_UI_H = 780;
 const UI_SCALE_STEPS = [1.0, 1.15, 1.3, 0.9];
 let currentScaleIdx = 0;
 
@@ -3518,9 +3518,9 @@ function applyResponsiveViewport() {
   const vw = window.innerWidth || BASE_UI_W;
   const vh = window.innerHeight || BASE_UI_H;
 
-  // Si la ventana es más pequeña que 920x660, aplicamos zoom proporcional automático para evitar recortes
-  if (vw < 920 || vh < 660) {
-    const z = Math.max(0.65, Math.min(vw / 920, vh / 660));
+  // Si la ventana es más pequeña que 900x640, aplicamos zoom proporcional automático para evitar cualquier solapamiento
+  if (vw < 900 || vh < 640) {
+    const z = Math.max(0.65, Math.min(vw / 900, vh / 640));
     container.style.zoom = String(z);
   } else {
     container.style.zoom = '1';
