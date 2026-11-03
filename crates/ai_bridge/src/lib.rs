@@ -257,4 +257,56 @@ mod tests {
         assert!(prep_report.is_pitched);
         assert_eq!(prep_report.detected_root_note, 64);
     }
+
+    #[test]
+    fn test_pro_synth_reese_supersaw_acid_vocal_and_karplus_strong() {
+        let pro_cases = [
+            ("Neuro Reese Bass Sub C2", "Neuro Reese Bass", 36u8, true),
+            (
+                "Hyper Supersaw Anthem Lead C4",
+                "Hyper Supersaw Lead",
+                60u8,
+                true,
+            ),
+            (
+                "Resonant Acid 303 Squelch C2",
+                "Resonant Acid 303",
+                36u8,
+                false,
+            ),
+            (
+                "Crystal Glass FM Pluck C4",
+                "Crystal Glass FM Pluck",
+                60u8,
+                false,
+            ),
+            (
+                "Ethereal Formant Vocal Pad C4",
+                "Ethereal Formant Vocal Pad",
+                60u8,
+                true,
+            ),
+            (
+                "Karplus Nylon Guitar Pluck C4",
+                "Cuatro Venezolano",
+                60u8,
+                false,
+            ),
+        ];
+
+        for (prompt, expected_name, expected_root, expected_loop) in pro_cases {
+            assert!(
+                fallback_synth::is_dedicated_dsp_preset(prompt),
+                "Prompt '{}' must be recognized as a dedicated DSP preset",
+                prompt
+            );
+            let buf = generate_sample_from_prompt(prompt, 44100.0);
+            assert!(!buf.is_empty());
+            assert_eq!(buf.name, expected_name);
+            assert_eq!(buf.root_note, expected_root);
+            assert_eq!(buf.loop_enabled, expected_loop);
+            let peak = buf.left.iter().fold(0.0f32, |acc, &x| acc.max(x.abs()));
+            assert!(peak > 0.3 && peak <= 1.0, "Peak {} out of range", peak);
+        }
+    }
 }

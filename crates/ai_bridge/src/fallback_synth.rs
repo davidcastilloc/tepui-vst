@@ -99,6 +99,55 @@ pub fn generate_grand_piano_c4(sample_rate: f32) -> SampleBuffer {
     buffer
 }
 
+/// Indica si el prompt corresponde a un generador DSP dedicado de alta fidelidad
+/// (Karplus-Strong físico, Reese Bass, Supersaw, Acid 303, FM Pluck, Vocal Formant, 808, Piano Modal).
+pub fn is_dedicated_dsp_preset(prompt: &str) -> bool {
+    let lower = prompt.trim().to_lowercase();
+    lower.is_empty()
+        || lower.contains("piano")
+        || lower.contains("grand")
+        || lower.contains("reese")
+        || lower.contains("supersaw")
+        || lower.contains("acid")
+        || lower.contains("303")
+        || lower.contains("crystal glass fm")
+        || lower.contains("fm pluck")
+        || lower.contains("formant")
+        || lower.contains("vocal pad")
+        || lower.contains("choir")
+        || lower.contains("karplus")
+        || lower.contains("nylon guitar")
+        || lower.contains("cuatro")
+        || lower.contains("camburpinton")
+        || lower.contains("camburpintón")
+        || lower.contains("arpa llanera")
+        || lower.contains("joropo")
+        || lower.contains("bandola")
+        || lower.contains("maraca")
+        || lower.contains("capacho")
+        || lower.contains("cumaco")
+        || lower.contains("tambor")
+        || lower.contains("quitiplas")
+        || lower.contains("quitiplás")
+        || lower.contains("bambu")
+        || lower.contains("bambú")
+        || lower.contains("furruco")
+        || lower.contains("gaita")
+        || lower.contains("brass")
+        || lower.contains("horn")
+        || lower.contains("trumpet")
+        || lower.contains("cyber")
+        || (lower.contains("pluck") && lower.contains("lead"))
+        || lower.contains("warm analog")
+        || (lower.contains("pad") && lower.contains("analog"))
+        || lower.contains("fm bell")
+        || (lower.contains("bell") && lower.contains("chime"))
+        || lower.contains("808")
+        || (lower.contains("sub") && lower.contains("bass"))
+        || lower.contains("cello")
+        || lower.contains("violin")
+}
+
 /// Genera una muestra procedural o neural-espectral según el prompt recibido, retornando también el nombre del backend ODD.
 pub fn generate_sample_from_prompt_with_backend(
     prompt: &str,
@@ -112,9 +161,33 @@ pub fn generate_sample_from_prompt_with_backend(
         || lower.contains("grand")
     {
         (generate_grand_piano_c4(sample_rate), "Physical-Modal-Piano")
+    } else if lower.contains("reese") {
+        (
+            generate_neuro_reese_bass(sample_rate),
+            "Wavetable-Pro-Synth",
+        )
+    } else if lower.contains("supersaw") {
+        (
+            generate_supersaw_anthem_lead(sample_rate),
+            "Wavetable-Pro-Synth",
+        )
+    } else if lower.contains("acid") || lower.contains("303") {
+        (
+            generate_acid_303_squelch(sample_rate),
+            "Wavetable-Pro-Synth",
+        )
+    } else if lower.contains("crystal glass fm") || lower.contains("fm pluck") {
+        (generate_fm_pluck_glass(sample_rate), "Wavetable-Pro-Synth")
+    } else if lower.contains("formant") || lower.contains("vocal pad") {
+        (
+            generate_vocal_formant_pad(sample_rate),
+            "Wavetable-Pro-Synth",
+        )
     } else if lower.contains("cuatro")
         || lower.contains("camburpinton")
         || lower.contains("camburpintón")
+        || lower.contains("karplus")
+        || lower.contains("nylon guitar")
     {
         (
             generate_cuatro_venezolano(sample_rate),
@@ -390,130 +463,394 @@ fn generate_cyber_pluck_lead(sample_rate: f32) -> SampleBuffer {
     buf
 }
 
-/// Genera un Cuatro Venezolano tradicional (cuerda de nylon y caja resonante de cedro/caoba)
-fn generate_cuatro_venezolano(sample_rate: f32) -> SampleBuffer {
-    let f0 = 261.6256; // C4 (root note 60)
-    let duration_secs = 2.6;
+/// Motor físico Extended Karplus-Strong Digital Waveguide con:
+/// - Filtro peine de posición de plectro/uña (`pick_pos`)
+/// - Amortiguamiento pasabajos de puente (`brightness`)
+/// - Dispersión all-pass de rigidez de cuerda (`dispersion`)
+/// - Banco resonador modal de caja armónica de madera (3 modos biquad)
+#[allow(clippy::too_many_arguments)]
+fn karplus_strong_waveguide_stereo(
+    sample_rate: f32,
+    f0: f32,
+    duration_secs: f32,
+    pick_pos: f32,
+    brightness: f32,
+    loop_gain: f32,
+    dispersion: f32,
+    body_modes_hz: [f32; 3],
+    seed_init: u32,
+) -> (Vec<f32>, Vec<f32>) {
     let total_samples = (duration_secs * sample_rate) as usize;
-    let mut left = vec![0.0; total_samples];
-    let mut right = vec![0.0; total_samples];
+    let mut left = vec![0.0_f32; total_samples];
+    let mut right = vec![0.0_f32; total_samples];
 
-    let mut noise_seed: u32 = 0x56_45_4E_34;
-    for i in 0..total_samples {
-        let t = i as f32 / sample_rate;
-        // Ataque de uña/charrasqueo cálido sobre cuerda de nylon y resonancia de tapa de cedro
-        let body_env = (-2.6 * t).exp();
-        let pluck_transient = (-28.0 * t).exp();
+    // Dos órdenes/cuerdas en estéreo ligeramente desafinadas para realismo acústico
+    let freqs = [f0 * 0.9993, f0 * 1.0007];
+    for (ch, &freq) in freqs.iter().enumerate() {
+        let period = (sample_rate / freq).max(4.0);
+        let delay_len = period.floor() as usize;
+        let pick_offset = ((pick_pos.clamp(0.08, 0.45) * delay_len as f32) as usize).max(1);
 
-        noise_seed = noise_seed.wrapping_mul(1664525).wrapping_add(1013904223);
-        let strum_noise = (((noise_seed >> 16) as f32 / 32768.0) - 1.0) * (-55.0 * t).exp() * 0.25;
-
-        let mut l_sig = strum_noise;
-        let mut r_sig = strum_noise * 0.9;
-
-        for h in 1..=14 {
-            let h_f = h as f32;
-            let partial_decay = (-t * (1.8 + h_f * 0.55)).exp();
-            // Formante cálida de caja de Cuatro (énfasis en armónicos 1..5)
-            let wood_resonance = if h <= 4 { 1.15 } else { 0.85 / h_f.powf(1.25) };
-            let amp = wood_resonance * partial_decay * (0.7 + 0.3 * pluck_transient);
-            let freq = f0 * h_f;
-            if freq < sample_rate * 0.48 {
-                l_sig += (2.0 * PI * (freq - 0.18) * t + h_f * 0.4).sin() * amp;
-                r_sig += (2.0 * PI * (freq + 0.18) * t + h_f * 0.9).sin() * amp;
-            }
+        // Excitación inicial de plectro/uña (ruido rosa filtrado + impulso de ataque)
+        let mut raw_exc = vec![0.0_f32; delay_len];
+        let mut rng = seed_init.wrapping_add((ch as u32) * 0x9E37_79B9);
+        let mut lp_exc = 0.0_f32;
+        for (idx, val) in raw_exc.iter_mut().enumerate() {
+            rng = rng.wrapping_mul(1664525).wrapping_add(1013904223);
+            let white = ((rng >> 16) as f32 / 32768.0) - 1.0;
+            lp_exc = lp_exc * 0.45 + white * 0.55;
+            let pluck_shape = (PI * (idx as f32 / delay_len as f32)).sin();
+            *val = lp_exc * 0.75 + pluck_shape * 0.35;
         }
 
-        left[i] = (l_sig * body_env * 0.52).tanh() * 0.89;
-        right[i] = (r_sig * body_env * 0.52).tanh() * 0.89;
+        // Filtro peine de posición de pulsación (suprime múltiplos de 1/pick_pos)
+        let mut delay_line = vec![0.0_f32; delay_len];
+        for idx in 0..delay_len {
+            let comb_idx = (idx + delay_len - pick_offset) % delay_len;
+            delay_line[idx] = raw_exc[idx] - raw_exc[comb_idx] * 0.85;
+        }
+
+        let mut ptr = 0usize;
+        let mut prev_out = 0.0_f32;
+        let mut ap_x1 = 0.0_f32;
+        let mut ap_y1 = 0.0_f32;
+
+        // Estados de 3 resonadores modales de tapa de madera
+        let mut body_y1 = [0.0_f32; 3];
+        let mut body_y2 = [0.0_f32; 3];
+        let body_r = [0.992_f32, 0.988_f32, 0.982_f32];
+        let body_w: [f32; 3] = [
+            2.0 * PI * body_modes_hz[0] / sample_rate,
+            2.0 * PI * body_modes_hz[1] / sample_rate,
+            2.0 * PI * body_modes_hz[2] / sample_rate,
+        ];
+
+        let out_buf = if ch == 0 { &mut left } else { &mut right };
+
+        for sample_slot in out_buf.iter_mut() {
+            let next_ptr = (ptr + 1) % delay_len;
+            let y0 = delay_line[ptr];
+            let y1 = delay_line[next_ptr];
+
+            // Promedio de dos puntos + amortiguamiento de puente ajustable por brillo
+            let avg = 0.5 * (y0 + y1);
+            let damped = ((1.0 - brightness) * prev_out + brightness * avg) * loop_gain;
+            prev_out = damped;
+
+            // Filtro all-pass de dispersión de rigidez de cuerda
+            let dispersed = dispersion * damped + ap_x1 - dispersion * ap_y1;
+            ap_x1 = damped;
+            ap_y1 = dispersed;
+
+            delay_line[ptr] = dispersed;
+            ptr = next_ptr;
+
+            // Resonancia modal de la caja de madera (3 bandas)
+            let mut wood_sum = 0.0_f32;
+            for m in 0..3 {
+                let r = body_r[m];
+                let b_out =
+                    (1.0 - r) * y0 + 2.0 * r * body_w[m].cos() * body_y1[m] - r * r * body_y2[m];
+                body_y2[m] = body_y1[m];
+                body_y1[m] = b_out;
+                wood_sum += b_out * (0.36 - 0.07 * m as f32);
+            }
+
+            *sample_slot = y0 * 0.72 + wood_sum * 0.48;
+        }
     }
 
+    // Normalización limpia a -1.0 dBFS (0.891)
+    let mut peak = 0.0001_f32;
+    for &s in left.iter().chain(right.iter()) {
+        peak = peak.max(s.abs());
+    }
+    let gain = 0.891 / peak;
+    for s in left.iter_mut() {
+        *s = (*s * gain * 1.08).tanh() * 0.89;
+    }
+    for s in right.iter_mut() {
+        *s = (*s * gain * 1.08).tanh() * 0.89;
+    }
+
+    (left, right)
+}
+
+/// Genera un Cuatro Venezolano / Guitarra Acústica de Nylon mediante guía de onda digital Karplus-Strong.
+fn generate_cuatro_venezolano(sample_rate: f32) -> SampleBuffer {
+    let (left, right) = karplus_strong_waveguide_stereo(
+        sample_rate,
+        261.6256, // C4
+        2.6,
+        0.26,   // Pulsación cálida sobre boca de cedro
+        0.72,   // Amortiguamiento de cuerda de nylon
+        0.9962, // Sostenimiento natural de caja pequeña
+        0.12,   // Dispersión suave de nylon
+        [145.0, 315.0, 740.0],
+        0x56_45_4E_34,
+    );
     let mut buf = SampleBuffer::new_stereo(left, right, sample_rate, 60);
     buf.name = "Cuatro Venezolano".to_string();
     buf.loop_enabled = false;
     buf
 }
 
-/// Genera un Arpa Llanera Venezolana (cuerdas cristalinas con resonancia de caja llanera)
+/// Genera un Arpa Acústica mediante guía de onda digital Karplus-Strong con ataque cristalino.
 fn generate_arpa_llanera(sample_rate: f32) -> SampleBuffer {
-    let f0 = 261.6256; // C4 (root note 60)
-    let duration_secs = 3.0;
-    let total_samples = (duration_secs * sample_rate) as usize;
-    let mut left = vec![0.0; total_samples];
-    let mut right = vec![0.0; total_samples];
-
-    for i in 0..total_samples {
-        let t = i as f32 / sample_rate;
-        let env = (-1.9 * t).exp();
-        let snap = (-24.0 * t).exp();
-
-        let mut l_sig = 0.0_f32;
-        let mut r_sig = 0.0_f32;
-        for h in 1..=18 {
-            let h_f = h as f32;
-            let freq = f0 * h_f * (1.0 + 0.00018 * h_f * h_f).sqrt();
-            if freq < sample_rate * 0.48 {
-                let h_decay = (-t * (1.2 + h_f * 0.42)).exp();
-                let amp = (1.0 / h_f.powf(1.12)) * h_decay * (0.65 + 0.35 * snap);
-                l_sig += (2.0 * PI * (freq - 0.22) * t).sin() * amp;
-                r_sig += (2.0 * PI * (freq + 0.22) * t + 0.35 * h_f).sin() * amp;
-            }
-        }
-
-        left[i] = (l_sig * env * 0.48).tanh() * 0.89;
-        right[i] = (r_sig * env * 0.48).tanh() * 0.89;
-    }
-
+    let (left, right) = karplus_strong_waveguide_stereo(
+        sample_rate,
+        261.6256, // C4
+        3.0,
+        0.14,   // Pulsación brillante cerca del puente
+        0.88,   // Alta tensión cristalina
+        0.9978, // Sostenimiento largo de arpa
+        0.22,   // Ligera inharmonicidad de cuerda tensa
+        [120.0, 280.0, 890.0],
+        0x41_52_50_41,
+    );
     let mut buf = SampleBuffer::new_stereo(left, right, sample_rate, 60);
     buf.name = "Arpa Llanera Venezolana".to_string();
     buf.loop_enabled = false;
     buf
 }
 
-/// Genera una Bandola Llanera Venezolana (4 órdenes, ataque de pajuela/plectro con jalao y caja periforme profunda en A3 = 220 Hz)
+/// Genera una Bandola / Cuerda Pulsada con plectro mediante guía de onda digital Karplus-Strong en A3 (220 Hz).
 pub fn generate_bandola_llanera(sample_rate: f32) -> SampleBuffer {
-    let f0 = 220.0; // A3 (root note 57, primera cuerda/bordón central llanero)
-    let duration_secs = 2.8;
-    let total_samples = (duration_secs * sample_rate) as usize;
-    let mut left = vec![0.0; total_samples];
-    let mut right = vec![0.0; total_samples];
-
-    let mut pick_seed: u32 = 0xBA_4D_01_A3;
-    for i in 0..total_samples {
-        let t = i as f32 / sample_rate;
-        let body_env = (-2.3 * t).exp();
-        let pajuela_snap = (-38.0 * t).exp();
-
-        pick_seed = pick_seed.wrapping_mul(1664525).wrapping_add(1013904223);
-        let pick_click = (((pick_seed >> 16) as f32 / 32768.0) - 1.0) * (-65.0 * t).exp() * 0.30;
-
-        let mut l_sig = pick_click;
-        let mut r_sig = pick_click * 0.92;
-
-        for h in 1..=16 {
-            let h_f = h as f32;
-            let partial_decay = (-t * (1.5 + h_f * 0.48)).exp();
-            // Formante nasal y profunda de caja de Bandola Llanera (énfasis en 2do, 3er y 5to armónico del pajueleo)
-            let formant = if h == 2 || h == 3 || h == 5 {
-                1.28 / h_f.powf(0.85)
-            } else {
-                0.92 / h_f.powf(1.18)
-            };
-            let amp = formant * partial_decay * (0.68 + 0.32 * pajuela_snap);
-            let freq = f0 * h_f * (1.0 + 0.00022 * h_f * h_f).sqrt();
-            if freq < sample_rate * 0.48 {
-                l_sig += (2.0 * PI * (freq - 0.15) * t + h_f * 0.25).sin() * amp;
-                r_sig += (2.0 * PI * (freq + 0.15) * t + h_f * 0.65).sin() * amp;
-            }
-        }
-
-        left[i] = (l_sig * body_env * 0.54).tanh() * 0.89;
-        right[i] = (r_sig * body_env * 0.54).tanh() * 0.89;
-    }
-
+    let (left, right) = karplus_strong_waveguide_stereo(
+        sample_rate,
+        220.0, // A3
+        2.8,
+        0.17, // Ataque firme de pajuela/plectro
+        0.82, // Brillo medio-alto con cuerpo profundo
+        0.9970,
+        0.18,
+        [118.0, 265.0, 680.0],
+        0xBA_4D_01_A3,
+    );
     let mut buf = SampleBuffer::new_stereo(left, right, sample_rate, 57); // A3
     buf.name = "Bandola Llanera Venezolana".to_string();
     buf.loop_enabled = false;
+    buf
+}
+
+/// Genera un Neuro Reese Bass de estudio (5 sierras desafinadas + sub-oscilador bloqueado en fase + barrido notch/lowpass en C2 = 65.41 Hz).
+pub fn generate_neuro_reese_bass(sample_rate: f32) -> SampleBuffer {
+    let f0 = 65.4064; // C2 (root note 36)
+    let duration_secs = 3.2;
+    let total_samples = (duration_secs * sample_rate) as usize;
+    let mut left = vec![0.0_f32; total_samples];
+    let mut right = vec![0.0_f32; total_samples];
+
+    let detunes_hz = [-0.42_f32, -0.19, 0.0, 0.19, 0.42];
+    let pan_l = [0.90_f32, 0.72, 0.70, 0.35, 0.18];
+    let pan_r = [0.18_f32, 0.35, 0.70, 0.72, 0.90];
+    let mut phases = [0.0_f32, 0.23, 0.51, 0.77, 0.12];
+    let mut sub_phase = 0.0_f32;
+    let mut lp_l = 0.0_f32;
+    let mut lp_r = 0.0_f32;
+
+    for i in 0..total_samples {
+        let t = i as f32 / sample_rate;
+        let amp_env = (t / 0.015).min(1.0);
+        sub_phase = (sub_phase + f0 / sample_rate).fract();
+        let sub_sin = (2.0 * PI * sub_phase).sin() * 0.58;
+
+        let mut raw_l = sub_sin;
+        let mut raw_r = sub_sin;
+        for v in 0..5 {
+            let freq = f0 + detunes_hz[v];
+            phases[v] = (phases[v] + freq / sample_rate).fract();
+            let saw = 2.0 * phases[v] - 1.0;
+            // Wavefolding neuro sutil
+            let folded = (saw * 1.65).sin();
+            raw_l += folded * pan_l[v] * 0.28;
+            raw_r += folded * pan_r[v] * 0.28;
+        }
+
+        // Movimiento orgánico del filtro Reese (LFO de 0.55 Hz + mordida inicial)
+        let cutoff_mod = 0.22 + 0.16 * (2.0 * PI * 0.55 * t).sin() + 0.25 * (-5.0 * t).exp();
+        let alpha = cutoff_mod.clamp(0.06, 0.65);
+        lp_l += alpha * (raw_l - lp_l);
+        lp_r += alpha * (raw_r - lp_r);
+
+        left[i] = (lp_l * amp_env * 1.45).tanh() * 0.89;
+        right[i] = (lp_r * amp_env * 1.45).tanh() * 0.89;
+    }
+
+    let mut buf = SampleBuffer::new_stereo(left, right, sample_rate, 36);
+    buf.name = "Neuro Reese Bass".to_string();
+    buf.loop_enabled = true;
+    buf.loop_start = (0.6 * sample_rate) as usize;
+    buf.loop_end = (2.8 * sample_rate) as usize;
+    buf.loop_crossfade = (0.18 * sample_rate) as usize;
+    buf
+}
+
+/// Genera un Hyper Supersaw Anthem Lead de 7 voces estéreo (estilo Vital / Serum / JP-8000 en C4 = 261.63 Hz).
+pub fn generate_supersaw_anthem_lead(sample_rate: f32) -> SampleBuffer {
+    let f0 = 261.6256; // C4 (root note 60)
+    let duration_secs = 3.2;
+    let total_samples = (duration_secs * sample_rate) as usize;
+    let mut left = vec![0.0_f32; total_samples];
+    let mut right = vec![0.0_f32; total_samples];
+
+    let ratios = [0.9890_f32, 0.9938, 0.9980, 1.0000, 1.0020, 1.0062, 1.0110];
+    let mut phases = [0.05_f32, 0.19, 0.37, 0.50, 0.68, 0.81, 0.94];
+    let mut sub_phase = 0.0_f32;
+
+    for i in 0..total_samples {
+        let t = i as f32 / sample_rate;
+        let env = (t / 0.008).min(1.0) * (0.78 + 0.22 * (-2.2 * t).exp());
+        sub_phase = (sub_phase + (f0 * 0.5) / sample_rate).fract();
+        let sub_osc = (2.0 * PI * sub_phase).sin() * 0.22;
+
+        let mut sig_l = sub_osc;
+        let mut sig_r = sub_osc;
+        for v in 0..7 {
+            phases[v] = (phases[v] + (f0 * ratios[v]) / sample_rate).fract();
+            let saw = 2.0 * phases[v] - 1.0;
+            let pan = v as f32 / 6.0;
+            let gain_v = if v == 3 { 0.34 } else { 0.21 };
+            sig_l += saw * (1.0 - pan * 0.65) * gain_v;
+            sig_r += saw * (0.35 + pan * 0.65) * gain_v;
+        }
+
+        left[i] = (sig_l * env * 1.15).tanh() * 0.89;
+        right[i] = (sig_r * env * 1.15).tanh() * 0.89;
+    }
+
+    let mut buf = SampleBuffer::new_stereo(left, right, sample_rate, 60);
+    buf.name = "Hyper Supersaw Lead".to_string();
+    buf.loop_enabled = true;
+    buf.loop_start = (0.65 * sample_rate) as usize;
+    buf.loop_end = (2.75 * sample_rate) as usize;
+    buf.loop_crossfade = (0.16 * sample_rate) as usize;
+    buf
+}
+
+/// Genera un Resonant Acid 303 Squelch Bass con filtro escalera de diodos resonante y saturación asimétrica en C2 (65.41 Hz).
+pub fn generate_acid_303_squelch(sample_rate: f32) -> SampleBuffer {
+    let f0 = 65.4064; // C2 (root note 36)
+    let duration_secs = 2.0;
+    let total_samples = (duration_secs * sample_rate) as usize;
+    let mut left = vec![0.0_f32; total_samples];
+    let mut right = vec![0.0_f32; total_samples];
+
+    let mut phase = 0.0_f32;
+    let mut ic1 = 0.0_f32;
+    let mut ic2 = 0.0_f32;
+
+    for i in 0..total_samples {
+        let t = i as f32 / sample_rate;
+        let amp_env = (t / 0.003).min(1.0) * (-1.65 * t).exp();
+        // Barrido exponencial clásico de cutoff TB-303 (Accent + Env Mod)
+        let cutoff_hz = 165.0 + 2350.0 * (-11.5 * t).exp() + 280.0 * (-2.8 * t).exp();
+        let g = (PI * (cutoff_hz.min(sample_rate * 0.42)) / sample_rate).tan();
+        let k = 0.22_f32; // Alta resonancia líquida (Q ~ 4.5)
+
+        phase = (phase + f0 / sample_rate).fract();
+        let saw_sq = (2.0 * phase - 1.0) * 0.65 + if phase < 0.5 { 0.35 } else { -0.35 };
+
+        // Filtro SVF TPT 2-polos con saturación no lineal en el bucle de resonancia
+        let a1 = 1.0 / (1.0 + g * (g + k));
+        let a2 = g * a1;
+        let a3 = g * a2;
+        let v3 = saw_sq - ic2;
+        let v1 = a1 * ic1 + a2 * v3;
+        let v2 = ic2 + a2 * ic1 + a3 * v3;
+        ic1 = (2.0 * v1 - ic1).clamp(-2.5, 2.5);
+        ic2 = (2.0 * v2 - ic2).clamp(-2.5, 2.5);
+
+        let acid_sig = ((v2 + v1 * 0.55) * 1.85).tanh() * amp_env * 0.89;
+        left[i] = acid_sig;
+        right[i] = (acid_sig * 0.96 + (v1 * 0.25 * amp_env)).clamp(-0.95, 0.95);
+    }
+
+    let mut buf = SampleBuffer::new_stereo(left, right, sample_rate, 36);
+    buf.name = "Resonant Acid 303".to_string();
+    buf.loop_enabled = false;
+    buf
+}
+
+/// Genera un Crystal Glass FM Pluck de 3 operadores con ataque cristalino DX/Serum en C4 (261.63 Hz).
+pub fn generate_fm_pluck_glass(sample_rate: f32) -> SampleBuffer {
+    let f0 = 261.6256; // C4 (root note 60)
+    let duration_secs = 2.4;
+    let total_samples = (duration_secs * sample_rate) as usize;
+    let mut left = vec![0.0_f32; total_samples];
+    let mut right = vec![0.0_f32; total_samples];
+
+    for i in 0..total_samples {
+        let t = i as f32 / sample_rate;
+        let car_env = (t / 0.002).min(1.0) * (-2.3 * t).exp();
+        let mod1_env = (-9.5 * t).exp() * 2.6;
+        let mod2_env = (-28.0 * t).exp() * 1.45;
+
+        let mod2 = (2.0 * PI * (f0 * 7.0) * t).sin() * mod2_env;
+        let mod1 = (2.0 * PI * (f0 * 2.0) * t + mod2).sin() * mod1_env;
+
+        let car_l = (2.0 * PI * (f0 * 0.9992) * t + mod1).sin()
+            + (2.0 * PI * (f0 * 2.0) * t).sin() * 0.22 * car_env;
+        let car_r = (2.0 * PI * (f0 * 1.0008) * t + mod1 * 0.96).sin()
+            + (2.0 * PI * (f0 * 2.001) * t + 0.4).sin() * 0.22 * car_env;
+
+        left[i] = (car_l * car_env * 0.85).tanh() * 0.89;
+        right[i] = (car_r * car_env * 0.85).tanh() * 0.89;
+    }
+
+    let mut buf = SampleBuffer::new_stereo(left, right, sample_rate, 60);
+    buf.name = "Crystal Glass FM Pluck".to_string();
+    buf.loop_enabled = false;
+    buf
+}
+
+/// Genera un Ethereal Formant Vocal Pad con banco de formantes vocálicos (AAH <-> OOH) y coro estéreo en C4 (261.63 Hz).
+pub fn generate_vocal_formant_pad(sample_rate: f32) -> SampleBuffer {
+    let f0 = 261.6256; // C4 (root note 60)
+    let duration_secs = 3.8;
+    let total_samples = (duration_secs * sample_rate) as usize;
+    let mut left = vec![0.0_f32; total_samples];
+    let mut right = vec![0.0_f32; total_samples];
+
+    for i in 0..total_samples {
+        let t = i as f32 / sample_rate;
+        let swell = (1.0 - (-3.5 * t).exp()).min(1.0) * (0.85 + 0.15 * (-0.4 * t).exp());
+        let morph = 0.5 + 0.5 * (2.0 * PI * 0.35 * t).sin();
+
+        // Interpolación entre formantes vocálicas AAH (730, 1090, 2440 Hz) y OOH (320, 890, 2250 Hz)
+        let f1 = 320.0 + morph * 410.0;
+        let f2 = 890.0 + morph * 200.0;
+        let f3 = 2250.0 + morph * 190.0;
+
+        let vib = 1.0 + 0.0035 * (2.0 * PI * 5.1 * t).sin();
+        let mut sig_l = 0.0_f32;
+        let mut sig_r = 0.0_f32;
+
+        for h in 1..=22 {
+            let h_f = h as f32;
+            let freq = f0 * vib * h_f;
+            if freq >= sample_rate * 0.46 {
+                break;
+            }
+            let g1 = (-((freq - f1).powi(2)) / (2.0 * 95.0 * 95.0)).exp();
+            let g2 = (-((freq - f2).powi(2)) / (2.0 * 140.0 * 140.0)).exp() * 0.85;
+            let g3 = (-((freq - f3).powi(2)) / (2.0 * 220.0 * 220.0)).exp() * 0.55;
+            let formant_gain = (g1 + g2 + g3 + 0.12 / h_f).min(1.35) / h_f.powf(0.55);
+
+            sig_l += (2.0 * PI * (freq * 0.9985) * t + h_f * 0.37).sin() * formant_gain;
+            sig_r += (2.0 * PI * (freq * 1.0015) * t + h_f * 0.83).sin() * formant_gain;
+        }
+
+        left[i] = (sig_l * swell * 0.38).tanh() * 0.88;
+        right[i] = (sig_r * swell * 0.38).tanh() * 0.88;
+    }
+
+    let mut buf = SampleBuffer::new_stereo(left, right, sample_rate, 60);
+    buf.name = "Ethereal Formant Vocal Pad".to_string();
+    buf.loop_enabled = true;
+    buf.loop_start = (0.85 * sample_rate) as usize;
+    buf.loop_end = (3.30 * sample_rate) as usize;
+    buf.loop_crossfade = (0.22 * sample_rate) as usize;
     buf
 }
 

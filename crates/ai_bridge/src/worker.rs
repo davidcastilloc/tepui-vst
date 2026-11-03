@@ -579,6 +579,15 @@ impl AiWorker {
                 try_fetch_cloudflare_ai_gateway_wav(&req.prompt, patch_spec.root_note)
             {
                 (gw_buf, "Cloudflare-AIGateway-WAV", true)
+            } else if crate::fallback_synth::is_dedicated_dsp_preset(&req.prompt) {
+                let (buf, b_str, _is_hit) =
+                    generate_sample_with_cache(&req.prompt, req.sample_rate);
+                let reported_backend = if is_live_cloudflare {
+                    spec_backend
+                } else {
+                    b_str
+                };
+                (buf, reported_backend, false)
             } else if is_live_cloudflare {
                 let (cf_buf, _rep) =
                     synthesize_sample_from_patch_spec(&patch_spec, req.sample_rate);

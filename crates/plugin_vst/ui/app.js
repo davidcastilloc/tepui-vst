@@ -2577,6 +2577,33 @@ function initAiHub() {
         }
       }
 
+      // Aplicar perfil Vital/Serum (Wavetable, Warp, Unison, Sub-Osc, Drive, OTT) del pad seleccionado
+      const vitalPadMap = [
+        ['wtPos', 'wt_pos'],
+        ['wtWarp', 'wt_warp'],
+        ['detune', 'unison_detune'],
+        ['sub', 'sub_level'],
+        ['drive', 'drive'],
+        ['ott', 'ott']
+      ];
+      vitalPadMap.forEach(([dsKey, paramId]) => {
+        if (chip.dataset[dsKey] !== undefined) {
+          const val = parseFloat(chip.dataset[dsKey]);
+          if (!Number.isNaN(val)) {
+            state.normalized[paramId] = val;
+            updateKnobUI(paramId, val);
+            sendFastParam(paramId, val);
+          }
+        }
+      });
+      if (chip.dataset.uni !== undefined) {
+        const uv = parseInt(chip.dataset.uni, 10);
+        if (!Number.isNaN(uv)) {
+          updateUnisonVoicesUI(uv);
+          sendIpc(`uni,${uv}`);
+        }
+      }
+
       const prompt = chip.dataset.prompt;
       input.value = prompt;
       state.isGenerating = true;
@@ -2968,28 +2995,28 @@ function initAudioSettingsModal() {
 // -------------------------------------------------------------
 const SOUND_PACKS = [
   { id: 'ALL', code: 'ALL PACKS', title: 'All Sound Banks', icon: '<svg class="hw-svg" viewBox="0 0 16 16"><path d="M1.5 13L5.5 5l3 4 2.5-3.5L14.5 13h-13z"/></svg>', bg: 'linear-gradient(135deg,#00ebff,#0f172a)' },
-  { id: 'pack-01', code: 'Pack 01:', title: 'Llanos & Joropo', icon: '<svg class="hw-svg" viewBox="0 0 16 16"><path d="M3 2v12M7 3v10M11 4v8M14 6v4"/></svg>', bg: 'linear-gradient(135deg,#f59e0b,#78350f)' },
-  { id: 'pack-02', code: 'Pack 02:', title: 'Costa & Tambores', icon: '<svg class="hw-svg" viewBox="0 0 16 16"><ellipse cx="8" cy="5" rx="5" ry="2.2"/><path d="M3 5v6c0 1.2 2.2 2.2 5 2.2s5-1 5-2.2V5"/></svg>', bg: 'linear-gradient(135deg,#06b6d4,#164e63)' },
-  { id: 'pack-03', code: 'Pack 03:', title: 'Gran Sabana Ambient', icon: '<svg class="hw-svg" viewBox="0 0 16 16"><path d="M1 12l3-6h8l3 6H1zM4 6l1.5-2.5h5L12 6"/></svg>', bg: 'linear-gradient(135deg,#10b981,#064e3b)' },
-  { id: 'pack-04', code: 'Pack 04:', title: 'Cyber-Criollo Synthwave', icon: '<svg class="hw-svg" viewBox="0 0 16 16"><path d="M1 10l3.5-5v5l3.5-5v5l3.5-5v5L15 5"/></svg>', bg: 'linear-gradient(135deg,#00ebff,#1e3a8a)' },
-  { id: 'pack-05', code: 'Pack 05:', title: 'Sub-Bass & Furruco', icon: '<svg class="hw-svg" viewBox="0 0 16 16"><path d="M1 8c2-5 3.5-5 5.5 0s3.5 5 5.5 0 2-3 3-3"/></svg>', bg: 'linear-gradient(135deg,#e05a47,#451a03)' }
+  { id: 'pack-01', code: 'Pack 01:', title: 'Vital Wavetables & FM', icon: '<svg class="hw-svg" viewBox="0 0 16 16"><path d="M3 2v12M7 3v10M11 4v8M14 6v4"/></svg>', bg: 'linear-gradient(135deg,#f59e0b,#78350f)' },
+  { id: 'pack-02', code: 'Pack 02:', title: 'Reese, Acid & 808 Bass', icon: '<svg class="hw-svg" viewBox="0 0 16 16"><ellipse cx="8" cy="5" rx="5" ry="2.2"/><path d="M3 5v6c0 1.2 2.2 2.2 5 2.2s5-1 5-2.2V5"/></svg>', bg: 'linear-gradient(135deg,#06b6d4,#164e63)' },
+  { id: 'pack-03', code: 'Pack 03:', title: 'Cinematic & Vocal Pads', icon: '<svg class="hw-svg" viewBox="0 0 16 16"><path d="M1 12l3-6h8l3 6H1zM4 6l1.5-2.5h5L12 6"/></svg>', bg: 'linear-gradient(135deg,#10b981,#064e3b)' },
+  { id: 'pack-04', code: 'Pack 04:', title: 'Supersaw & Cyber Leads', icon: '<svg class="hw-svg" viewBox="0 0 16 16"><path d="M1 10l3.5-5v5l3.5-5v5l3.5-5v5L15 5"/></svg>', bg: 'linear-gradient(135deg,#00ebff,#1e3a8a)' },
+  { id: 'pack-05', code: 'Pack 05:', title: 'Karplus Acoustic Strings', icon: '<svg class="hw-svg" viewBox="0 0 16 16"><path d="M1 8c2-5 3.5-5 5.5 0s3.5 5 5.5 0 2-3 3-3"/></svg>', bg: 'linear-gradient(135deg,#e05a47,#451a03)' }
 ];
 
 const MASTER_PRESET_SEEDS = [
-  { name: 'Roraima Harp', pack: 'pack-01', cat: 'Plucks', tags: 'Plucks, Strings', rhythm: '6/8', arp: 3, prompt: 'Arpa Llanera Venezolana C4', root: 60, norm: { attack: 0.002, decay: 0.25, sustain: 0.65, release: 0.32, cutoff: 0.92, resonance: 0.14, space_mix: 0.28, lfo_rate: 0.35, lfo_depth: 0.08 } },
-  { name: 'Cumaco Sub', pack: 'pack-02', cat: 'Basses', tags: 'Costa, Basses', rhythm: '5/8', arp: 4, prompt: 'Tambor Cumaco Venezolano C3', root: 48, norm: { attack: 0.001, decay: 0.18, sustain: 0.45, release: 0.22, cutoff: 0.58, resonance: 0.24, space_mix: 0.18, lfo_rate: 0.25, lfo_depth: 0.0 } },
-  { name: 'Bandola Lead', pack: 'pack-01', cat: 'Leads', tags: 'Bandola, Lead', rhythm: '6/8', arp: 3, prompt: 'Bandola Llanera Venezolana A3', root: 57, norm: { attack: 0.002, decay: 0.22, sustain: 0.72, release: 0.28, cutoff: 0.88, resonance: 0.18, space_mix: 0.22, lfo_rate: 0.42, lfo_depth: 0.12 } },
-  { name: 'Joropo Arp 6/8', pack: 'pack-01', cat: 'Arps 6/8', tags: 'Joropo Arp 6/8', rhythm: '6/8', arp: 3, prompt: 'Cuatro Venezolano Camburpinton C4', root: 60, norm: { attack: 0.002, decay: 0.16, sustain: 0.60, release: 0.20, cutoff: 0.90, resonance: 0.12, space_mix: 0.20, lfo_rate: 0.38, lfo_depth: 0.05 } },
-  { name: 'Quitiplás Bamboo Groove', pack: 'pack-02', cat: 'Percussion', tags: 'Percussion, Barlovento', rhythm: '5/8', arp: 4, prompt: 'Quitiplas de Barlovento C4', root: 60, norm: { attack: 0.001, decay: 0.14, sustain: 0.38, release: 0.16, cutoff: 0.86, resonance: 0.22, space_mix: 0.25, lfo_rate: 0.30, lfo_depth: 0.0 } },
-  { name: 'Salto Ángel Shimmer Pad', pack: 'pack-03', cat: 'Pads', tags: 'Pads, Ambient', rhythm: '4/4', arp: 0, prompt: 'Bright Crystal Shimmer Choir Pad E4', root: 64, norm: { attack: 0.42, decay: 0.55, sustain: 0.90, release: 0.65, cutoff: 0.82, resonance: 0.16, space_mix: 0.68, lfo_rate: 0.22, lfo_depth: 0.28 } },
-  { name: 'Furruco 808 Zuliano', pack: 'pack-05', cat: 'Basses', tags: 'Sub-Bass, Gaita', rhythm: '6/8', arp: 0, prompt: 'Furruco Zuliano Sub C2', root: 36, norm: { attack: 0.015, decay: 0.35, sustain: 0.85, release: 0.38, cutoff: 0.42, resonance: 0.30, space_mix: 0.10, lfo_rate: 0.18, lfo_depth: 0.06 } },
-  { name: 'Cyber-Criollo Neon Pluck', pack: 'pack-04', cat: 'Leads', tags: 'Synthwave, Plucks', rhythm: '6/8', arp: 3, prompt: 'Cyberpunk Pluck Lead Synth', root: 60, norm: { attack: 0.002, decay: 0.20, sustain: 0.68, release: 0.30, cutoff: 0.85, resonance: 0.28, space_mix: 0.35, lfo_rate: 0.48, lfo_depth: 0.18 } },
-  { name: 'Capachos de Apure', pack: 'pack-01', cat: 'Percussion', tags: 'Percussion, Maracas', rhythm: '6/8', arp: 3, prompt: 'Maracas Llaneras Capachos C4', root: 60, norm: { attack: 0.001, decay: 0.10, sustain: 0.25, release: 0.12, cutoff: 0.96, resonance: 0.10, space_mix: 0.16, lfo_rate: 0.30, lfo_depth: 0.0 } },
+  { name: 'Neuro Reese Sub', pack: 'pack-02', cat: 'Basses', tags: 'Reese, Neuro, Basses', rhythm: '4/4', arp: 0, prompt: 'Neuro Reese Bass Sub C2', root: 36, norm: { attack: 0.015, decay: 0.35, sustain: 0.88, release: 0.32, cutoff: 0.54, resonance: 0.28, space_mix: 0.14, lfo_rate: 0.28, lfo_depth: 0.32, wt_pos: 0.72, wt_warp: 0.38, unison_detune: 0.45, sub_level: 0.65, drive: 0.42, ott: 0.55 } },
+  { name: 'Hyper Supersaw Lead', pack: 'pack-04', cat: 'Leads', tags: 'Supersaw, Unison, Leads', rhythm: '4/4', arp: 0, prompt: 'Hyper Supersaw Anthem Lead C4', root: 60, norm: { attack: 0.005, decay: 0.28, sustain: 0.85, release: 0.34, cutoff: 0.92, resonance: 0.16, space_mix: 0.38, lfo_rate: 0.35, lfo_depth: 0.10, wt_pos: 0.48, wt_warp: 0.18, unison_detune: 0.58, sub_level: 0.25, drive: 0.22, ott: 0.48 } },
+  { name: 'Acid 303 Squelch', pack: 'pack-02', cat: 'Basses', tags: 'Acid 303, TB-303, Basses', rhythm: '4/4', arp: 1, prompt: 'Resonant Acid 303 Squelch C2', root: 36, norm: { attack: 0.002, decay: 0.22, sustain: 0.42, release: 0.18, cutoff: 0.62, resonance: 0.68, space_mix: 0.16, lfo_rate: 0.45, lfo_depth: 0.22, wt_pos: 0.64, wt_warp: 0.52, unison_detune: 0.10, sub_level: 0.20, drive: 0.58, ott: 0.35 } },
+  { name: 'Crystal Glass FM Pluck', pack: 'pack-01', cat: 'Plucks', tags: 'FM Pluck, Crystal, Wavetable', rhythm: '4/4', arp: 0, prompt: 'Crystal Glass FM Pluck C4', root: 60, norm: { attack: 0.002, decay: 0.24, sustain: 0.55, release: 0.32, cutoff: 0.94, resonance: 0.15, space_mix: 0.36, lfo_rate: 0.32, lfo_depth: 0.08, wt_pos: 0.88, wt_warp: 0.44, unison_detune: 0.22, sub_level: 0.10, drive: 0.12, ott: 0.42 } },
+  { name: 'Ethereal Formant Choir', pack: 'pack-03', cat: 'Pads', tags: 'Formant, Vocal Pad, Choir', rhythm: '4/4', arp: 0, prompt: 'Ethereal Formant Vocal Pad C4', root: 60, norm: { attack: 0.38, decay: 0.52, sustain: 0.92, release: 0.64, cutoff: 0.84, resonance: 0.18, space_mix: 0.62, lfo_rate: 0.22, lfo_depth: 0.25, wt_pos: 0.35, wt_warp: 0.28, unison_detune: 0.42, sub_level: 0.18, drive: 0.08, ott: 0.32 } },
+  { name: 'Salto Ángel Shimmer Pad', pack: 'pack-03', cat: 'Pads', tags: 'Pads, Ambient, Shimmer', rhythm: '4/4', arp: 0, prompt: 'Bright Crystal Shimmer Choir Pad E4', root: 64, norm: { attack: 0.42, decay: 0.55, sustain: 0.90, release: 0.65, cutoff: 0.82, resonance: 0.16, space_mix: 0.68, lfo_rate: 0.22, lfo_depth: 0.28 } },
+  { name: 'Catatumbo 808 Sub', pack: 'pack-02', cat: 'Basses', tags: 'Basses, 808 Sub', rhythm: '4/4', arp: 0, prompt: 'Deep 808 Sub Bass', root: 36, norm: { attack: 0.002, decay: 0.28, sustain: 0.75, release: 0.32, cutoff: 0.38, resonance: 0.25, space_mix: 0.08, lfo_rate: 0.20, lfo_depth: 0.0, sub_level: 0.85, drive: 0.38, ott: 0.30 } },
+  { name: 'Cyberpunk Neon Arp', pack: 'pack-04', cat: 'Leads', tags: 'Synthwave, Plucks, Arp', rhythm: '4/4', arp: 1, prompt: 'Cyberpunk Pluck Lead Synth', root: 60, norm: { attack: 0.002, decay: 0.20, sustain: 0.68, release: 0.30, cutoff: 0.85, resonance: 0.28, space_mix: 0.35, lfo_rate: 0.48, lfo_depth: 0.18, wt_pos: 0.56, wt_warp: 0.34, unison_detune: 0.36, drive: 0.28, ott: 0.45 } },
+  { name: 'Karplus Nylon Guitar', pack: 'pack-05', cat: 'Plucks', tags: 'Karplus-Strong, Nylon, Acoustic', rhythm: '6/8', arp: 3, prompt: 'Cuatro Venezolano Camburpinton C4', root: 60, norm: { attack: 0.002, decay: 0.22, sustain: 0.62, release: 0.26, cutoff: 0.90, resonance: 0.12, space_mix: 0.22, lfo_rate: 0.35, lfo_depth: 0.05 } },
+  { name: 'Karplus Concert Harp', pack: 'pack-05', cat: 'Strings', tags: 'Karplus-Strong, Harp, Strings', rhythm: '6/8', arp: 3, prompt: 'Arpa Llanera Venezolana C4', root: 60, norm: { attack: 0.002, decay: 0.28, sustain: 0.68, release: 0.35, cutoff: 0.92, resonance: 0.14, space_mix: 0.28, lfo_rate: 0.35, lfo_depth: 0.08 } },
+  { name: 'Karplus Plectrum Lute', pack: 'pack-05', cat: 'Plucks', tags: 'Karplus-Strong, Bandola, Plucks', rhythm: '6/8', arp: 3, prompt: 'Bandola Llanera Venezolana A3', root: 57, norm: { attack: 0.002, decay: 0.24, sustain: 0.70, release: 0.28, cutoff: 0.88, resonance: 0.18, space_mix: 0.22, lfo_rate: 0.42, lfo_depth: 0.10 } },
+  { name: 'Kukenan Crystal Bell', pack: 'pack-01', cat: 'Plucks', tags: 'Plucks, FM Bell, Wavetable', rhythm: '5/8', arp: 4, prompt: 'Metallic FM Bell Chime', root: 72, norm: { attack: 0.001, decay: 0.32, sustain: 0.50, release: 0.48, cutoff: 0.94, resonance: 0.16, space_mix: 0.45, lfo_rate: 0.30, lfo_depth: 0.10 } },
   { name: 'Auyantepui Warm Analog', pack: 'pack-03', cat: 'Pads', tags: 'Pads, Warm Analog', rhythm: '4/4', arp: 0, prompt: 'Warm Analog Synth Pad', root: 60, norm: { attack: 0.32, decay: 0.45, sustain: 0.88, release: 0.58, cutoff: 0.72, resonance: 0.15, space_mix: 0.52, lfo_rate: 0.25, lfo_depth: 0.22 } },
-  { name: 'Orinoco Solo Cello', pack: 'pack-03', cat: 'Strings', tags: 'Strings, Orchestral', rhythm: '4/4', arp: 0, prompt: 'Acoustic Solo Cello Expression', root: 48, norm: { attack: 0.18, decay: 0.35, sustain: 0.86, release: 0.45, cutoff: 0.78, resonance: 0.12, space_mix: 0.40, lfo_rate: 0.36, lfo_depth: 0.15 } },
-  { name: 'Kukenan Crystal Bell', pack: 'pack-04', cat: 'Plucks', tags: 'Plucks, FM Bell', rhythm: '5/8', arp: 4, prompt: 'Metallic FM Bell Chime', root: 72, norm: { attack: 0.001, decay: 0.32, sustain: 0.50, release: 0.48, cutoff: 0.94, resonance: 0.16, space_mix: 0.45, lfo_rate: 0.30, lfo_depth: 0.10 } },
-  { name: 'Catatumbo 808 Sub', pack: 'pack-05', cat: 'Basses', tags: 'Basses, 808 Sub', rhythm: '4/4', arp: 0, prompt: 'Deep 808 Sub Bass', root: 36, norm: { attack: 0.002, decay: 0.28, sustain: 0.75, release: 0.32, cutoff: 0.38, resonance: 0.25, space_mix: 0.08, lfo_rate: 0.20, lfo_depth: 0.0 } },
-  { name: 'Canaima Brass Ensemble', pack: 'pack-04', cat: 'Leads', tags: 'Leads, Brass', rhythm: '4/4', arp: 1, prompt: 'Vintage Brass Ensemble Horns', root: 60, norm: { attack: 0.06, decay: 0.28, sustain: 0.82, release: 0.35, cutoff: 0.80, resonance: 0.18, space_mix: 0.32, lfo_rate: 0.34, lfo_depth: 0.12 } }
+  { name: 'Canaima Brass Ensemble', pack: 'pack-04', cat: 'Leads', tags: 'Leads, Brass, Analog', rhythm: '4/4', arp: 1, prompt: 'Vintage Brass Ensemble Horns', root: 60, norm: { attack: 0.06, decay: 0.28, sustain: 0.82, release: 0.35, cutoff: 0.80, resonance: 0.18, space_mix: 0.32, lfo_rate: 0.34, lfo_depth: 0.12 } }
 ];
 
 let PRESET_CATALOG = [];

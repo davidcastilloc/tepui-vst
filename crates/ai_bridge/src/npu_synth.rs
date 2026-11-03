@@ -47,7 +47,7 @@ pub fn generate_sample_with_cache(
 ) -> (SampleBuffer, &'static str, bool) {
     let norm_prompt = prompt.trim().to_lowercase();
     let sr_int = sample_rate.round().max(8000.0) as u32;
-    let key = format!("{:08x}_{}", fnv1a_hash(&norm_prompt), sr_int);
+    let key = format!("v210_{:08x}_{}", fnv1a_hash(&norm_prompt), sr_int);
 
     // 1. Nivel L1: Caché en memoria RAM
     if let Ok(guard) = memory_cache().lock() {
