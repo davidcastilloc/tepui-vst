@@ -2,6 +2,16 @@
 
 Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
 
+## [1.14.1](https://github.com/davidcastilloc/tepui-vst/compare/v1.14.0...v1.14.1) (2026-11-03)
+
+### Correcciones de Errores (Bug Fixes)
+
+* **ci:** completar dependencias X11 en Linux y extraccion de clap-validator en macOS ([2d6b353](https://github.com/davidcastilloc/tepui-vst/commit/2d6b3532802cf421c4562a4a6bc1463546e99146))
+
+# Changelog
+
+Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
+
 ## [1.14.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.13.1...v1.14.0) (2026-11-03)
 
 ### Nuevas Funcionalidades (Features)
