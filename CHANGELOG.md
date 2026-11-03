@@ -2,6 +2,16 @@
 
 Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
 
+## [1.10.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.9.0...v1.10.0) (2026-11-03)
+
+### Nuevas Funcionalidades (Features)
+
+* **dsp:** integrar suite Vital/Serum con Wavetable 3D, Super-Unison, Sub-Osc, OTT/Drive FX, 4 Macros y LFO multi-forma ([bbbf893](https://github.com/davidcastilloc/tepui-vst/commit/bbbf893860437ca60a11cbd0212bcc9813b00266))
+
+# Changelog
+
+Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
+
 ## [1.9.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.8.0...v1.9.0) (2026-11-03)
 
 ### Nuevas Funcionalidades (Features)
