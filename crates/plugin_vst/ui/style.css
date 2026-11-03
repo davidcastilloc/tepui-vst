@@ -1519,9 +1519,14 @@ body {
   border-radius: 3px;
   cursor: pointer;
 }
-.tb-btn:hover {
+.tb-btn:hover,
+.tb-btn.active {
   border-color: var(--color-cyan);
   color: var(--color-cyan);
+}
+.tb-btn.active {
+  background: rgba(0, 235, 255, 0.16);
+  box-shadow: 0 0 6px rgba(0, 235, 255, 0.35);
 }
 .tb-badge {
   background: #080b10;
@@ -1530,6 +1535,14 @@ body {
   padding: 2px 6px;
   border-radius: 3px;
   font-weight: 700;
+}
+#vel-badge {
+  cursor: ns-resize;
+  user-select: none;
+}
+.hw-sq-btn.drag-over {
+  border-color: var(--color-amber) !important;
+  box-shadow: 0 0 12px rgba(255, 170, 0, 0.65) !important;
 }
 
 .tz-dot {
@@ -1570,6 +1583,13 @@ body {
   flex-direction: column;
   justify-content: flex-end;
   align-items: center;
+  cursor: ns-resize;
+  user-select: none;
+}
+.hw-wheel.dragging,
+.hw-wheel:hover {
+  border-color: var(--color-cyan);
+  box-shadow: 0 0 8px rgba(0, 235, 255, 0.28);
 }
 .hw-wheel span {
   font-family: var(--font-mono);

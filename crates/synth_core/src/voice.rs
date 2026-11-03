@@ -196,14 +196,22 @@ impl Voice {
 
         let (raw_left, raw_right) = if loop_enabled && loop_end > loop_start {
             let loop_len = (loop_end - loop_start) as f64;
-            let xfade_len = (buffer.loop_crossfade as f64).min(loop_len * 0.5);
+            let raw_xfade = if buffer.loop_crossfade > 0 {
+                buffer.loop_crossfade as f64
+            } else if loop_len >= 16.0 {
+                (loop_len * 0.12).clamp(8.0, 1024.0)
+            } else {
+                0.0
+            };
+            let xfade_len = raw_xfade.min(loop_len * 0.5);
 
             if xfade_len > 0.0
                 && self.playback_pos >= (loop_end as f64 - xfade_len)
                 && self.playback_pos < loop_end as f64
             {
-                // Crossfade en el límite final del bucle
-                let progress = (self.playback_pos - (loop_end as f64 - xfade_len)) / xfade_len;
+                // Crossfade sinusoidal de potencia constante (Equal-Power cos/sin) en el límite del bucle
+                let progress = ((self.playback_pos - (loop_end as f64 - xfade_len)) / xfade_len)
+                    .clamp(0.0, 1.0);
                 let wrap_pos =
                     loop_start as f64 + (self.playback_pos - (loop_end as f64 - xfade_len));
 
@@ -212,8 +220,9 @@ impl Voice {
                 let l2 = read_interpolated_sample(buffer, 0, wrap_pos, self.quality);
                 let r2 = read_interpolated_sample(buffer, 1, wrap_pos, self.quality);
 
-                let w1 = (1.0 - progress) as f32;
-                let w2 = progress as f32;
+                let angle = (progress as f32) * std::f32::consts::FRAC_PI_2;
+                let w1 = angle.cos();
+                let w2 = angle.sin();
                 (l1 * w1 + l2 * w2, r1 * w1 + r2 * w2)
             } else {
                 (
@@ -239,8 +248,13 @@ impl Voice {
                 loop_start as f64 + ((self.playback_pos - loop_end as f64) % loop_len);
         }
 
-        // Aplicar velocidad del toque y envolvente de amplitud
-        let gain = env_gain * self.velocity;
+        // Aplicar curva dinámica musical de velocidad del toque y envolvente de amplitud
+        let vel_gain = if self.velocity <= 0.001 {
+            0.0
+        } else {
+            (0.06 + 0.94 * self.velocity.powf(1.25)).clamp(0.0, 1.0)
+        };
+        let gain = env_gain * vel_gain;
         let amp_left = raw_left * gain;
         let amp_right = raw_right * gain;
 

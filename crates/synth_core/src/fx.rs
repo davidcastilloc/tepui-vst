@@ -126,6 +126,8 @@ pub struct StereoFxRack {
     sample_rate: f32,
     target_mix: f32,
     current_mix: f32,
+    bpm: f32,
+    arp_mode: crate::arp::ArpMode,
 
     chorus_buf_l: Vec<f32>,
     chorus_buf_r: Vec<f32>,
@@ -159,6 +161,8 @@ impl StereoFxRack {
             sample_rate: sr,
             target_mix: 0.15,
             current_mix: 0.15,
+            bpm: 120.0,
+            arp_mode: crate::arp::ArpMode::Off,
             chorus_buf_l: vec![0.0; CHORUS_BUF_LEN],
             chorus_buf_r: vec![0.0; CHORUS_BUF_LEN],
             chorus_write: 0,
@@ -224,6 +228,27 @@ impl StereoFxRack {
         self.target_mix
     }
 
+    /// Sincroniza las subdivisiones del delay estéreo ping-pong al tempo (BPM) y al compás activo (`6/8 Joropo`, `5/8 Merengue`, `4/4`).
+    #[inline]
+    pub fn set_tempo_sync(&mut self, bpm: f32, arp_mode: crate::arp::ArpMode) {
+        if bpm.is_finite() && bpm > 20.0 {
+            self.bpm = bpm.clamp(40.0, 260.0);
+        }
+        self.arp_mode = arp_mode;
+    }
+
+    /// Retorna los tiempos de retardo actuales `(left_ms, right_ms)` en milisegundos según la sincronización de tempo y compás (ODD).
+    #[inline]
+    pub fn delay_times_ms(&self) -> (f32, f32) {
+        let beat_sec = 60.0 / self.bpm.clamp(40.0, 260.0);
+        let (sec_l, sec_r) = match self.arp_mode {
+            crate::arp::ArpMode::Joropo => (beat_sec * (1.0 / 3.0), beat_sec * (2.0 / 3.0)),
+            crate::arp::ArpMode::Merengue => (beat_sec * 0.40, beat_sec * 0.60),
+            _ => (beat_sec * 0.375, beat_sec * 0.525),
+        };
+        (sec_l * 1000.0, sec_r * 1000.0)
+    }
+
     /// Limpia todas las líneas de retardo e integradores (ej. en `Plugin::reset()`).
     pub fn reset(&mut self) {
         self.chorus_buf_l.fill(0.0);
@@ -286,9 +311,10 @@ impl StereoFxRack {
         let base_chorus_samples = 0.012 * sr; // 12 ms centro
         let chorus_depth_samples = 0.0035 * sr; // ±3.5 ms modulación
 
-        let delay_l_samples = (0.187 * sr).min((DELAY_BUF_LEN - 8) as f32); // 187 ms L
-        let delay_r_samples = (0.263 * sr).min((DELAY_BUF_LEN - 8) as f32); // 263 ms R (ratio áureo espacial)
-        let feedback = 0.34_f32;
+        let (delay_l_ms, delay_r_ms) = self.delay_times_ms();
+        let delay_l_samples = ((delay_l_ms * 0.001) * sr).clamp(64.0, (DELAY_BUF_LEN - 8) as f32);
+        let delay_r_samples = ((delay_r_ms * 0.001) * sr).clamp(64.0, (DELAY_BUF_LEN - 8) as f32);
+        let feedback = 0.36_f32;
         let damp = 0.35_f32; // Filtro paso-bajo cálido en las repeticiones
 
         let rev_feedback = 0.84_f32; // Decaimiento acústico tipo Cañón de Tepui / Sala de Concierto

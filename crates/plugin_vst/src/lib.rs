@@ -26,6 +26,9 @@ use params::{LiveParamStore, SamplerParams};
 pub enum GuiMidiEvent {
     NoteOn(u8, f32),
     NoteOff(u8),
+    PitchBend(f32),
+    ModWheel(f32),
+    SustainPedal(bool),
     AllNotesOff,
 }
 
@@ -497,6 +500,21 @@ impl Plugin for AiSamplerPlugin {
                 GuiMidiEvent::NoteOff(note) => {
                     self.voice_manager.note_off(note);
                 }
+                GuiMidiEvent::PitchBend(semitones) => {
+                    self.voice_manager.set_pitch_bend(semitones);
+                    self.live_params.set_pitch_bend_semitones(semitones);
+                    self.live_params.bump_midi_cc_events();
+                }
+                GuiMidiEvent::ModWheel(val) => {
+                    self.voice_manager.set_mod_wheel(val);
+                    self.live_params.set_mod_wheel(val);
+                    self.live_params.bump_midi_cc_events();
+                }
+                GuiMidiEvent::SustainPedal(down) => {
+                    self.voice_manager.set_sustain_pedal(down);
+                    self.live_params.set_sustain_pedal(down);
+                    self.live_params.bump_midi_cc_events();
+                }
                 GuiMidiEvent::AllNotesOff => {
                     #[cfg(debug_assertions)]
                     eprintln!("[TEPUI AUDIO THREAD] AllNotesOff / Panic");
@@ -626,7 +644,9 @@ impl Plugin for AiSamplerPlugin {
             next_event = context.next_event();
         }
 
-        // 7a. Aplicar Master Stereo FX Rack (Chorus en Cuadratura + Delay Cruzado con Damping)
+        // 7a. Aplicar Master Stereo FX Rack (Chorus en Cuadratura + Delay Cruzado Sincronizado al Tempo y Compás)
+        self.fx_rack
+            .set_tempo_sync(host_bpm, self.live_params.get_arp_mode());
         self.fx_rack.set_mix(self.live_params.get_space_mix());
         self.fx_rack.process_block(left_channel, right_channel);
 
@@ -708,6 +728,16 @@ impl Plugin for AiSamplerPlugin {
             .set_arp_steps_triggered(self.voice_manager.arp_steps_triggered());
         self.live_params
             .set_mod_matrix_dsp_frames(self.voice_manager.mod_matrix_dsp_frames());
+        self.live_params
+            .set_last_velocity(self.voice_manager.last_velocity());
+        self.live_params
+            .set_velocity_events(self.voice_manager.velocity_events_count());
+        self.live_params
+            .set_pitch_bend_semitones(self.voice_manager.pitch_bend_semitones());
+        self.live_params
+            .set_mod_wheel(self.voice_manager.mod_wheel());
+        self.live_params
+            .set_sustain_pedal(self.voice_manager.sustain_pedal());
         self.live_params.add_limiter_activations(limiter_hits);
         self.live_params.add_nan_sanitized(nan_count);
         self.live_params.bump_dsp_blocks();
@@ -833,6 +863,15 @@ mod tests {
                 GuiMidiEvent::NoteOff(note) => {
                     plugin.voice_manager.note_off(note);
                 }
+                GuiMidiEvent::PitchBend(semitones) => {
+                    plugin.voice_manager.set_pitch_bend(semitones);
+                }
+                GuiMidiEvent::ModWheel(norm) => {
+                    plugin.voice_manager.set_mod_wheel(norm);
+                }
+                GuiMidiEvent::SustainPedal(active) => {
+                    plugin.voice_manager.set_sustain_pedal(active);
+                }
                 GuiMidiEvent::AllNotesOff => {
                     plugin.voice_manager.kill_all();
                 }
@@ -853,6 +892,15 @@ mod tests {
                 }
                 GuiMidiEvent::NoteOff(note) => {
                     plugin.voice_manager.note_off(note);
+                }
+                GuiMidiEvent::PitchBend(semitones) => {
+                    plugin.voice_manager.set_pitch_bend(semitones);
+                }
+                GuiMidiEvent::ModWheel(norm) => {
+                    plugin.voice_manager.set_mod_wheel(norm);
+                }
+                GuiMidiEvent::SustainPedal(active) => {
+                    plugin.voice_manager.set_sustain_pedal(active);
                 }
                 GuiMidiEvent::AllNotesOff => {
                     plugin.voice_manager.kill_all();
@@ -898,6 +946,9 @@ mod tests {
                     plugin.voice_manager.note_on(note, velocity, &active_sample)
                 }
                 GuiMidiEvent::NoteOff(note) => plugin.voice_manager.note_off(note),
+                GuiMidiEvent::PitchBend(s) => plugin.voice_manager.set_pitch_bend(s),
+                GuiMidiEvent::ModWheel(m) => plugin.voice_manager.set_mod_wheel(m),
+                GuiMidiEvent::SustainPedal(sus) => plugin.voice_manager.set_sustain_pedal(sus),
                 GuiMidiEvent::AllNotesOff => plugin.voice_manager.kill_all(),
             }
         }
@@ -911,6 +962,9 @@ mod tests {
                     plugin.voice_manager.note_on(note, velocity, &active_sample)
                 }
                 GuiMidiEvent::NoteOff(note) => plugin.voice_manager.note_off(note),
+                GuiMidiEvent::PitchBend(s) => plugin.voice_manager.set_pitch_bend(s),
+                GuiMidiEvent::ModWheel(m) => plugin.voice_manager.set_mod_wheel(m),
+                GuiMidiEvent::SustainPedal(sus) => plugin.voice_manager.set_sustain_pedal(sus),
                 GuiMidiEvent::AllNotesOff => plugin.voice_manager.kill_all(),
             }
         }

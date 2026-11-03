@@ -466,15 +466,16 @@
         <div class="velocity-controls">
           <span class="tb-label">VEL:</span>
           <button id="btn-vel-down" class="tb-btn" title="Bajar velocidad (Tecla C)" type="button">- [C]</button>
-          <span id="vel-badge" class="tb-badge">95%</span>
+          <span id="vel-badge" class="tb-badge" title="Arrastra verticalmente o gira la rueda para ajustar Velocity">95%</span>
           <button id="btn-vel-up" class="tb-btn" title="Subir velocidad (Tecla V)" type="button">+ [V]</button>
+          <button id="btn-sustain-pedal" class="tb-btn" title="Pedal Sustain CC#64 (Mantener notas)" type="button">SUS</button>
         </div>
       </div>
 
       <div class="keybed-assembly">
         <div class="wheel-cheek">
-          <div class="hw-wheel" title="Pitch Bend"><div class="wheel-cap center"></div><span>PITCH</span></div>
-          <div class="hw-wheel" title="Modulation CC#1"><div class="wheel-cap low"></div><span>MOD</span></div>
+          <div id="wheel-pitch" class="hw-wheel" title="Pitch Bend (-2..+2 semitonos)"><div id="wheel-pitch-cap" class="wheel-cap center"></div><span>PITCH</span></div>
+          <div id="wheel-mod" class="hw-wheel" title="Modulation CC#1 (0..100%)"><div id="wheel-mod-cap" class="wheel-cap low"></div><span>MOD</span></div>
         </div>
         <div class="keybed-main">
           <div id="keyzone-led-strip" class="keyzone-led-strip"></div>
@@ -487,7 +488,7 @@
     <footer class="studio-footer">
       <div class="footer-status">
         <span class="status-indicator"></span>
-        <span id="footer-text">ODD // BACKEND: HYBRID-PHYSICAL • SYNTH: 0µs • CACHE: 0H/0M • ROUTES: 5 • FAVS: 6 • PRESETS: 0 • MATRIX: 0 • RESIZE: 0 • DSP BLK: 0</span>
+        <span id="footer-text">ODD // BACKEND: HYBRID-PHYSICAL • SYNTH: 0µs • CACHE: 0H/0M • ROUTES: 5 • VEL: 95% • FAVS: 6 • PRESETS: 0 • MATRIX: 0 • RESIZE: 0 • DSP BLK: 0</span>
       </div>
       <div class="footer-actions">
         <span class="shortcut-tip"><kbd>Shift</kbd> + Arrastre fino</span>

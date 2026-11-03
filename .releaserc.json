@@ -66,6 +66,10 @@
       {
         "assets": [
           {
+            "path": "target/bundled/TEPUI-Setup-Windows-x64.exe",
+            "label": "TEPUI-Setup-Windows-x64.exe (Instalador Automático VST3 + CLAP + Standalone)"
+          },
+          {
             "path": "target/bundled/TEPUI-GranSabana-Windows-x64.zip",
             "label": "TEPUI VST3 + CLAP + Standalone Studio (Windows x64 ZIP)"
           },

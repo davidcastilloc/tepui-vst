@@ -55,6 +55,7 @@ pub struct TepuiArpeggiator {
     sample_rate: f32,
     bpm: f32,
     held_notes: [bool; 128],
+    held_velocities: [f32; 128],
     held_count: usize,
     step_index: usize,
     samples_until_step: usize,
@@ -75,6 +76,7 @@ impl TepuiArpeggiator {
             sample_rate: sample_rate.max(500.0),
             bpm: 120.0,
             held_notes: [false; 128],
+            held_velocities: [0.90; 128],
             held_count: 0,
             step_index: 0,
             samples_until_step: 0,
@@ -127,10 +129,11 @@ impl TepuiArpeggiator {
         self.steps_triggered_count
     }
 
-    /// Registra una nota pulsada en el pool del arpegiador.
+    /// Registra una nota pulsada en el pool del arpegiador con velocidad explícita (`0.0..=1.0`).
     #[inline]
-    pub fn press_note(&mut self, note: u8) {
+    pub fn press_note_with_velocity(&mut self, note: u8, velocity: f32) {
         let idx = (note as usize).min(127);
+        self.held_velocities[idx] = velocity.clamp(0.05, 1.0);
         if !self.held_notes[idx] {
             let was_empty = self.held_count == 0;
             self.held_notes[idx] = true;
@@ -140,6 +143,12 @@ impl TepuiArpeggiator {
                 self.samples_until_step = 0;
             }
         }
+    }
+
+    /// Registra una nota pulsada en el pool del arpegiador con velocidad por defecto (`0.90`).
+    #[inline]
+    pub fn press_note(&mut self, note: u8) {
+        self.press_note_with_velocity(note, 0.90);
     }
 
     /// Libera una nota del pool del arpegiador. Retorna `Some(last_note)` si ya no quedan notas pulsadas.
@@ -162,6 +171,7 @@ impl TepuiArpeggiator {
     #[inline]
     pub fn clear(&mut self) -> Option<u8> {
         self.held_notes = [false; 128];
+        self.held_velocities = [0.90; 128];
         self.held_count = 0;
         self.step_index = 0;
         self.samples_until_step = 0;
@@ -200,14 +210,28 @@ impl TepuiArpeggiator {
         let step = self.step_index;
         self.step_index = self.step_index.wrapping_add(1);
 
+        let mut avg_vel = 0.0_f32;
+        for &n in &sorted[..count] {
+            avg_vel += self.held_velocities[(n as usize).min(127)];
+        }
+        let chord_vel = if count > 0 {
+            (avg_vel / count as f32).clamp(0.05, 1.0)
+        } else {
+            0.90
+        };
+        let vel_scale = (chord_vel / 0.90).clamp(0.08, 1.12);
+
         match self.mode {
             ArpMode::Off | ArpMode::Up => {
                 let n = sorted[step % count];
-                (n, 0.90)
+                let nv = self.held_velocities[(n as usize).min(127)].clamp(0.05, 1.0);
+                (n, nv)
             }
             ArpMode::Down => {
                 let idx = (count - 1) - (step % count);
-                (sorted[idx], 0.90)
+                let n = sorted[idx];
+                let nv = self.held_velocities[(n as usize).min(127)].clamp(0.05, 1.0);
+                (n, nv)
             }
             ArpMode::Joropo => {
                 // Compás de 6 pulsos de Joropo Llanero (Bordón -> Tiple -> Medio -> Trancao -> Tiple -> Bordón)
@@ -219,14 +243,15 @@ impl TepuiArpeggiator {
                 } else {
                     (root + 7).min(108)
                 };
-                match step % 6 {
+                let (note, accent) = match step % 6 {
                     0 => (if root >= 24 { root - 12 } else { root }, 0.98), // Bordón grave acentuado
                     1 => (high, 0.78),                                      // Floreo agudo
                     2 => (mid, 0.84),                                       // Cuerda media
                     3 => (fifth, 0.95), // Acento de Trancao (pulso 4)
                     4 => ((high + 12).min(108), 0.80), // Tiple octavado
                     _ => (root, 0.88),  // Cierre de bordón
-                }
+                };
+                (note, (accent * vel_scale).clamp(0.05, 1.0))
             }
             ArpMode::Merengue => {
                 // Compás de 5/8 Merengue Venezolano (1-2-3-4-5 con síncopa caraqueña en 1, 3 y 5)
@@ -238,13 +263,14 @@ impl TepuiArpeggiator {
                 } else {
                     (root + 4).min(108)
                 };
-                match step % 5 {
+                let (note, accent) = match step % 5 {
                     0 => (root, 0.98),                 // Pulso 1 (Fuerte)
                     1 => (second, 0.74),               // Pulso 2
                     2 => (mid, 0.92),                  // Pulso 3 (Acento interno)
                     3 => (high, 0.76),                 // Pulso 4
                     _ => ((high + 12).min(108), 0.96), // Pulso 5 (Quinto asincopado venezolano)
-                }
+                };
+                (note, (accent * vel_scale).clamp(0.05, 1.0))
             }
         }
     }

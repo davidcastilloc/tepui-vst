@@ -166,6 +166,12 @@ struct OddMetrics {
     mod_matrix_dsp_frames: u32,
     npu_cache_hits: u32,
     npu_cache_misses: u32,
+    last_velocity: f32,
+    velocity_events: u32,
+    pitch_bend_semitones: f32,
+    mod_wheel: f32,
+    sustain_pedal: bool,
+    wav_zone_drops: u32,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -712,6 +718,12 @@ pub fn build_init_state_json(
         mod_matrix_dsp_frames: live_params.get_mod_matrix_dsp_frames(),
         npu_cache_hits: ai_worker.cache_hits(),
         npu_cache_misses: ai_worker.cache_misses(),
+        last_velocity: live_params.get_last_velocity(),
+        velocity_events: live_params.get_velocity_events(),
+        pitch_bend_semitones: live_params.get_pitch_bend_semitones(),
+        mod_wheel: live_params.get_mod_wheel(),
+        sustain_pedal: live_params.get_sustain_pedal(),
+        wav_zone_drops: live_params.get_wav_zone_drops(),
     };
     let preset_store = load_persisted_preset_store();
 
@@ -877,6 +889,12 @@ pub fn build_telemetry_json(
             mod_matrix_dsp_frames: live_params.get_mod_matrix_dsp_frames(),
             npu_cache_hits: ai_worker.cache_hits(),
             npu_cache_misses: ai_worker.cache_misses(),
+            last_velocity: live_params.get_last_velocity(),
+            velocity_events: live_params.get_velocity_events(),
+            pitch_bend_semitones: live_params.get_pitch_bend_semitones(),
+            mod_wheel: live_params.get_mod_wheel(),
+            sustain_pedal: live_params.get_sustain_pedal(),
+            wav_zone_drops: live_params.get_wav_zone_drops(),
         },
     };
     serde_json::to_string(&msg).unwrap_or_else(|_| "{}".to_string())
@@ -898,6 +916,20 @@ fn extract_sample_name_from_query(query: Option<&str>) -> Option<String> {
             let trimmed = decoded.trim();
             if !trimmed.is_empty() {
                 return Some(trimmed.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn extract_zone_index_from_query(query: Option<&str>) -> Option<usize> {
+    let q = query?;
+    for pair in q.split('&') {
+        if let Some(val) = pair.strip_prefix("zone=") {
+            if let Ok(idx) = val.trim().parse::<usize>() {
+                if idx < 3 {
+                    return Some(idx);
+                }
             }
         }
     }
@@ -1255,10 +1287,59 @@ fn handle_native_ipc_message(
             if let (Ok(note), Ok(vel)) =
                 (note_str.trim().parse::<u8>(), vel_str.trim().parse::<f32>())
             {
-                let _ = gui_midi_tx.try_send(GuiMidiEvent::NoteOn(note, vel.clamp(0.0, 1.0)));
+                let clamped_vel = vel.clamp(0.01, 1.0);
+                live_params.record_velocity_event(clamped_vel);
+                let _ = gui_midi_tx.try_send(GuiMidiEvent::NoteOn(note, clamped_vel));
                 return;
             }
         }
+    }
+
+    // 1b. Ultra-fast Pitch Bend IPC: "pb,<semitones>" o "pitch_bend:<semitones>"
+    let pb_rest = trimmed
+        .strip_prefix("pb,")
+        .or_else(|| trimmed.strip_prefix("pb:"))
+        .or_else(|| trimmed.strip_prefix("pitch_bend:"));
+    if let Some(rest) = pb_rest {
+        if let Ok(semi) = rest.trim().parse::<f32>() {
+            let clamped = semi.clamp(-12.0, 12.0);
+            live_params.set_pitch_bend_semitones(clamped);
+            live_params.bump_midi_cc_events();
+            live_params.bump_revision();
+            let _ = gui_midi_tx.try_send(GuiMidiEvent::PitchBend(clamped));
+            return;
+        }
+    }
+
+    // 1c. Ultra-fast Mod Wheel (CC#1) IPC: "mw,<0..1>" o "mod_wheel:<0..1>"
+    let mw_rest = trimmed
+        .strip_prefix("mw,")
+        .or_else(|| trimmed.strip_prefix("mw:"))
+        .or_else(|| trimmed.strip_prefix("mod_wheel:"));
+    if let Some(rest) = mw_rest {
+        if let Ok(val) = rest.trim().parse::<f32>() {
+            let clamped = val.clamp(0.0, 1.0);
+            live_params.set_mod_wheel(clamped);
+            live_params.bump_midi_cc_events();
+            live_params.bump_revision();
+            let _ = gui_midi_tx.try_send(GuiMidiEvent::ModWheel(clamped));
+            return;
+        }
+    }
+
+    // 1d. Ultra-fast Sustain Pedal (CC#64) IPC: "sus,<0|1>" o "sustain:<0|1>"
+    let sus_rest = trimmed
+        .strip_prefix("sus,")
+        .or_else(|| trimmed.strip_prefix("sus:"))
+        .or_else(|| trimmed.strip_prefix("sustain:"));
+    if let Some(rest) = sus_rest {
+        let cmd = rest.trim();
+        let down = cmd == "1" || cmd.eq_ignore_ascii_case("true") || cmd.eq_ignore_ascii_case("on");
+        live_params.set_sustain_pedal(down);
+        live_params.bump_midi_cc_events();
+        live_params.bump_revision();
+        let _ = gui_midi_tx.try_send(GuiMidiEvent::SustainPedal(down));
+        return;
     }
 
     // 2. Ultra-fast compact path: "0,note" o "0:note" o "f:note" o "note_off:note" (NoteOff)
@@ -1592,7 +1673,8 @@ fn handle_native_ipc_message(
             match msg.msg_type.as_str() {
                 "note_on" => {
                     if let Some(note) = msg.note {
-                        let vel = msg.velocity.unwrap_or(0.9);
+                        let vel = msg.velocity.unwrap_or(0.9).clamp(0.01, 1.0);
+                        live_params.record_velocity_event(vel);
                         let _ = gui_midi_tx.try_send(GuiMidiEvent::NoteOn(note, vel));
                     }
                 }
@@ -1762,10 +1844,18 @@ impl Editor for WebViewEditor {
                         } else if path.ends_with("api/load-wav") {
                             let sample_name = extract_sample_name_from_query(req.uri().query())
                                 .unwrap_or_else(|| "Imported WAV Sample".to_string());
+                            let target_zone = extract_zone_index_from_query(req.uri().query());
                             match ai_worker_proto.load_wav_bytes(req.body(), Some(sample_name)) {
                                 Ok(loaded) => {
                                     let root = loaded.root_note as i32;
                                     live_params_proto.set_root_note(root);
+                                    if let Some(z_idx) = target_zone {
+                                        ai_worker_proto.assign_current_to_zone(z_idx);
+                                        live_params_proto.set_active_keyzones_mask(
+                                            ai_worker_proto.active_zones_mask(),
+                                        );
+                                        live_params_proto.bump_wav_zone_drops();
+                                    }
                                     live_params_proto.bump_revision();
                                     if let Some(tx) = &gui_param_tx_proto {
                                         let _ = tx.try_send(WebGuiEvent::SetParam {
@@ -2488,6 +2578,50 @@ mod tests {
         assert_eq!(live_params.get_mod_matrix_mask(), 130);
         assert!((live_params.get_cutoff() - 3200.0).abs() < 1e-2);
 
+        // 7. Probar Velocity IPC (1,note,vel) y controles de expresion (pb, mw, sus)
+        handle_native_ipc_message(
+            "1,60,0.42",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        handle_native_ipc_message(
+            "pb,1.5",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        handle_native_ipc_message(
+            "mw,0.75",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        handle_native_ipc_message(
+            "sus,1",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+
+        assert!((live_params.get_last_velocity() - 0.42).abs() < 1e-4);
+        assert_eq!(live_params.get_velocity_events(), 1);
+        assert!((live_params.get_pitch_bend_semitones() - 1.5).abs() < 1e-4);
+        assert!((live_params.get_mod_wheel() - 0.75).abs() < 1e-4);
+        assert!(live_params.get_sustain_pedal());
+
         let telem_odd_json = build_telemetry_json(&params, &live_params, &ai_worker);
         assert!(telem_odd_json.contains(r#""ui_preset_loads":2"#));
         assert!(telem_odd_json.contains(r#""ui_matrix_switches":1"#));
@@ -2495,5 +2629,7 @@ mod tests {
         assert!(telem_odd_json.contains(r#""ui_fav_toggles":1"#));
         assert!(telem_odd_json.contains(r#""user_presets_saved":1"#));
         assert!(telem_odd_json.contains(r#""mod_matrix_active_routes":2"#));
+        assert!(telem_odd_json.contains(r#""velocity_events":1"#));
+        assert!(telem_odd_json.contains(r#""sustain_pedal":true"#));
     }
 }

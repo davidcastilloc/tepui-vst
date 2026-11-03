@@ -518,4 +518,74 @@ mod tests {
             "LFO2->PAN route in 5x5 Mod Matrix should create stereo pan differentiation"
         );
     }
+
+    #[test]
+    fn test_velocity_expression_polyphonic_arp_and_odd_telemetry() {
+        let mut vm = VoiceManager::new(44100.0, 8);
+        let samples: Vec<f32> = (0..4410)
+            .map(|i| (i as f32 * 440.0 * 2.0 * std::f32::consts::PI / 44100.0).sin())
+            .collect();
+        let primary = SampleBuffer::new_mono(samples, 44100.0, 60);
+        let zones = [None, None, None];
+
+        vm.update_envelope_params(0.001, 0.05, 1.0, 0.2);
+        vm.update_filter_params(3200.0, 0.8, FilterMode::Lowpass);
+
+        // 1. Tocar nota suave (velocity = 0.20) y medir energía
+        vm.note_on_with_zones(60, 0.20, &primary, &zones);
+        assert_eq!(vm.velocity_events_count(), 1);
+        assert!((vm.last_velocity() - 0.20).abs() < 1e-4);
+
+        let mut soft_l = vec![0.0; 256];
+        let mut soft_r = vec![0.0; 256];
+        vm.process_block_with_zones(&primary, &zones, &mut soft_l, &mut soft_r);
+        let soft_rms: f32 = soft_l.iter().map(|s| s * s).sum::<f32>() / 256.0;
+
+        vm.kill_all();
+
+        // 2. Tocar nota fuerte (velocity = 1.00) y comprobar que produce mucha más energía y brillo
+        vm.note_on_with_zones(60, 1.00, &primary, &zones);
+        assert_eq!(vm.velocity_events_count(), 2);
+        assert!((vm.last_velocity() - 1.00).abs() < 1e-4);
+
+        let mut loud_l = vec![0.0; 256];
+        let mut loud_r = vec![0.0; 256];
+        vm.process_block_with_zones(&primary, &zones, &mut loud_l, &mut loud_r);
+        let loud_rms: f32 = loud_l.iter().map(|s| s * s).sum::<f32>() / 256.0;
+
+        assert!(
+            loud_rms > soft_rms * 8.0,
+            "Loud velocity (1.0) must produce significantly higher RMS energy than soft velocity (0.2): loud={}, soft={}",
+            loud_rms,
+            soft_rms
+        );
+
+        // 3. Verificar que el arpegiador en modo Joropo 6/8 escala los pasos según la velocidad de entrada
+        let mut arp = TepuiArpeggiator::new(44100.0);
+        arp.set_mode(ArpMode::Joropo);
+        arp.press_note_with_velocity(60, 0.25);
+        let step_soft = arp.advance_chunk(1).expect("Expected Joropo step");
+        assert!(step_soft.velocity < 0.40);
+
+        let _ = arp.clear();
+        arp.press_note_with_velocity(60, 1.00);
+        let step_loud = arp.advance_chunk(1).expect("Expected Joropo step");
+        assert!(step_loud.velocity > 0.90);
+    }
+
+    #[test]
+    fn test_equal_power_loop_crossfade_and_tempo_synced_fx_rack() {
+        let mut fx = StereoFxRack::new(48000.0);
+        fx.set_tempo_sync(120.0, ArpMode::Joropo);
+        let (jl, jr) = fx.delay_times_ms();
+        // A 120 BPM (beat = 500 ms), Joropo 6/8 usa 1/3 y 2/3 de pulso (~166.6 ms y ~333.3 ms)
+        assert!((jl - 166.666).abs() < 1.0);
+        assert!((jr - 333.333).abs() < 1.0);
+
+        fx.set_tempo_sync(120.0, ArpMode::Merengue);
+        let (ml, mr) = fx.delay_times_ms();
+        // A 120 BPM (beat = 500 ms), Merengue 5/8 usa 2/5 y 3/5 de pulso (200 ms y 300 ms)
+        assert!((ml - 200.0).abs() < 1.0);
+        assert!((mr - 300.0).abs() < 1.0);
+    }
 }

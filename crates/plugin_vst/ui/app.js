@@ -106,6 +106,13 @@ const state = {
   localUiResizeEvents: 0,
   localUiFavToggles: 0,
   localUserPresetsSaved: 0,
+  pitchBendSemitones: 0.0,
+  modWheelNorm: 0.0,
+  sustainPedal: false,
+  isDraggingWheel: false,
+  lastPlayedVelocity: 0.95,
+  localVelocityEvents: 0,
+  localWavZoneDrops: 0,
   waveform: []
 };
 
@@ -156,9 +163,15 @@ function updateEngineBadge() {
 
 // Envío ultrarrápido con bypass directo al hilo de audio de Rust
 function sendFastNoteOn(midi, velocity) {
+  const vel = Math.max(0.01, Math.min(1.0, Number(velocity) || state.currentVelocity || 0.95));
+  state.lastPlayedVelocity = vel;
+  state.localVelocityEvents = (state.localVelocityEvents || 0) + 1;
   state.activeNotes.add(midi);
+  const velBadge = document.getElementById('vel-badge');
+  if (velBadge) velBadge.innerText = `${Math.round(vel * 100)}%`;
   updateVoiceCount();
-  sendIpc(`1,${midi},${velocity.toFixed(3)}`);
+  sendIpc(`1,${midi},${vel.toFixed(3)}`);
+  refreshFooterOddText();
 }
 
 function sendFastNoteOff(midi) {
@@ -227,7 +240,30 @@ function refreshFooterOddText() {
     : countMaskBits(state.params.mod_matrix_mask || 0);
   const cacheHits = odd.npu_cache_hits || 0;
   const cacheMiss = odd.npu_cache_misses || 0;
-  footerText.innerText = `ODD // BACKEND: ${backend} • SYNTH: ${durUs}µs (#${genCnt}) • CACHE: ${cacheHits}H/${cacheMiss}M • LFO: ${lfoMod}% • ROUTES: ${routes} • PRESETS: ${presets} • FAVS: ${favs} • MATRIX: ${matrix} • RESIZE: ${resizes} • DSP BLK: ${blk} • LIM: ${lim}`;
+  const liveVel = (typeof odd.last_velocity === 'number' && odd.last_velocity > 0.01)
+    ? odd.last_velocity
+    : (state.lastPlayedVelocity || state.currentVelocity || 0.95);
+  const velPct = Math.round(Math.max(0.01, Math.min(1.0, liveVel)) * 100);
+  footerText.innerText = `ODD // BACKEND: ${backend} • SYNTH: ${durUs}µs (#${genCnt}) • CACHE: ${cacheHits}H/${cacheMiss}M • VEL: ${velPct}% • LFO: ${lfoMod}% • ROUTES: ${routes} • PRESETS: ${presets} • FAVS: ${favs} • MATRIX: ${matrix} • RESIZE: ${resizes} • DSP BLK: ${blk} • LIM: ${lim}`;
+}
+
+function syncExpressionWheelsUI() {
+  const pbCap = document.getElementById('wheel-pitch-cap');
+  if (pbCap) {
+    const normPb = Math.max(-1, Math.min(1, (state.pitchBendSemitones || 0) / 2.0));
+    const topPx = Math.round(22 - normPb * 17);
+    pbCap.style.top = `${topPx}px`;
+  }
+  const mwCap = document.getElementById('wheel-mod-cap');
+  if (mwCap) {
+    const normMw = Math.max(0, Math.min(1, state.modWheelNorm || 0));
+    const botPx = Math.round(12 + normMw * 32);
+    mwCap.style.bottom = `${botPx}px`;
+  }
+  const susBtn = document.getElementById('btn-sustain-pedal');
+  if (susBtn) {
+    susBtn.classList.toggle('active', !!state.sustainPedal);
+  }
 }
 
 function countMaskBits(mask) {
@@ -291,6 +327,19 @@ function updateOddMetricsDisplay(odd) {
   const arpStepsEl = document.getElementById('arp-steps-count');
   if (arpStepsEl && odd.arp_steps_triggered !== undefined) {
     arpStepsEl.innerText = String(odd.arp_steps_triggered);
+  }
+
+  if (!state.isDraggingWheel) {
+    if (typeof odd.pitch_bend_semitones === 'number') {
+      state.pitchBendSemitones = odd.pitch_bend_semitones;
+    }
+    if (typeof odd.mod_wheel === 'number') {
+      state.modWheelNorm = odd.mod_wheel;
+    }
+    if (typeof odd.sustain_pedal === 'boolean') {
+      state.sustainPedal = odd.sustain_pedal;
+    }
+    syncExpressionWheelsUI();
   }
 
   refreshFooterOddText();
@@ -1714,6 +1763,131 @@ function initKeyboardEvents() {
   document.getElementById('btn-vel-up').addEventListener('click', () => shiftVelocity(0.1));
   document.getElementById('btn-panic').addEventListener('click', panicAllNotes);
 
+  // Pedal Sustain CC#64 (Botón SUS)
+  const susBtn = document.getElementById('btn-sustain-pedal');
+  if (susBtn) {
+    susBtn.addEventListener('click', () => {
+      state.sustainPedal = !state.sustainPedal;
+      syncExpressionWheelsUI();
+      sendIpc(`sus,${state.sustainPedal ? 1 : 0}`);
+      refreshFooterOddText();
+    });
+  }
+
+  // Arrastre vertical y rueda de ratón en #vel-badge para ajuste continuo de Velocity
+  const velBadge = document.getElementById('vel-badge');
+  if (velBadge) {
+    let draggingVel = false;
+    let startY = 0;
+    let startVel = 0.95;
+    velBadge.addEventListener('pointerdown', (e) => {
+      draggingVel = true;
+      startY = e.clientY;
+      startVel = state.currentVelocity || 0.95;
+      try { velBadge.setPointerCapture(e.pointerId); } catch (_) {}
+      e.preventDefault();
+    });
+    velBadge.addEventListener('pointermove', (e) => {
+      if (!draggingVel) return;
+      const dy = startY - e.clientY;
+      const nextVel = Math.max(0.05, Math.min(1.0, startVel + dy * 0.008));
+      state.currentVelocity = nextVel;
+      state.lastPlayedVelocity = nextVel;
+      velBadge.innerText = `${Math.round(nextVel * 100)}%`;
+      refreshFooterOddText();
+    });
+    const endVelDrag = (e) => {
+      if (!draggingVel) return;
+      draggingVel = false;
+      try { velBadge.releasePointerCapture(e.pointerId); } catch (_) {}
+    };
+    velBadge.addEventListener('pointerup', endVelDrag);
+    velBadge.addEventListener('pointercancel', endVelDrag);
+    velBadge.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      shiftVelocity(e.deltaY < 0 ? 0.05 : -0.05);
+    }, { passive: false });
+  }
+
+  // Rueda interactiva PITCH BEND (-2.0 .. +2.0 semitonos con retorno por resorte a 0.0)
+  const pitchWheel = document.getElementById('wheel-pitch');
+  if (pitchWheel) {
+    let draggingPitch = false;
+    const applyPitchFromEvent = (e) => {
+      const rect = pitchWheel.getBoundingClientRect();
+      if (rect.height <= 0) return;
+      const relY = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+      const semitones = (0.5 - relY) * 4.0; // Top = +2.0, Center = 0.0, Bottom = -2.0
+      state.pitchBendSemitones = Math.max(-2.0, Math.min(2.0, semitones));
+      syncExpressionWheelsUI();
+      sendIpc(`pb,${state.pitchBendSemitones.toFixed(3)}`);
+    };
+    pitchWheel.addEventListener('pointerdown', (e) => {
+      draggingPitch = true;
+      state.isDraggingWheel = true;
+      pitchWheel.classList.add('dragging');
+      try { pitchWheel.setPointerCapture(e.pointerId); } catch (_) {}
+      applyPitchFromEvent(e);
+      e.preventDefault();
+    });
+    pitchWheel.addEventListener('pointermove', (e) => {
+      if (draggingPitch) applyPitchFromEvent(e);
+    });
+    const releasePitchWheel = (e) => {
+      if (!draggingPitch) return;
+      draggingPitch = false;
+      state.isDraggingWheel = false;
+      pitchWheel.classList.remove('dragging');
+      try { pitchWheel.releasePointerCapture(e.pointerId); } catch (_) {}
+      // Retorno automático por resorte a 0.0 semitonos
+      state.pitchBendSemitones = 0.0;
+      syncExpressionWheelsUI();
+      sendIpc('pb,0.000');
+    };
+    pitchWheel.addEventListener('pointerup', releasePitchWheel);
+    pitchWheel.addEventListener('pointercancel', releasePitchWheel);
+  }
+
+  // Rueda interactiva MODULATION CC#1 (0.0 .. 1.0, doble clic resetea a 0)
+  const modWheel = document.getElementById('wheel-mod');
+  if (modWheel) {
+    let draggingMod = false;
+    const applyModFromEvent = (e) => {
+      const rect = modWheel.getBoundingClientRect();
+      if (rect.height <= 0) return;
+      const relY = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+      const norm = Math.max(0.0, Math.min(1.0, 1.0 - relY));
+      state.modWheelNorm = norm;
+      syncExpressionWheelsUI();
+      sendIpc(`mw,${norm.toFixed(3)}`);
+    };
+    modWheel.addEventListener('pointerdown', (e) => {
+      draggingMod = true;
+      state.isDraggingWheel = true;
+      modWheel.classList.add('dragging');
+      try { modWheel.setPointerCapture(e.pointerId); } catch (_) {}
+      applyModFromEvent(e);
+      e.preventDefault();
+    });
+    modWheel.addEventListener('pointermove', (e) => {
+      if (draggingMod) applyModFromEvent(e);
+    });
+    const releaseModWheel = (e) => {
+      if (!draggingMod) return;
+      draggingMod = false;
+      state.isDraggingWheel = false;
+      modWheel.classList.remove('dragging');
+      try { modWheel.releasePointerCapture(e.pointerId); } catch (_) {}
+    };
+    modWheel.addEventListener('pointerup', releaseModWheel);
+    modWheel.addEventListener('pointercancel', releaseModWheel);
+    modWheel.addEventListener('dblclick', () => {
+      state.modWheelNorm = 0.0;
+      syncExpressionWheelsUI();
+      sendIpc('mw,0.000');
+    });
+  }
+
   const arpBtn = document.getElementById('btn-arp-mode');
   if (arpBtn) {
     arpBtn.addEventListener('click', () => {
@@ -1794,10 +1968,12 @@ function handlePointerNote(e) {
 
   if (keyEl && keyEl.dataset.midi) {
     const note = parseInt(keyEl.dataset.midi, 10);
-    // Calcular velocidad interactiva según la altura del clic en la tecla (Top=0.5, Bottom=1.0)
+    // Calcular velocidad interactiva de rango completo según altura del clic (Top=15%, Bottom=100%)
     const rect = keyEl.getBoundingClientRect();
-    const relY = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
-    const vel = 0.5 + relY * 0.5;
+    const relY = rect.height > 0
+      ? Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height))
+      : 0.9;
+    const vel = Math.max(0.15, Math.min(1.0, 0.15 + relY * 0.85));
 
     if (note !== activeMouseNote) {
       if (activeMouseNote !== null) releaseNote(activeMouseNote);
@@ -1834,10 +2010,12 @@ function shiftOctave(delta) {
 }
 
 function shiftVelocity(delta) {
-  const newVel = Math.max(0.1, Math.min(1.0, state.currentVelocity + delta));
+  const newVel = Math.max(0.05, Math.min(1.0, state.currentVelocity + delta));
   state.currentVelocity = newVel;
+  state.lastPlayedVelocity = newVel;
   const badge = document.getElementById('vel-badge');
   if (badge) badge.innerText = `${Math.round(newVel * 100)}%`;
+  refreshFooterOddText();
 }
 
 function panicAllNotes() {
@@ -1858,10 +2036,13 @@ function panicAllNotes() {
 // -------------------------------------------------------------
 // 8. AI GENERATION HUB, PRESET CHIPS, WAV IMPORT/EXPORT & ROOT NOTE
 // -------------------------------------------------------------
-async function uploadWavBytes(arrayBuffer, rawFileName) {
+async function uploadWavBytes(arrayBuffer, rawFileName, targetZone = null) {
   try {
     const cleanName = (rawFileName || 'Imported WAV').replace(/\.wav$/i, '').trim() || 'Imported WAV';
-    const resp = await fetch(`/api/load-wav?name=${encodeURIComponent(cleanName)}`, {
+    const zoneQuery = (targetZone === 0 || targetZone === 1 || targetZone === 2)
+      ? `&zone=${targetZone}`
+      : '';
+    const resp = await fetch(`/api/load-wav?name=${encodeURIComponent(cleanName)}${zoneQuery}`, {
       method: 'POST',
       headers: { 'Content-Type': 'audio/wav' },
       body: arrayBuffer
@@ -1871,6 +2052,9 @@ async function uploadWavBytes(arrayBuffer, rawFileName) {
       document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
       const promptInput = document.getElementById('prompt-input');
       if (promptInput) promptInput.value = cleanName;
+      if (targetZone !== null) {
+        state.localWavZoneDrops = (state.localWavZoneDrops || 0) + 1;
+      }
       applyInitPayload(data);
     } else {
       const errText = await resp.text();
@@ -2025,6 +2209,32 @@ function initLfoAndKeyzoneControls() {
   if (zHigh) zHigh.addEventListener('click', () => sendIpc('z,2'));
   if (zClr) zClr.addEventListener('click', () => sendIpc('z,clear'));
 
+  // Drag & Drop directo de archivos .wav sobre Z-LOW (0), Z-MID (1) y Z-HIGH (2)
+  [
+    { el: zLow, zone: 0 },
+    { el: zMid, zone: 1 },
+    { el: zHigh, zone: 2 }
+  ].forEach(({ el, zone }) => {
+    if (!el) return;
+    el.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      el.classList.add('drag-over');
+    });
+    el.addEventListener('dragleave', () => {
+      el.classList.remove('drag-over');
+    });
+    el.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      el.classList.remove('drag-over');
+      const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (!file) return;
+      const buf = await file.arrayBuffer();
+      await uploadWavBytes(buf, file.name, zone);
+    });
+  });
+
   // Interactive 5x5 LFO & Mod Matrix Pins with ODD Telemetry
   const MATRIX_ROW_PROFILES = [
     { name: 'CUATRO', target: 0, rateNorm: 0.42, baseDepth: 0.35 },
@@ -2134,14 +2344,35 @@ function initAiHub() {
   });
 
   document.querySelectorAll('.chip').forEach((chip) => {
-    chip.addEventListener('click', () => {
+    chip.addEventListener('click', (e) => {
       document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
       chip.classList.add('active');
+      const rect = chip.getBoundingClientRect();
+      const relY = (rect && rect.height > 0 && typeof e.clientY === 'number')
+        ? Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height))
+        : 0.9;
+      const padVel = Math.max(0.25, Math.min(1.0, 0.25 + relY * 0.75));
+      state.currentVelocity = padVel;
+      state.lastPlayedVelocity = padVel;
+      const velBadge = document.getElementById('vel-badge');
+      if (velBadge) velBadge.innerText = `${Math.round(padVel * 100)}%`;
+
+      if (chip.dataset.arp !== undefined) {
+        const arpM = parseInt(chip.dataset.arp, 10);
+        if (!Number.isNaN(arpM)) {
+          updateArpModeUI(arpM);
+          sendIpc(`arp,${arpM}`);
+        }
+      }
+
       const prompt = chip.dataset.prompt;
       input.value = prompt;
       state.isGenerating = true;
       updateGeneratingUI(true);
       sendFastGenerate(prompt);
+      const auditionMidi = state.params.root_note || 60;
+      pressNote(auditionMidi, padVel);
+      setTimeout(() => releaseNote(auditionMidi), 260);
     });
   });
 

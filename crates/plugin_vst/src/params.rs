@@ -619,6 +619,12 @@ pub struct LiveParamStore {
     pub user_presets_saved: AtomicU32,
     pub mod_matrix_mask: AtomicU32,
     pub mod_matrix_dsp_frames: AtomicU32,
+    pub last_velocity: AtomicU32,
+    pub velocity_events: AtomicU32,
+    pub pitch_bend_semitones: AtomicU32,
+    pub mod_wheel: AtomicU32,
+    pub sustain_pedal: AtomicI32,
+    pub wav_zone_drops: AtomicU32,
     pub active_keyzones_mask: AtomicU32,
     pub lfo_mod_value: AtomicU32,
     pub playhead_norm: AtomicU32,
@@ -667,6 +673,12 @@ impl Default for LiveParamStore {
             user_presets_saved: AtomicU32::new(0),
             mod_matrix_mask: AtomicU32::new(0),
             mod_matrix_dsp_frames: AtomicU32::new(0),
+            last_velocity: AtomicU32::new(0.95_f32.to_bits()),
+            velocity_events: AtomicU32::new(0),
+            pitch_bend_semitones: AtomicU32::new(0.0_f32.to_bits()),
+            mod_wheel: AtomicU32::new(0.0_f32.to_bits()),
+            sustain_pedal: AtomicI32::new(0),
+            wav_zone_drops: AtomicU32::new(0),
             active_keyzones_mask: AtomicU32::new(0),
             lfo_mod_value: AtomicU32::new(0.0_f32.to_bits()),
             playhead_norm: AtomicU32::new(0.0_f32.to_bits()),
@@ -1158,6 +1170,88 @@ impl LiveParamStore {
     #[inline]
     pub fn get_mod_matrix_dsp_frames(&self) -> u32 {
         self.mod_matrix_dsp_frames.load(Ordering::Relaxed)
+    }
+
+    #[inline]
+    pub fn record_velocity_event(&self, velocity: f32) {
+        let clamped = if velocity.is_finite() {
+            velocity.clamp(0.01, 1.0)
+        } else {
+            0.95
+        };
+        self.last_velocity
+            .store(clamped.to_bits(), Ordering::Relaxed);
+        self.velocity_events.fetch_add(1, Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn set_last_velocity(&self, velocity: f32) {
+        let clamped = if velocity.is_finite() {
+            velocity.clamp(0.01, 1.0)
+        } else {
+            0.95
+        };
+        self.last_velocity
+            .store(clamped.to_bits(), Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_last_velocity(&self) -> f32 {
+        f32::from_bits(self.last_velocity.load(Ordering::Relaxed))
+    }
+    #[inline]
+    pub fn set_velocity_events(&self, count: u32) {
+        self.velocity_events.store(count, Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_velocity_events(&self) -> u32 {
+        self.velocity_events.load(Ordering::Relaxed)
+    }
+
+    #[inline]
+    pub fn set_pitch_bend_semitones(&self, semitones: f32) {
+        let c = if semitones.is_finite() {
+            semitones.clamp(-12.0, 12.0)
+        } else {
+            0.0
+        };
+        self.pitch_bend_semitones
+            .store(c.to_bits(), Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_pitch_bend_semitones(&self) -> f32 {
+        f32::from_bits(self.pitch_bend_semitones.load(Ordering::Relaxed))
+    }
+
+    #[inline]
+    pub fn set_mod_wheel(&self, val: f32) {
+        let c = if val.is_finite() {
+            val.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        self.mod_wheel.store(c.to_bits(), Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_mod_wheel(&self) -> f32 {
+        f32::from_bits(self.mod_wheel.load(Ordering::Relaxed))
+    }
+
+    #[inline]
+    pub fn set_sustain_pedal(&self, down: bool) {
+        self.sustain_pedal
+            .store(if down { 1 } else { 0 }, Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_sustain_pedal(&self) -> bool {
+        self.sustain_pedal.load(Ordering::Relaxed) != 0
+    }
+
+    #[inline]
+    pub fn bump_wav_zone_drops(&self) {
+        self.wav_zone_drops.fetch_add(1, Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_wav_zone_drops(&self) -> u32 {
+        self.wav_zone_drops.load(Ordering::Relaxed)
     }
 
     #[allow(dead_code)]

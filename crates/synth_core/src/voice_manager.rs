@@ -43,6 +43,8 @@ pub struct VoiceManager {
     mod_wheel: f32,
     brightness_cc74: f32,
     channel_aftertouch: f32,
+    last_velocity: f32,
+    velocity_events_count: u32,
     arp: TepuiArpeggiator,
 }
 
@@ -88,6 +90,8 @@ impl VoiceManager {
             mod_wheel: 0.0,
             brightness_cc74: 0.0,
             channel_aftertouch: 0.0,
+            last_velocity: 0.95,
+            velocity_events_count: 0,
             arp: TepuiArpeggiator::new(sample_rate),
         }
     }
@@ -129,6 +133,36 @@ impl VoiceManager {
     #[inline]
     pub fn mod_matrix_dsp_frames(&self) -> u32 {
         self.mod_matrix_dsp_frames
+    }
+
+    /// Retorna la última velocidad de nota recibida (`0.0..=1.0`) para telemetría ODD.
+    #[inline]
+    pub fn last_velocity(&self) -> f32 {
+        self.last_velocity
+    }
+
+    /// Retorna el contador acumulado de eventos de velocidad (`NoteOn`) procesados (ODD).
+    #[inline]
+    pub fn velocity_events_count(&self) -> u32 {
+        self.velocity_events_count
+    }
+
+    /// Retorna el desplazamiento actual de Pitch Bend en semitonos (`-12.0..=12.0`).
+    #[inline]
+    pub fn pitch_bend_semitones(&self) -> f32 {
+        self.pitch_bend_semitones
+    }
+
+    /// Retorna la posición actual de la rueda de modulación (`CC#1`, `0.0..=1.0`).
+    #[inline]
+    pub fn mod_wheel(&self) -> f32 {
+        self.mod_wheel
+    }
+
+    /// Retorna si el pedal de sustain (`CC#64`) está actualmente presionado.
+    #[inline]
+    pub fn sustain_pedal(&self) -> bool {
+        self.sustain_pedal
     }
 
     /// Determina el índice de zona de teclado (`0: Low 0..=55`, `1: Mid 56..=76`, `2: High 77..=127`) para una nota MIDI.
@@ -380,12 +414,16 @@ impl VoiceManager {
             return;
         }
 
+        let clamped_vel = velocity.clamp(0.01, 1.0);
+        self.last_velocity = clamped_vel;
+        self.velocity_events_count = self.velocity_events_count.wrapping_add(1);
+
         if (note as usize) < 128 {
             self.sustained_notes[note as usize] = false;
         }
 
         if self.arp.is_active() {
-            self.arp.press_note(note);
+            self.arp.press_note_with_velocity(note, clamped_vel);
             if let Some(step) = self.arp.advance_chunk(1) {
                 if let Some(prev) = step.prev_note_off {
                     self.trigger_voice_note_off(prev);
@@ -400,7 +438,7 @@ impl VoiceManager {
             return;
         }
 
-        self.trigger_voice_note_on_with_zones(note, velocity, primary_buffer, zones);
+        self.trigger_voice_note_on_with_zones(note, clamped_vel, primary_buffer, zones);
     }
 
     fn trigger_voice_note_on_with_zones(
@@ -474,18 +512,20 @@ impl VoiceManager {
             ),
         };
 
-        // 4. Asignar la nota a la voz elegida
+        // 4. Asignar la nota a la voz elegida con sensibilidad tímbrica de filtro por velocity
         if let Some(idx) = target_idx {
             let eff_cut = self.effective_cutoff_hz();
+            let vel_oct = (velocity.clamp(0.01, 1.0) - 0.65) * 1.15;
+            let voice_cut = (eff_cut * 2.0_f32.powf(vel_oct)).clamp(20.0, 20000.0);
             let voice = &mut self.voices[idx];
             voice.zone_slot = zone_slot;
             voice
                 .adsr
                 .set_parameters(self.attack_s, self.decay_s, self.sustain, self.release_s);
-            voice.filter_l.set_cutoff(eff_cut);
+            voice.filter_l.set_cutoff(voice_cut);
             voice.filter_l.set_resonance(self.resonance);
             voice.filter_l.mode = self.filter_mode;
-            voice.filter_r.set_cutoff(eff_cut);
+            voice.filter_r.set_cutoff(voice_cut);
             voice.filter_r.set_resonance(self.resonance);
             voice.filter_r.mode = self.filter_mode;
             voice.quality = self.resampling_quality;
@@ -661,13 +701,21 @@ impl VoiceManager {
                 morph_drive = dest_sums[4].abs().clamp(0.0, 1.0) * 0.75;
 
                 if active_cnt > 0 {
+                    let vel_to_cutoff = (matrix_mask & (1 << (3 * 5 + 1))) != 0;
                     self.mod_matrix_dsp_frames =
                         self.mod_matrix_dsp_frames.wrapping_add(chunk_len as u32);
                     for voice in &mut self.voices {
                         if voice.is_active() {
-                            voice.filter_l.set_cutoff(mod_cutoff);
+                            let per_voice_vel_oct = if vel_to_cutoff {
+                                (voice.velocity - 0.5) * 1.6
+                            } else {
+                                (voice.velocity - 0.65) * 0.85
+                            };
+                            let v_cut =
+                                (mod_cutoff * 2.0_f32.powf(per_voice_vel_oct)).clamp(20.0, 20000.0);
+                            voice.filter_l.set_cutoff(v_cut);
                             voice.filter_l.set_resonance(mod_reso);
-                            voice.filter_r.set_cutoff(mod_cutoff);
+                            voice.filter_r.set_cutoff(v_cut);
                             voice.filter_r.set_resonance(mod_reso);
                             voice.update_pitch_bend(pitch_mult);
                         }
