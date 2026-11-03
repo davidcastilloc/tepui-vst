@@ -2,6 +2,16 @@
 
 Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
 
+## [1.11.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.10.0...v1.11.0) (2026-11-03)
+
+### Nuevas Funcionalidades (Features)
+
+* **dsp:** reemplazar pads por timbres de sintetizador pro (Reese, Supersaw, Acid 303, Vocal Pad) e integrar Karplus-Strong ([e7fd5f5](https://github.com/davidcastilloc/tepui-vst/commit/e7fd5f5db8486fe68dd4b577579156ad68b74ce0))
+
+# Changelog
+
+Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
+
 ## [1.10.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.9.0...v1.10.0) (2026-11-03)
 
 ### Nuevas Funcionalidades (Features)
