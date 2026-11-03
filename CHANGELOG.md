@@ -2,6 +2,16 @@
 
 Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
 
+## [1.9.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.8.0...v1.9.0) (2026-11-03)
+
+### Nuevas Funcionalidades (Features)
+
+* **ai:** habilitar hub open-source multi-proveedor IA (Ollama, Gemini, Groq, OpenAI, Community KV y NPU) ([03ac829](https://github.com/davidcastilloc/tepui-vst/commit/03ac829593fe395e1fae42e7ec897eac8d746d3b))
+
+# Changelog
+
+Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
+
 ## [1.8.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.7.0...v1.8.0) (2026-11-03)
 
 ### Nuevas Funcionalidades (Features)
