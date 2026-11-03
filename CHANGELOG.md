@@ -2,6 +2,16 @@
 
 Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
 
+## [1.8.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.7.0...v1.8.0) (2026-11-03)
+
+### Nuevas Funcionalidades (Features)
+
+* **cloud:** implementar cache KV anti-costos, tope diario de 9500 Neurons y motor de licencias/BYOK ([076c8f4](https://github.com/davidcastilloc/tepui-vst/commit/076c8f4c9e92c41549deca5cdb7c43449030faad))
+
+# Changelog
+
+Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
+
 ## [1.7.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.6.0...v1.7.0) (2026-11-03)
 
 ### Nuevas Funcionalidades (Features)
