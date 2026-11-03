@@ -481,6 +481,10 @@ impl Plugin for AiSamplerPlugin {
             self.live_params.get_lfo_shape(),
             self.live_params.get_macros(),
         );
+        self.voice_manager.set_osc_b_fm_params(
+            self.live_params.get_fm_from_b(),
+            self.live_params.get_osc_b_level(),
+        );
         if self.live_params.is_custom_wavetable_active() {
             let rev = self.live_params.get_custom_wavetable_revision();
             if rev != self.last_custom_wt_rev || !self.voice_manager.is_custom_wavetable_active() {

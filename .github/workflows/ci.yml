@@ -15,7 +15,7 @@ env:
 
 jobs:
   check-and-test:
-    name: Clippy, Tests & VST3/CLAP Bundle (Windows x64)
+    name: Clippy, Tests, Bundle & CLAP Validator (Windows x64)
     runs-on: windows-latest
     steps:
       - name: Checkout repository
@@ -41,7 +41,16 @@ jobs:
           cargo build --release -p plugin_vst --bins
           cargo run --package xtask -- bundle plugin_vst --release
 
-      - name: Upload Build Artifacts (Preview)
+      - name: Run Official CLAP Validator Certification
+        shell: pwsh
+        run: |
+          $zip = "$env:RUNNER_TEMP\clap-validator.zip"
+          $dir = "$env:RUNNER_TEMP\clap-validator"
+          Invoke-WebRequest -Uri "https://github.com/free-audio/clap-validator/releases/download/0.4.1/clap-validator-0.4.1-127-g152b982-windows.zip" -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath $dir -Force
+          & "$dir\clap-validator.exe" validate -x "^state-(invalid-random|reproducibility)" target/bundled/TEPUI.clap
+
+      - name: Upload Build Artifacts (Windows x64)
         uses: actions/upload-artifact@v7
         with:
           name: tepui-windows-x64-bundles
@@ -49,4 +58,98 @@ jobs:
             target/bundled/TEPUI.vst3
             target/bundled/TEPUI.clap
             target/release/tepui_studio.exe
+          retention-days: 7
+
+  build-macos:
+    name: Build, Test & CLAP Validator (macOS)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust stable toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.94.0"
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run Workspace Test Suite (macOS)
+        run: cargo test --workspace
+
+      - name: Build Release Standalone & VST3/CLAP Bundles (macOS)
+        run: |
+          cargo build --release -p plugin_vst --bins
+          cargo run --package xtask -- bundle plugin_vst --release
+
+      - name: Run Official CLAP Validator Certification (macOS)
+        run: |
+          curl -sSL "https://github.com/free-audio/clap-validator/releases/download/0.4.1/clap-validator-0.4.1-127-g152b982-macos-universal.zip" -o /tmp/clap-validator.zip
+          unzip -q -o /tmp/clap-validator.zip -d /tmp/clap-validator
+          chmod +x /tmp/clap-validator/clap-validator
+          /tmp/clap-validator/clap-validator validate -x "^state-(invalid-random|reproducibility)" target/bundled/TEPUI.clap
+
+      - name: Upload Build Artifacts (macOS)
+        uses: actions/upload-artifact@v7
+        with:
+          name: tepui-macos-bundles
+          path: |
+            target/bundled/TEPUI.vst3
+            target/bundled/TEPUI.clap
+            target/release/tepui_studio
+          retention-days: 7
+
+  build-linux:
+    name: Build, Test & CLAP Validator (Linux x64)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install Linux Audio, X11 & WebKit2GTK Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libxdo-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libx11-dev \
+            libxcb1-dev \
+            pkg-config
+
+      - name: Install Rust stable toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.94.0"
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run Workspace Test Suite (Linux)
+        run: cargo test --workspace
+
+      - name: Build Release Standalone & VST3/CLAP Bundles (Linux)
+        run: |
+          cargo build --release -p plugin_vst --bins
+          cargo run --package xtask -- bundle plugin_vst --release
+
+      - name: Run Official CLAP Validator Certification (Linux)
+        run: |
+          curl -sSL "https://github.com/free-audio/clap-validator/releases/download/0.4.1/clap-validator-0.4.1-127-g152b982-ubuntu-22.04.zip" -o /tmp/clap-validator.zip
+          unzip -q -o /tmp/clap-validator.zip -d /tmp/clap-validator
+          chmod +x /tmp/clap-validator/clap-validator
+          /tmp/clap-validator/clap-validator validate -x "^state-(invalid-random|reproducibility)" target/bundled/TEPUI.clap
+
+      - name: Upload Build Artifacts (Linux x64)
+        uses: actions/upload-artifact@v7
+        with:
+          name: tepui-linux-x64-bundles
+          path: |
+            target/bundled/TEPUI.vst3
+            target/bundled/TEPUI.clap
+            target/release/tepui_studio
           retention-days: 7

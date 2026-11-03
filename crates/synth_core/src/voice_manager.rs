@@ -47,12 +47,14 @@ pub struct VoiceManager {
     velocity_events_count: u32,
     arp: TepuiArpeggiator,
 
-    // Motor Vital / Serum: Wavetable 3D + Super-Unison + Sub-Oscillator + 4 Macros + LFO Shape + Custom Drawn WT
+    // Motor Vital / Serum: Wavetable 3D + Super-Unison + Sub-Oscillator + OSC B (FM A<-B) + 4 Macros + LFO Shape + Custom Drawn WT
     wt_pos: f32,
     wt_warp: f32,
     unison_voices: u8,
     unison_detune: f32,
     sub_level: f32,
+    fm_from_b: f32,
+    osc_b_level: f32,
     macros: [f32; 4],
     vital_serum_dsp_frames: u32,
     custom_wt_active: bool,
@@ -110,6 +112,8 @@ impl VoiceManager {
             unison_voices: 1,
             unison_detune: 0.20,
             sub_level: 0.0,
+            fm_from_b: 0.0,
+            osc_b_level: 0.0,
             macros: [0.0; 4],
             vital_serum_dsp_frames: 0,
             custom_wt_active: false,
@@ -219,6 +223,11 @@ impl VoiceManager {
         };
         let eff_detune = (self.unison_detune + self.macros[2] * 0.55).clamp(0.0, 1.0);
         let eff_sub = (self.sub_level + self.macros[2] * 0.45).clamp(0.0, 1.0);
+        let eff_fm = if self.fm_from_b > 0.001 {
+            (self.fm_from_b + self.macros[1] * 0.35).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
 
         for voice in &mut self.voices {
             voice.wt_pos = eff_wt_pos;
@@ -226,7 +235,43 @@ impl VoiceManager {
             voice.unison_voices = eff_unison_voices;
             voice.unison_detune = eff_detune;
             voice.sub_level = eff_sub;
+            voice.fm_from_b = eff_fm;
+            voice.osc_b_level = self.osc_b_level;
         }
+    }
+
+    /// Configura el segundo oscilador independiente (`OSC B`) y la modulación cruzada `FM A <- B` / `Ring Mod` (`0.0..=1.0`).
+    #[inline]
+    pub fn set_osc_b_fm_params(&mut self, fm_from_b: f32, osc_b_level: f32) {
+        self.fm_from_b = if fm_from_b.is_finite() {
+            fm_from_b.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        self.osc_b_level = if osc_b_level.is_finite() {
+            osc_b_level.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let eff_fm = if self.fm_from_b > 0.001 {
+            (self.fm_from_b + self.macros[1] * 0.35).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        for voice in &mut self.voices {
+            voice.fm_from_b = eff_fm;
+            voice.osc_b_level = self.osc_b_level;
+        }
+    }
+
+    #[inline]
+    pub fn fm_from_b(&self) -> f32 {
+        self.fm_from_b
+    }
+
+    #[inline]
+    pub fn osc_b_level(&self) -> f32 {
+        self.osc_b_level
     }
 
     #[inline]
@@ -683,6 +728,12 @@ impl VoiceManager {
             };
             voice.unison_detune = (self.unison_detune + self.macros[2] * 0.55).clamp(0.0, 1.0);
             voice.sub_level = (self.sub_level + self.macros[2] * 0.45).clamp(0.0, 1.0);
+            voice.fm_from_b = if self.fm_from_b > 0.001 {
+                (self.fm_from_b + self.macros[1] * 0.35).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            voice.osc_b_level = self.osc_b_level;
             voice.note_on_with_root(note, velocity, target_buf, eff_root, time);
             voice.update_pitch_bend(self.pitch_bend_multiplier);
         }
@@ -922,6 +973,8 @@ impl VoiceManager {
                     || voice.wt_warp > 0.001
                     || voice.unison_voices > 1
                     || voice.sub_level > 0.001
+                    || voice.fm_from_b > 0.001
+                    || voice.osc_b_level > 0.001
                 {
                     self.vital_serum_dsp_frames =
                         self.vital_serum_dsp_frames.wrapping_add(chunk_len as u32);

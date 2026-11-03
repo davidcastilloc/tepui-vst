@@ -84,15 +84,18 @@ pub struct Voice {
     pub quality: ResamplingQuality,
     pub region_override: SampleRegionOverride,
 
-    // Motor Wavetable 3D + Super-Unison + Sub-Oscillator + Custom Drawn Wavetable estilo Vital / Serum (0 asignaciones)
+    // Motor Wavetable 3D + Super-Unison + Sub-Oscillator + OSC B (FM A<-B) + Custom Drawn Wavetable estilo Vital / Serum (0 asignaciones)
     pub wt_pos: f32,
     pub wt_warp: f32,
     pub unison_voices: u8,
     pub unison_detune: f32,
     pub sub_level: f32,
+    pub fm_from_b: f32,
+    pub osc_b_level: f32,
     pub custom_wt_active: bool,
     pub custom_wt_cycle: [f32; 64],
     sub_phase: f32,
+    osc_b_phase: f32,
     unison_phases: [f32; 8],
 
     sample_rate: f32,
@@ -119,9 +122,12 @@ impl Voice {
             unison_voices: 1,
             unison_detune: 0.20,
             sub_level: 0.0,
+            fm_from_b: 0.0,
+            osc_b_level: 0.0,
             custom_wt_active: false,
             custom_wt_cycle: [0.0; 64],
             sub_phase: 0.0,
+            osc_b_phase: 0.0,
             unison_phases: [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875],
             sample_rate,
         }
@@ -278,13 +284,17 @@ impl Voice {
         let mut sig_left = raw_left;
         let mut sig_right = raw_right;
 
-        // Motor Vital / Serum: Oscilador Wavetable 3D Morfable + Custom Drawn WT + Super-Unison Estéreo + Sub-Oscilador (-1 Oct) + Spectral Warp
+        // Motor Vital / Serum: Oscilador Wavetable 3D Morfable + OSC B (FM A<-B / Ring Mod) + Custom Drawn WT + Super-Unison Estéreo + Sub-Oscilador (-1 Oct) + Spectral Warp
         let u_voices = self.unison_voices.clamp(1, 8);
+        let fm_amt = self.fm_from_b.clamp(0.0, 1.0);
+        let osc_b_lvl = self.osc_b_level.clamp(0.0, 1.0);
         if self.custom_wt_active
             || self.wt_pos > 0.001
             || self.wt_warp > 0.001
             || u_voices > 1
             || self.sub_level > 0.001
+            || fm_amt > 0.001
+            || osc_b_lvl > 0.001
         {
             let sr = self.sample_rate.max(8000.0);
             let bend_factor = (self.playback_ratio / self.base_ratio.max(1e-6)) as f32;
@@ -292,8 +302,22 @@ impl Voice {
                 * 2.0_f32.powf((self.note as f32 - 69.0) / 12.0)
                 * bend_factor.clamp(0.25, 4.0);
 
+            // 0. Segundo Oscilador Independiente (OSC B: Portadora armónica a +1 octava y quinta justa para FM A<-B y Ring Mod)
+            let osc_b_sample = if fm_amt > 0.001 || osc_b_lvl > 0.001 {
+                self.osc_b_phase = (self.osc_b_phase + (base_freq * 2.0) / sr).fract();
+                let b_ang = self.osc_b_phase * std::f32::consts::TAU;
+                (b_ang.sin() * 0.72 + (b_ang * 1.5).sin() * 0.28).clamp(-1.0, 1.0)
+            } else {
+                0.0
+            };
+
             // 1. Super-Unison + 3D Wavetable Morphing (4 cuadros espectrales: Custom/Sub-Tri -> Saw -> Formant -> Metallic FM)
-            if self.custom_wt_active || self.wt_pos > 0.001 || u_voices > 1 {
+            if self.custom_wt_active
+                || self.wt_pos > 0.001
+                || u_voices > 1
+                || fm_amt > 0.001
+                || osc_b_lvl > 0.001
+            {
                 let mut uni_l = 0.0_f32;
                 let mut uni_r = 0.0_f32;
                 let center = (u_voices as f32 - 1.0) * 0.5;
@@ -311,10 +335,11 @@ impl Voice {
                     let next_ph = (ph + (base_freq * detune_mult) / sr).fract();
                     self.unison_phases[idx] = next_ph;
 
-                    let ang = ph * std::f32::consts::TAU;
+                    let eff_ph = (ph + osc_b_sample * fm_amt * 0.38).rem_euclid(1.0);
+                    let ang = eff_ph * std::f32::consts::TAU;
                     // Cuadro 0: Onda dibujada a mano en el OLED (Custom WT) o Fundamental cálida + 2º armónico
                     let f0 = if self.custom_wt_active {
-                        let pos64 = ph.clamp(0.0, 0.999_999) * 64.0;
+                        let pos64 = eff_ph.clamp(0.0, 0.999_999) * 64.0;
                         let idx0 = (pos64 as usize) & 63;
                         let idx1 = (idx0 + 1) & 63;
                         let frac = pos64 - (idx0 as f32);
@@ -324,9 +349,9 @@ impl Voice {
                         ang.sin() * 0.8 + (ang * 2.0).sin() * 0.2
                     };
                     // Cuadro 1: Sawtooth analógica rica
-                    let f1 = (1.0 - 2.0 * ph) * 0.75 + ang.sin() * 0.25;
+                    let f1 = (1.0 - 2.0 * eff_ph) * 0.75 + ang.sin() * 0.25;
                     // Cuadro 2: Formante vocal / Sync
-                    let f2 = (ang * 3.0).sin() * (1.0 - ph) + (ang * 5.0).sin() * 0.45;
+                    let f2 = (ang * 3.0).sin() * (1.0 - eff_ph) + (ang * 5.0).sin() * 0.45;
                     // Cuadro 3: Metálica FM / Cyber
                     let f3 = (ang + 2.4 * (ang * 2.0).sin()).sin();
 
@@ -373,9 +398,22 @@ impl Voice {
                     sig_right = sig_right * 0.18 + uni_r * 1.15;
                 } else {
                     let wt_blend =
-                        (pos * 0.68 + if u_voices > 1 { 0.22 } else { 0.0 }).clamp(0.0, 0.82);
+                        (pos * 0.68 + if u_voices > 1 { 0.22 } else { 0.0 } + fm_amt * 0.45)
+                            .clamp(0.0, 0.85);
                     sig_left = sig_left * (1.0 - wt_blend * 0.55) + uni_l * wt_blend * 0.55;
                     sig_right = sig_right * (1.0 - wt_blend * 0.55) + uni_r * wt_blend * 0.55;
+                }
+
+                // Modulación Cruzada FM A<-B / Ring Mod y mezcla directa de OSC B
+                if fm_amt > 0.001 || osc_b_lvl > 0.001 {
+                    let ring_l = sig_left * osc_b_sample;
+                    let ring_r = sig_right * osc_b_sample;
+                    sig_left = sig_left * (1.0 - fm_amt * 0.30)
+                        + ring_l * (fm_amt * 0.50)
+                        + osc_b_sample * (osc_b_lvl * 0.36);
+                    sig_right = sig_right * (1.0 - fm_amt * 0.30)
+                        + ring_r * (fm_amt * 0.50)
+                        + osc_b_sample * (osc_b_lvl * 0.36);
                 }
             }
 

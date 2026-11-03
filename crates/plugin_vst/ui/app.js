@@ -488,6 +488,7 @@ function syncVitalSerumParamsToUI(p) {
     state.normalized.macro4 = p.macros[3] || 0;
   }
   if (typeof p.unison_voices === 'number') updateUnisonVoicesUI(p.unison_voices);
+  if (typeof p.fm_from_b === 'number') updateFmFromBUI(p.fm_from_b);
   if (typeof p.lfo_shape === 'number') updateLfoShapeUI(p.lfo_shape);
 }
 
@@ -837,6 +838,17 @@ function updateUnisonVoicesUI(voicesInt) {
   }
 }
 
+function updateFmFromBUI(fmVal) {
+  const f = Math.max(0.0, Math.min(1.0, Number(fmVal) || 0.0));
+  state.params.fm_from_b = f;
+  const btn = document.getElementById('btn-fm-b-toggle');
+  if (btn) {
+    const pct = Math.round(f * 100);
+    btn.innerText = `FM B:${pct}%`;
+    btn.classList.toggle('active', pct > 0);
+  }
+}
+
 function updateAllKnobsUI() {
   for (const [id, norm] of Object.entries(state.normalized)) {
     updateKnobUI(id, norm);
@@ -1008,6 +1020,23 @@ function initOscilloscope() {
       const next = UNISON_STEPS[(idx + 1) % UNISON_STEPS.length];
       updateUnisonVoicesUI(next);
       sendIpc(`uni,${next}`);
+    });
+  }
+
+  const fmBBtn = document.getElementById('btn-fm-b-toggle');
+  if (fmBBtn) {
+    const FM_STEPS = [0.0, 0.25, 0.55, 0.85];
+    fmBBtn.addEventListener('click', () => {
+      const cur = state.params.fm_from_b || 0.0;
+      let next = FM_STEPS[1];
+      for (let i = 0; i < FM_STEPS.length; i++) {
+        if (Math.abs(cur - FM_STEPS[i]) < 0.08) {
+          next = FM_STEPS[(i + 1) % FM_STEPS.length];
+          break;
+        }
+      }
+      updateFmFromBUI(next);
+      sendIpc(`fmb,${next.toFixed(2)}`);
     });
   }
 
@@ -3042,6 +3071,44 @@ function initAudioSettingsModal() {
         console.warn('[TEPUI SAVE AI PROVIDER]', e);
       }
       showStatus('[OK] Proveedor de IA guardado exitosamente.');
+    });
+  }
+
+  const btnRedeemCloud = document.getElementById('btn-redeem-cloud-code');
+  if (btnRedeemCloud) {
+    btnRedeemCloud.addEventListener('click', async () => {
+      const codeInp = document.getElementById('input-cloud-redeem-code');
+      const code = codeInp && codeInp.value ? codeInp.value.trim() : '';
+      if (!code) {
+        showStatus('Ingresa un código de recarga o licencia Cloud (ej. TEPUI-PRO-2026).', true);
+        return;
+      }
+      showStatus('Verificando y acreditando código en TEPUI_CREDITS_KV...');
+      sendIpc('redeem_cloud_code:' + code);
+      try {
+        const resp = await fetch('/api/redeem-cloud-code', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code })
+        });
+        if (resp.ok) {
+          const res = await resp.json();
+          if (res.ok) {
+            if (!state.oddMetrics) state.oddMetrics = {};
+            state.oddMetrics.cloud_credits_remaining = res.credits_remaining;
+            if (res.tier) state.oddMetrics.cloud_tier = res.tier;
+            refreshFooterOddText();
+            if (codeInp) codeInp.value = '';
+            showStatus(`[OK] +${res.added_credits || 100} créditos acreditados. Saldo actual: ${res.credits_remaining} CR.`);
+            return;
+          }
+          showStatus(res.error || 'Código inválido o ya utilizado.', true);
+          return;
+        }
+      } catch (e) {
+        console.warn('[TEPUI REDEEM CLOUD CODE]', e);
+      }
+      showStatus('[OK] Solicitud de canje enviada al motor Cloud.');
     });
   }
 

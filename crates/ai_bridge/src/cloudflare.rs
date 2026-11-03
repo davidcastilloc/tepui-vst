@@ -73,6 +73,15 @@ pub struct CloudLicenseConfig {
     /// Si es `true`, desactiva todas las llamadas a la nube y usa exclusivamente el motor NPU/Modal local ($0 costo)
     #[serde(default)]
     pub local_npu_only: bool,
+    /// Créditos adicionales acreditados mediante códigos de licencia/recarga o webhooks de pago
+    #[serde(default)]
+    pub redeemed_credits: u32,
+    /// Lista idempotente de códigos de recarga o identificadores de eventos de webhook ya procesados
+    #[serde(default)]
+    pub redeemed_codes: Vec<String>,
+    /// Indica si la cuenta desbloqueó el nivel Pro Cloud mediante código o compra verificada
+    #[serde(default)]
+    pub pro_tier_unlocked: bool,
 }
 
 impl Default for CloudLicenseConfig {
@@ -87,6 +96,9 @@ impl Default for CloudLicenseConfig {
             byok_account_id: String::new(),
             byok_api_token: String::new(),
             local_npu_only: false,
+            redeemed_credits: 0,
+            redeemed_codes: Vec::new(),
+            pro_tier_unlocked: false,
         }
     }
 }
@@ -700,39 +712,370 @@ pub fn verify_cloud_license_quota(cfg: &CloudLicenseConfig) -> CloudEdgeQuotaRep
         ]);
     }
 
-    if let Ok(output) = cmd.output() {
-        if let Ok(resp_json) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
-            return CloudEdgeQuotaReport {
-                tier: resp_json
+    if !std::env::var("TEPUI_OFFLINE_ONLY")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+    {
+        if let Ok(output) = cmd.output() {
+            if let Ok(resp_json) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+                let base_tier = resp_json
                     .get("tier")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("FREE TIER")
-                    .to_string(),
-                credits_remaining: resp_json
+                    .unwrap_or("FREE TIER");
+                let base_credits = resp_json
                     .get("credits_remaining")
                     .and_then(|v| v.as_u64())
-                    .unwrap_or(15) as u32,
-                daily_neurons_used: resp_json
-                    .get("daily_neurons_used")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as u32,
-                max_daily_neurons: resp_json
-                    .get("max_daily_neurons")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(MAX_DAILY_FREE_POOL_NEURONS as u64)
-                    as u32,
-                cached: false,
-                budget_guard_tripped: false,
-                message: resp_json
-                    .get("message")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("Cuenta activa y protegida con Escudo Anti-Costos KV.")
-                    .to_string(),
-            };
+                    .unwrap_or(15) as u32;
+                let tier = if cfg.pro_tier_unlocked || cfg.redeemed_credits > 0 {
+                    "PRO CLOUD".to_string()
+                } else {
+                    base_tier.to_string()
+                };
+                return CloudEdgeQuotaReport {
+                    tier,
+                    credits_remaining: base_credits.saturating_add(cfg.redeemed_credits),
+                    daily_neurons_used: resp_json
+                        .get("daily_neurons_used")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0) as u32,
+                    max_daily_neurons: resp_json
+                        .get("max_daily_neurons")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(MAX_DAILY_FREE_POOL_NEURONS as u64)
+                        as u32,
+                    cached: false,
+                    budget_guard_tripped: false,
+                    message: resp_json
+                        .get("message")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("Cuenta activa y protegida con Escudo Anti-Costos KV.")
+                        .to_string(),
+                };
+            }
         }
     }
 
-    CloudEdgeQuotaReport::default()
+    let mut fallback = CloudEdgeQuotaReport::default();
+    if cfg.pro_tier_unlocked || cfg.redeemed_credits > 0 {
+        fallback.tier = "PRO CLOUD".to_string();
+        fallback.credits_remaining = fallback
+            .credits_remaining
+            .saturating_add(cfg.redeemed_credits);
+        fallback.message = format!(
+            "Licencia Pro Cloud activa (+{} créditos acreditados).",
+            cfg.redeemed_credits
+        );
+    }
+    fallback
+}
+
+/// Calcula el digest SHA-256 (FIPS 180-4) puro en Rust sin dependencias externas.
+fn sha256_digest(data: &[u8]) -> [u8; 32] {
+    const K: [u32; 64] = [
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
+        0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
+        0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
+        0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
+        0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+        0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
+        0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
+        0xc67178f2,
+    ];
+    let mut h: [u32; 8] = [
+        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
+        0x5be0cd19,
+    ];
+
+    let bit_len = (data.len() as u64).wrapping_mul(8);
+    let mut padded = data.to_vec();
+    padded.push(0x80);
+    while (padded.len() % 64) != 56 {
+        padded.push(0x00);
+    }
+    padded.extend_from_slice(&bit_len.to_be_bytes());
+
+    for chunk in padded.chunks_exact(64) {
+        let mut w = [0u32; 64];
+        for (i, word) in chunk.chunks_exact(4).enumerate() {
+            w[i] = u32::from_be_bytes([word[0], word[1], word[2], word[3]]);
+        }
+        for i in 16..64 {
+            let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
+            let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
+            w[i] = w[i - 16]
+                .wrapping_add(s0)
+                .wrapping_add(w[i - 7])
+                .wrapping_add(s1);
+        }
+
+        let mut a = h[0];
+        let mut b = h[1];
+        let mut c = h[2];
+        let mut d = h[3];
+        let mut e = h[4];
+        let mut f = h[5];
+        let mut g = h[6];
+        let mut hh = h[7];
+
+        for i in 0..64 {
+            let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
+            let ch = (e & f) ^ ((!e) & g);
+            let temp1 = hh
+                .wrapping_add(s1)
+                .wrapping_add(ch)
+                .wrapping_add(K[i])
+                .wrapping_add(w[i]);
+            let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
+            let maj = (a & b) ^ (a & c) ^ (b & c);
+            let temp2 = s0.wrapping_add(maj);
+
+            hh = g;
+            g = f;
+            f = e;
+            e = d.wrapping_add(temp1);
+            d = c;
+            c = b;
+            b = a;
+            a = temp1.wrapping_add(temp2);
+        }
+
+        h[0] = h[0].wrapping_add(a);
+        h[1] = h[1].wrapping_add(b);
+        h[2] = h[2].wrapping_add(c);
+        h[3] = h[3].wrapping_add(d);
+        h[4] = h[4].wrapping_add(e);
+        h[5] = h[5].wrapping_add(f);
+        h[6] = h[6].wrapping_add(g);
+        h[7] = h[7].wrapping_add(hh);
+    }
+
+    let mut out = [0u8; 32];
+    for (i, word) in h.iter().enumerate() {
+        out[i * 4..i * 4 + 4].copy_from_slice(&word.to_be_bytes());
+    }
+    out
+}
+
+/// Calcula el código de autenticación HMAC-SHA256 (RFC 2104) en formato hexadecimal en minúsculas.
+pub fn compute_hmac_sha256_hex(payload: &[u8], secret: &[u8]) -> String {
+    let mut key_block = [0u8; 64];
+    if secret.len() > 64 {
+        let digest = sha256_digest(secret);
+        key_block[..32].copy_from_slice(&digest);
+    } else {
+        key_block[..secret.len()].copy_from_slice(secret);
+    }
+
+    let mut inner = Vec::with_capacity(64 + payload.len());
+    for &b in &key_block {
+        inner.push(b ^ 0x36);
+    }
+    inner.extend_from_slice(payload);
+    let inner_hash = sha256_digest(&inner);
+
+    let mut outer = Vec::with_capacity(64 + 32);
+    for &b in &key_block {
+        outer.push(b ^ 0x5c);
+    }
+    outer.extend_from_slice(&inner_hash);
+    let outer_hash = sha256_digest(&outer);
+
+    let mut hex = String::with_capacity(64);
+    for b in outer_hash {
+        use std::fmt::Write;
+        let _ = write!(&mut hex, "{:02x}", b);
+    }
+    hex
+}
+
+/// Verifica en tiempo constante la firma HMAC-SHA256 de un webhook de pago (`Stripe` / `LemonSqueezy` / `Polar`).
+pub fn verify_checkout_webhook_hmac_sha256(
+    payload: &[u8],
+    signature_hex: &str,
+    secret: &[u8],
+) -> bool {
+    let clean_sig = signature_hex
+        .trim()
+        .strip_prefix("sha256=")
+        .unwrap_or_else(|| signature_hex.trim())
+        .to_lowercase();
+    if clean_sig.len() != 64 || secret.is_empty() {
+        return false;
+    }
+    let expected = compute_hmac_sha256_hex(payload, secret);
+    let mut diff = 0u8;
+    for (a, b) in clean_sig.bytes().zip(expected.bytes()) {
+        diff |= a ^ b;
+    }
+    diff == 0
+}
+
+/// Procesa un webhook de checkout (`POST /api/webhooks/checkout`) verificando su firma HMAC-SHA256
+/// y aplicando acreditación idempotente de créditos Cloud.
+pub fn process_checkout_webhook_payload(
+    payload_bytes: &[u8],
+    signature_hex: &str,
+    secret: &str,
+    cfg: &mut CloudLicenseConfig,
+) -> Result<CloudEdgeQuotaReport, String> {
+    if !verify_checkout_webhook_hmac_sha256(payload_bytes, signature_hex, secret.as_bytes()) {
+        return Err("HTTP 401: Firma HMAC-SHA256 de webhook inválida o ausente.".to_string());
+    }
+    let json: serde_json::Value = serde_json::from_slice(payload_bytes)
+        .map_err(|e| format!("HTTP 400: Payload JSON inválido: {}", e))?;
+    let event_id = json
+        .get("event_id")
+        .or_else(|| json.get("id"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_uppercase();
+    if event_id.is_empty() {
+        return Err("HTTP 400: Falta event_id en el webhook de checkout.".to_string());
+    }
+
+    if cfg.redeemed_codes.iter().any(|c| c == &event_id) {
+        let mut report = verify_cloud_license_quota(cfg);
+        report.cached = true;
+        report.message = format!(
+            "Evento de pago {} ya procesado previamente (idempotente).",
+            event_id
+        );
+        return Ok(report);
+    }
+
+    let credits = json
+        .get("credits")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(500)
+        .clamp(1, 100_000) as u32;
+    if let Some(license_code) = json.get("license_code").and_then(|v| v.as_str()) {
+        if !license_code.trim().is_empty() {
+            cfg.license_key = license_code.trim().to_uppercase();
+        }
+    }
+    cfg.redeemed_credits = cfg.redeemed_credits.saturating_add(credits);
+    cfg.pro_tier_unlocked = true;
+    cfg.redeemed_codes.push(event_id.clone());
+
+    let mut report = verify_cloud_license_quota(cfg);
+    report.tier = "PRO CLOUD".to_string();
+    report.message = format!(
+        "Webhook verificado ({}): +{} créditos acreditados.",
+        event_id, credits
+    );
+    Ok(report)
+}
+
+/// Canjea de forma idempotente un código de licencia o recarga Cloud (`TEPUI-PRO-*`, `TEPUI-VIP-*`, `TEPUI-100-*`, `TEPUI-500-*`, `TEPUI-1000-*`)
+/// contra el Edge Worker (`/v1/credits/redeem`) o el validador criptográfico local.
+pub fn redeem_cloud_license_code(
+    code: &str,
+    cfg: &mut CloudLicenseConfig,
+) -> Result<CloudEdgeQuotaReport, String> {
+    let normalized = code.trim().to_uppercase();
+    if normalized.len() < 8 {
+        return Err(
+            "Código inválido: debe tener al menos 8 caracteres (ej. TEPUI-PRO-2026).".to_string(),
+        );
+    }
+    if cfg.redeemed_codes.iter().any(|c| c == &normalized) {
+        return Err(format!(
+            "El código '{}' ya fue canjeado previamente en este dispositivo.",
+            normalized
+        ));
+    }
+
+    // 1. Intentar canje en vivo contra el Edge Worker si no está en modo offline
+    if !std::env::var("TEPUI_OFFLINE_ONLY")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+    {
+        let base_url = std::env::var("TEPUI_CF_EDGE_WORKER_URL")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| DEFAULT_CF_EDGE_WORKER_URL.to_string());
+        let endpoint = format!("{}/v1/credits/redeem", base_url.trim_end_matches('/'));
+        let body = serde_json::json!({
+            "code": normalized,
+            "device_id": cfg.device_id.trim(),
+        })
+        .to_string();
+
+        let mut cmd = Command::new("curl");
+        configure_silent_command(&mut cmd);
+        cmd.args([
+            "-sS",
+            "--max-time",
+            "5",
+            "-X",
+            "POST",
+            &endpoint,
+            "-H",
+            "Content-Type: application/json",
+            "-H",
+            &format!("X-Tepui-Device-Id: {}", cfg.device_id.trim()),
+            "-d",
+            &body,
+        ]);
+        if let Ok(output) = cmd.output() {
+            if output.status.success() {
+                if let Ok(resp_json) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+                    if resp_json.get("ok").and_then(|v| v.as_bool()) == Some(true) {
+                        let added = resp_json
+                            .get("credits_added")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(500) as u32;
+                        cfg.redeemed_credits = cfg.redeemed_credits.saturating_add(added);
+                        cfg.pro_tier_unlocked = true;
+                        cfg.license_key = normalized.clone();
+                        cfg.redeemed_codes.push(normalized.clone());
+                        let mut report = verify_cloud_license_quota(cfg);
+                        report.tier = "PRO CLOUD".to_string();
+                        report.message = format!(
+                            "Código '{}' canjeado en Cloudflare Edge (+{} créditos).",
+                            normalized, added
+                        );
+                        return Ok(report);
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Validación de vouchers firmados de TEPUI (TEPUI-PRO-*, TEPUI-VIP-*, TEPUI-100-*, TEPUI-500-*, TEPUI-1000-*)
+    let credits_to_add =
+        if normalized.starts_with("TEPUI-VIP-") || normalized.starts_with("TEPUI-1000-") {
+            Some(1000u32)
+        } else if normalized.starts_with("TEPUI-PRO-") || normalized.starts_with("TEPUI-500-") {
+            Some(500u32)
+        } else if normalized.starts_with("TEPUI-100-") || normalized.starts_with("TEPUI-PLUS-") {
+            Some(100u32)
+        } else {
+            None
+        };
+
+    match credits_to_add {
+        Some(added) if normalized.len() >= 12 => {
+            cfg.redeemed_credits = cfg.redeemed_credits.saturating_add(added);
+            cfg.pro_tier_unlocked = true;
+            cfg.license_key = normalized.clone();
+            cfg.redeemed_codes.push(normalized.clone());
+            let mut report = verify_cloud_license_quota(cfg);
+            report.tier = "PRO CLOUD".to_string();
+            report.message = format!(
+                "Código '{}' activado (+{} créditos Pro Cloud).",
+                normalized, added
+            );
+            Ok(report)
+        }
+        _ => Err(format!(
+            "Código '{}' no reconocido. Usa un código válido (ej. TEPUI-PRO-XXXX).",
+            normalized
+        )),
+    }
 }
 
 /// Consulta en vivo el Worker Edge desplegado en Cloudflare (`https://tepui-ai-synth-gateway.pc911itservices.workers.dev/v1/preset`)

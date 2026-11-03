@@ -111,6 +111,8 @@ struct ParamValues {
     unison_voices: u8,
     unison_detune: f32,
     sub_level: f32,
+    fm_from_b: f32,
+    osc_b_level: f32,
     drive_amount: f32,
     ott_amount: f32,
     macros: [f32; 4],
@@ -817,6 +819,8 @@ pub fn build_init_state_json(
             unison_voices: live_params.get_unison_voices(),
             unison_detune: live_params.get_unison_detune(),
             sub_level: live_params.get_sub_level(),
+            fm_from_b: live_params.get_fm_from_b(),
+            osc_b_level: live_params.get_osc_b_level(),
             drive_amount: live_params.get_drive_amount(),
             ott_amount: live_params.get_ott_amount(),
             macros: live_params.get_macros(),
@@ -903,6 +907,8 @@ pub fn build_telemetry_json(
             unison_voices: live_params.get_unison_voices(),
             unison_detune: live_params.get_unison_detune(),
             sub_level: live_params.get_sub_level(),
+            fm_from_b: live_params.get_fm_from_b(),
+            osc_b_level: live_params.get_osc_b_level(),
             drive_amount: live_params.get_drive_amount(),
             ott_amount: live_params.get_ott_amount(),
             macros: live_params.get_macros(),
@@ -1257,6 +1263,20 @@ pub fn set_param_from_client(
             live_params.set_sub_level(clamped);
             live_params.bump_revision();
         }
+        "fm_from_b" => {
+            live_params.set_fm_from_b(clamped);
+            // Cuando FM A<-B se activa, encender también el oscilador portador OSC B
+            live_params.set_osc_b_level(if clamped > 0.001 {
+                (clamped * 0.75).clamp(0.15, 0.85)
+            } else {
+                0.0
+            });
+            live_params.bump_revision();
+        }
+        "osc_b_level" => {
+            live_params.set_osc_b_level(clamped);
+            live_params.bump_revision();
+        }
         "drive" | "drive_amount" => {
             live_params.set_drive_amount(clamped);
             live_params.bump_revision();
@@ -1486,6 +1506,20 @@ fn handle_native_ipc_message(
         return;
     }
 
+    if let Some(code_rest) = trimmed
+        .strip_prefix("redeem_cloud_code:")
+        .or_else(|| trimmed.strip_prefix("redeem_cloud_code,"))
+    {
+        let code = code_rest.trim().trim_matches('"');
+        let mut cfg = ai_bridge::load_cloud_license_config();
+        if let Ok(quota) = ai_bridge::redeem_cloud_license_code(code, &mut cfg) {
+            let _ = ai_bridge::save_cloud_license_config(&cfg);
+            ai_worker.apply_cloud_quota_report(&quota);
+            live_params.bump_revision();
+        }
+        return;
+    }
+
     // 1. Ultra-fast compact path: "1,note,vel" o "1:note:vel" o "n:note:vel" (NoteOn con 0 asignaciones)
     let note_on_rest = trimmed
         .strip_prefix("1,")
@@ -1628,6 +1662,25 @@ fn handle_native_ipc_message(
     if let Some(rest) = uv_rest {
         if let Ok(v) = rest.trim().parse::<u8>() {
             live_params.set_unison_voices(v.clamp(1, 8));
+            live_params.bump_revision();
+            return;
+        }
+    }
+
+    // 4a-fmb. Ultra-fast compact path: "fmb,<0..1>" (OSC B + FM A<-B Cross-Modulation)
+    let fmb_rest = trimmed
+        .strip_prefix("fmb,")
+        .or_else(|| trimmed.strip_prefix("fmb:"));
+    if let Some(rest) = fmb_rest {
+        if let Ok(v) = rest.trim().parse::<f32>() {
+            let clamped = v.clamp(0.0, 1.0);
+            live_params.set_fm_from_b(clamped);
+            live_params.set_osc_b_level(if clamped > 0.001 {
+                (clamped * 0.75).clamp(0.15, 0.85)
+            } else {
+                0.0
+            });
+            live_params.bump_gui_param_sync();
             live_params.bump_revision();
             return;
         }
@@ -2370,6 +2423,95 @@ impl Editor for WebViewEditor {
                                 .header("Access-Control-Allow-Origin", "*")
                                 .body(Cow::Owned(resp_json.into_bytes()))
                                 .unwrap()
+                        } else if path.ends_with("api/redeem-cloud-code") || path.ends_with("api/credits/redeem") {
+                            let body = req.body();
+                            let code_str = serde_json::from_slice::<serde_json::Value>(body)
+                                .ok()
+                                .and_then(|v| v.get("code").and_then(|c| c.as_str()).map(|s| s.to_string()))
+                                .unwrap_or_default();
+                            let mut cfg = ai_bridge::load_cloud_license_config();
+                            let (status_code, resp_json) = match ai_bridge::redeem_cloud_license_code(&code_str, &mut cfg) {
+                                Ok(quota) => {
+                                    let _ = ai_bridge::save_cloud_license_config(&cfg);
+                                    ai_worker_proto.apply_cloud_quota_report(&quota);
+                                    live_params_proto.bump_revision();
+                                    (
+                                        StatusCode::OK,
+                                        serde_json::json!({
+                                            "success": true,
+                                            "message": quota.message,
+                                            "config": cfg,
+                                            "quota": quota,
+                                        })
+                                        .to_string(),
+                                    )
+                                }
+                                Err(e) => (
+                                    StatusCode::BAD_REQUEST,
+                                    serde_json::json!({
+                                        "success": false,
+                                        "error": e,
+                                    })
+                                    .to_string(),
+                                ),
+                            };
+                            Response::builder()
+                                .status(status_code)
+                                .header(CONTENT_TYPE, "application/json; charset=utf-8")
+                                .header("Access-Control-Allow-Origin", "*")
+                                .body(Cow::Owned(resp_json.into_bytes()))
+                                .unwrap()
+                        } else if path.ends_with("api/webhooks/checkout") {
+                            let sig = req
+                                .headers()
+                                .get("x-signature-256")
+                                .or_else(|| req.headers().get("x-hook-signature"))
+                                .and_then(|v| v.to_str().ok())
+                                .unwrap_or("");
+                            let secret = std::env::var("TEPUI_WEBHOOK_SECRET")
+                                .unwrap_or_else(|_| "whsec_tepui_default_edge_secret".to_string());
+                            let mut cfg = ai_bridge::load_cloud_license_config();
+                            let (status_code, resp_json) = match ai_bridge::process_checkout_webhook_payload(
+                                req.body(),
+                                sig,
+                                &secret,
+                                &mut cfg,
+                            ) {
+                                Ok(quota) => {
+                                    let _ = ai_bridge::save_cloud_license_config(&cfg);
+                                    ai_worker_proto.apply_cloud_quota_report(&quota);
+                                    live_params_proto.bump_revision();
+                                    (
+                                        StatusCode::OK,
+                                        serde_json::json!({
+                                            "ok": true,
+                                            "quota": quota,
+                                        })
+                                        .to_string(),
+                                    )
+                                }
+                                Err(e) => {
+                                    let code = if e.contains("HTTP 401") {
+                                        StatusCode::UNAUTHORIZED
+                                    } else {
+                                        StatusCode::BAD_REQUEST
+                                    };
+                                    (
+                                        code,
+                                        serde_json::json!({
+                                            "ok": false,
+                                            "error": e,
+                                        })
+                                        .to_string(),
+                                    )
+                                }
+                            };
+                            Response::builder()
+                                .status(status_code)
+                                .header(CONTENT_TYPE, "application/json; charset=utf-8")
+                                .header("Access-Control-Allow-Origin", "*")
+                                .body(Cow::Owned(resp_json.into_bytes()))
+                                .unwrap()
                         } else {
                             Response::builder()
                                 .status(StatusCode::NOT_FOUND)
@@ -3060,7 +3202,22 @@ mod tests {
         );
         assert!(live_params.is_custom_wavetable_active());
         assert_eq!(live_params.get_custom_wavetable_draws(), 1);
+
+        // 10. Probar Dual Oscillator Cross-Modulation IPC (fmb,<0..1>)
+        handle_native_ipc_message(
+            "fmb,0.65",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        assert!((live_params.get_fm_from_b() - 0.65).abs() < 1e-4);
+        assert!(live_params.get_osc_b_level() > 0.45);
+
         let telem_final = build_telemetry_json(&params, &live_params, &ai_worker);
         assert!(telem_final.contains(r#""hardware_midi_events":"#));
+        assert!(telem_final.contains(r#""fm_from_b":0.65"#));
     }
 }

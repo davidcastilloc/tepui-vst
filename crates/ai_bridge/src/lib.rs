@@ -11,13 +11,14 @@ pub mod npu_synth;
 pub mod worker;
 
 pub use cloudflare::{
-    build_cloudflare_workers_ai_preset_request, design_patch_spec_from_prompt,
-    design_patch_spec_with_cloudflare_live, format_piano_roll_oneshot_prompt,
-    load_cloud_license_config, save_cloud_license_config, synthesize_sample_from_patch_spec,
+    build_cloudflare_workers_ai_preset_request, compute_hmac_sha256_hex,
+    design_patch_spec_from_prompt, design_patch_spec_with_cloudflare_live,
+    format_piano_roll_oneshot_prompt, load_cloud_license_config, process_checkout_webhook_payload,
+    redeem_cloud_license_code, save_cloud_license_config, synthesize_sample_from_patch_spec,
     try_fetch_cloudflare_edge_worker_patch, try_fetch_cloudflare_edge_worker_patch_with_report,
-    verify_cloud_license_quota, AiSynthesizerPatchSpec, CloudEdgeQuotaReport, CloudLicenseConfig,
-    ModalPartialSpec, DEFAULT_CF_EDGE_WORKER_URL, DEFAULT_CF_PRESET_MODEL,
-    DEFAULT_CF_SAMPLE_DIFFUSION_MODEL, MAX_DAILY_FREE_POOL_NEURONS,
+    verify_checkout_webhook_hmac_sha256, verify_cloud_license_quota, AiSynthesizerPatchSpec,
+    CloudEdgeQuotaReport, CloudLicenseConfig, ModalPartialSpec, DEFAULT_CF_EDGE_WORKER_URL,
+    DEFAULT_CF_PRESET_MODEL, DEFAULT_CF_SAMPLE_DIFFUSION_MODEL, MAX_DAILY_FREE_POOL_NEURONS,
 };
 pub use fallback_synth::{
     generate_grand_piano_c4, generate_sample_from_prompt, generate_sample_from_prompt_with_backend,
@@ -308,5 +309,73 @@ mod tests {
             let peak = buf.left.iter().fold(0.0f32, |acc, &x| acc.max(x.abs()));
             assert!(peak > 0.3 && peak <= 1.0, "Peak {} out of range", peak);
         }
+    }
+
+    #[test]
+    fn test_cloud_license_redemption_and_hmac_sha256_webhook_idempotency() {
+        std::env::set_var("TEPUI_OFFLINE_ONLY", "1");
+
+        // 1. Verificar vector RFC 4231 de HMAC-SHA256
+        let rfc_key = [0x0bu8; 20];
+        let rfc_data = b"Hi There";
+        let expected_rfc_hmac = "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7";
+        assert_eq!(
+            compute_hmac_sha256_hex(rfc_data, &rfc_key),
+            expected_rfc_hmac
+        );
+        assert!(verify_checkout_webhook_hmac_sha256(
+            rfc_data,
+            expected_rfc_hmac,
+            &rfc_key
+        ));
+        assert!(!verify_checkout_webhook_hmac_sha256(
+            rfc_data,
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            &rfc_key
+        ));
+
+        // 2. Canje de código Pro Cloud e idempotencia (no doble acreditación)
+        let mut cfg = CloudLicenseConfig::default();
+        let r1 = redeem_cloud_license_code("tepui-pro-2026-gold", &mut cfg)
+            .expect("El primer canje válido debe acreditarse");
+        assert_eq!(r1.tier, "PRO CLOUD");
+        assert_eq!(cfg.redeemed_credits, 500);
+        assert!(cfg.pro_tier_unlocked);
+        assert_eq!(cfg.license_key, "TEPUI-PRO-2026-GOLD");
+
+        let dup = redeem_cloud_license_code("TEPUI-PRO-2026-GOLD", &mut cfg);
+        assert!(
+            dup.is_err(),
+            "Re-canjear el mismo código debe fallar por idempotencia"
+        );
+        assert_eq!(cfg.redeemed_credits, 500);
+
+        // 3. Webhook de checkout con verificación HMAC-SHA256 e idempotencia
+        let secret = "whsec_tepui_production_test";
+        let payload =
+            br#"{"event_id":"evt_checkout_9901","credits":1000,"license_code":"TEPUI-VIP-9901"}"#;
+        let bad_res = process_checkout_webhook_payload(
+            payload,
+            "sha256=deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+            secret,
+            &mut cfg,
+        );
+        assert!(bad_res.is_err());
+        assert!(bad_res.unwrap_err().contains("HTTP 401"));
+
+        let valid_sig = format!(
+            "sha256={}",
+            compute_hmac_sha256_hex(payload, secret.as_bytes())
+        );
+        let wh_report = process_checkout_webhook_payload(payload, &valid_sig, secret, &mut cfg)
+            .expect("Webhook firmado válidamente debe acreditarse");
+        assert_eq!(wh_report.tier, "PRO CLOUD");
+        assert_eq!(cfg.redeemed_credits, 1500);
+
+        // Reenvío del mismo webhook debe ser idempotente (sin duplicar créditos)
+        let wh_dup = process_checkout_webhook_payload(payload, &valid_sig, secret, &mut cfg)
+            .expect("Reenvío idempotente debe responder OK sin duplicar");
+        assert!(wh_dup.cached);
+        assert_eq!(cfg.redeemed_credits, 1500);
     }
 }

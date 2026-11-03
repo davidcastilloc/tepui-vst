@@ -736,4 +736,43 @@ mod tests {
         );
         assert!(dc.abs() < 0.08, "DC offset should be near zero, got {}", dc);
     }
+
+    #[test]
+    fn test_dual_oscillator_osc_b_and_fm_cross_modulation() {
+        let sr = 48000.0;
+        let samples: Vec<f32> = (0..4800)
+            .map(|i| (i as f32 * 261.63 * std::f32::consts::TAU / sr).sin() * 0.45)
+            .collect();
+        let buf = SampleBuffer::new_mono(samples, sr, 60);
+
+        let mut vm_dry = VoiceManager::new(sr, 4);
+        vm_dry.note_on(60, 0.90, &buf);
+        let mut dry_l = vec![0.0; 256];
+        let mut dry_r = vec![0.0; 256];
+        vm_dry.process_block(&buf, &mut dry_l, &mut dry_r);
+
+        let mut vm_fm = VoiceManager::new(sr, 4);
+        vm_fm.set_osc_b_fm_params(0.75, 0.50);
+        assert!((vm_fm.fm_from_b() - 0.75).abs() < 1e-6);
+        assert!((vm_fm.osc_b_level() - 0.50).abs() < 1e-6);
+
+        vm_fm.note_on(60, 0.90, &buf);
+        let mut fm_l = vec![0.0; 256];
+        let mut fm_r = vec![0.0; 256];
+        vm_fm.process_block(&buf, &mut fm_l, &mut fm_r);
+
+        assert!(vm_fm.vital_serum_dsp_frames() >= 256);
+        let spectral_diff: f32 = dry_l
+            .iter()
+            .zip(fm_l.iter())
+            .map(|(a, b)| (a - b).abs())
+            .sum();
+        assert!(
+            spectral_diff > 5.0,
+            "OSC B + FM A<-B must introduce strong harmonic modulation, diff={}",
+            spectral_diff
+        );
+        assert!(fm_l.iter().all(|x| x.is_finite()));
+        assert!(fm_r.iter().all(|x| x.is_finite()));
+    }
 }

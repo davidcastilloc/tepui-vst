@@ -1,11 +1,13 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "tepui-vst",
+  "main": "worker/index.js",
   "compatibility_date": "2026-11-03",
   "observability": {
     "enabled": true
   },
   "assets": {
-    "directory": "site"
+    "directory": "site",
+    "binding": "ASSETS"
   }
 }

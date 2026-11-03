@@ -16,7 +16,7 @@ env:
 
 jobs:
   semantic-release:
-    name: Semantic Release & Binary Packaging
+    name: Semantic Release & Windows Binary Packaging
     runs-on: windows-latest
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
     steps:
@@ -56,3 +56,87 @@ jobs:
             -p "@semantic-release/github@11" `
             -p conventional-changelog-conventionalcommits@8 `
             semantic-release
+
+  release-macos:
+    name: Package & Upload macOS Release Bundle
+    needs: semantic-release
+    runs-on: macos-latest
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    steps:
+      - name: Checkout latest main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Install Rust stable toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.94.0"
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build macOS Standalone & VST3/CLAP Bundles
+        run: |
+          cargo build --release -p plugin_vst --bins
+          cargo run --package xtask -- bundle plugin_vst --release
+          cp README.md LICENSE CHANGELOG.md target/bundled/
+          cd target/bundled
+          zip -r TEPUI-macOS-Universal.zip TEPUI.vst3 TEPUI.clap tepui_studio README.md LICENSE CHANGELOG.md
+
+      - name: Upload macOS Archive to Latest GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=$(gh release view --json tagName -q .tagName)
+          gh release upload "$TAG" "target/bundled/TEPUI-macOS-Universal.zip#TEPUI-macOS-Universal.zip (macOS VST3 + CLAP + Standalone)" --clobber
+
+  release-linux:
+    name: Package & Upload Linux x64 Release Bundle
+    needs: semantic-release
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    steps:
+      - name: Checkout latest main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Install Linux Audio, X11 & WebKit2GTK Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libxdo-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libx11-dev \
+            libxcb1-dev \
+            pkg-config
+
+      - name: Install Rust stable toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.94.0"
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build Linux Standalone & VST3/CLAP Bundles
+        run: |
+          cargo build --release -p plugin_vst --bins
+          cargo run --package xtask -- bundle plugin_vst --release
+          cp README.md LICENSE CHANGELOG.md target/bundled/
+          cd target/bundled
+          tar -czf TEPUI-Linux-x64.tar.gz TEPUI.vst3 TEPUI.clap tepui_studio README.md LICENSE CHANGELOG.md
+
+      - name: Upload Linux Archive to Latest GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=$(gh release view --json tagName -q .tagName)
+          gh release upload "$TAG" "target/bundled/TEPUI-Linux-x64.tar.gz#TEPUI-Linux-x64.tar.gz (Linux x64 VST3 + CLAP + Standalone)" --clobber

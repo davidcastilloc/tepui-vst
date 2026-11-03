@@ -155,6 +155,10 @@ pub struct TepuiPatch {
     pub arp_mode: i32,
     #[serde(default)]
     pub mod_matrix_mask: u32,
+    #[serde(default)]
+    pub fm_from_b: f32,
+    #[serde(default)]
+    pub osc_b_level: f32,
 }
 
 impl TepuiPatch {
@@ -195,6 +199,8 @@ impl TepuiPatch {
             zone_names,
             arp_mode: live_params.arp_mode.load(Ordering::Relaxed),
             mod_matrix_mask: live_params.get_mod_matrix_mask(),
+            fm_from_b: live_params.get_fm_from_b(),
+            osc_b_level: live_params.get_osc_b_level(),
         }
     }
 
@@ -236,6 +242,8 @@ impl TepuiPatch {
         live_params.set_loop_end_norm(self.loop_end_norm);
         live_params.set_arp_mode(self.arp_mode);
         live_params.set_mod_matrix_mask(self.mod_matrix_mask);
+        live_params.set_fm_from_b(self.fm_from_b);
+        live_params.set_osc_b_level(self.osc_b_level);
         live_params.bump_patch_io_count();
         live_params.bump_revision();
         Ok(())
@@ -261,6 +269,10 @@ pub struct PersistedSamplerSession {
     pub arp_mode: i32,
     #[serde(default)]
     pub mod_matrix_mask: u32,
+    #[serde(default)]
+    pub fm_from_b: f32,
+    #[serde(default)]
+    pub osc_b_level: f32,
 }
 
 impl Default for PersistedSamplerSession {
@@ -278,6 +290,8 @@ impl Default for PersistedSamplerSession {
             zone_names: [None, None, None],
             arp_mode: 0,
             mod_matrix_mask: 0,
+            fm_from_b: 0.0,
+            osc_b_level: 0.0,
         }
     }
 }
@@ -322,6 +336,8 @@ impl SessionPersistField {
             guard.loop_end_norm = self.live_params.get_loop_end_norm();
             guard.arp_mode = self.live_params.arp_mode.load(Ordering::Relaxed);
             guard.mod_matrix_mask = self.live_params.get_mod_matrix_mask();
+            guard.fm_from_b = self.live_params.get_fm_from_b();
+            guard.osc_b_level = self.live_params.get_osc_b_level();
         }
     }
 }
@@ -340,6 +356,8 @@ impl<'a> PersistentField<'a, PersistedSamplerSession> for SessionPersistField {
         self.live_params.set_arp_mode(new_value.arp_mode);
         self.live_params
             .set_mod_matrix_mask(new_value.mod_matrix_mask);
+        self.live_params.set_fm_from_b(new_value.fm_from_b);
+        self.live_params.set_osc_b_level(new_value.osc_b_level);
         self.live_params.bump_persistence_restores();
         self.live_params.bump_revision();
 
@@ -456,6 +474,7 @@ impl SamplerParams {
                 },
             )
             .with_unit(" s")
+            .with_value_to_string(formatters::v2s_f32_rounded(3))
             .with_smoother(SmoothingStyle::Linear(10.0)),
 
             decay: FloatParam::new(
@@ -468,10 +487,12 @@ impl SamplerParams {
                 },
             )
             .with_unit(" s")
+            .with_value_to_string(formatters::v2s_f32_rounded(3))
             .with_smoother(SmoothingStyle::Linear(10.0)),
 
             sustain: FloatParam::new("Sustain", 0.8, FloatRange::Linear { min: 0.0, max: 1.0 })
                 .with_unit(" %")
+                .with_value_to_string(formatters::v2s_f32_rounded(2))
                 .with_smoother(SmoothingStyle::Linear(10.0)),
 
             release: FloatParam::new(
@@ -484,6 +505,7 @@ impl SamplerParams {
                 },
             )
             .with_unit(" s")
+            .with_value_to_string(formatters::v2s_f32_rounded(3))
             .with_smoother(SmoothingStyle::Linear(10.0)),
 
             cutoff: FloatParam::new(
@@ -496,6 +518,7 @@ impl SamplerParams {
                 },
             )
             .with_unit(" Hz")
+            .with_value_to_string(formatters::v2s_f32_rounded(1))
             .with_smoother(SmoothingStyle::Linear(20.0)),
 
             resonance: FloatParam::new(
@@ -506,6 +529,7 @@ impl SamplerParams {
                     max: 10.0,
                 },
             )
+            .with_value_to_string(formatters::v2s_f32_rounded(2))
             .with_smoother(SmoothingStyle::Linear(15.0)),
 
             filter_mode: IntParam::new(
@@ -524,6 +548,7 @@ impl SamplerParams {
                 },
             )
             .with_unit(" dB")
+            .with_value_to_string(formatters::v2s_f32_rounded(3))
             .with_smoother(SmoothingStyle::Linear(20.0)),
 
             root_note: IntParam::new(
@@ -534,6 +559,7 @@ impl SamplerParams {
 
             space_mix: FloatParam::new("Space FX", 0.15, FloatRange::Linear { min: 0.0, max: 1.0 })
                 .with_unit(" %")
+                .with_value_to_string(formatters::v2s_f32_rounded(2))
                 .with_smoother(SmoothingStyle::Linear(15.0)),
 
             lfo_rate: FloatParam::new(
@@ -546,10 +572,12 @@ impl SamplerParams {
                 },
             )
             .with_unit(" Hz")
+            .with_value_to_string(formatters::v2s_f32_rounded(2))
             .with_smoother(SmoothingStyle::Linear(10.0)),
 
             lfo_depth: FloatParam::new("LFO Depth", 0.0, FloatRange::Linear { min: 0.0, max: 1.0 })
                 .with_unit(" %")
+                .with_value_to_string(formatters::v2s_f32_rounded(2))
                 .with_smoother(SmoothingStyle::Linear(10.0)),
 
             lfo_target: IntParam::new(
@@ -625,12 +653,14 @@ pub struct LiveParamStore {
     pub mod_wheel: AtomicU32,
     pub sustain_pedal: AtomicI32,
     pub wav_zone_drops: AtomicU32,
-    // Suite Vital / Serum: Wavetable 3D, Super-Unison, Sub-Osc, OTT/Drive FX, LFO Shapes y 4 Macros
+    // Suite Vital / Serum: Wavetable 3D, Super-Unison, Sub-Osc, OSC B (FM A<-B), OTT/Drive FX, LFO Shapes y 4 Macros
     pub wt_pos: AtomicU32,
     pub wt_warp: AtomicU32,
     pub unison_voices: AtomicU32,
     pub unison_detune: AtomicU32,
     pub sub_level: AtomicU32,
+    pub fm_from_b: AtomicU32,
+    pub osc_b_level: AtomicU32,
     pub drive_amount: AtomicU32,
     pub ott_amount: AtomicU32,
     pub lfo_shape: AtomicI32,
@@ -700,6 +730,8 @@ impl Default for LiveParamStore {
             unison_voices: AtomicU32::new(1),
             unison_detune: AtomicU32::new(0.20_f32.to_bits()),
             sub_level: AtomicU32::new(0.0_f32.to_bits()),
+            fm_from_b: AtomicU32::new(0.0_f32.to_bits()),
+            osc_b_level: AtomicU32::new(0.0_f32.to_bits()),
             drive_amount: AtomicU32::new(0.0_f32.to_bits()),
             ott_amount: AtomicU32::new(0.0_f32.to_bits()),
             lfo_shape: AtomicI32::new(0),
@@ -1354,6 +1386,34 @@ impl LiveParamStore {
     #[inline]
     pub fn get_sub_level(&self) -> f32 {
         f32::from_bits(self.sub_level.load(Ordering::Relaxed))
+    }
+
+    #[inline]
+    pub fn set_fm_from_b(&self, val: f32) {
+        let c = if val.is_finite() {
+            val.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        self.fm_from_b.store(c.to_bits(), Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_fm_from_b(&self) -> f32 {
+        f32::from_bits(self.fm_from_b.load(Ordering::Relaxed))
+    }
+
+    #[inline]
+    pub fn set_osc_b_level(&self, val: f32) {
+        let c = if val.is_finite() {
+            val.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        self.osc_b_level.store(c.to_bits(), Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_osc_b_level(&self) -> f32 {
+        f32::from_bits(self.osc_b_level.load(Ordering::Relaxed))
     }
 
     #[inline]

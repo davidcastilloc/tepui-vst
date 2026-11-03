@@ -237,6 +237,7 @@
           <div class="hw-btn-stack">
             <span class="hw-tiny-lbl">ZONES</span>
             <span id="t-zones-val" class="hw-readout cyan">GLOBAL</span>
+            <button id="btn-fm-b-toggle" class="hw-sq-btn cyan-led" title="OSC B + Modulación Cruzada FM A←B / Ring Mod (Clic para alternar 0% / 25% / 55% / 85%)" type="button">FM B:0%</button>
           </div>
         </div>
       </div>
@@ -700,6 +701,26 @@
                   <span class="field-desc">Ej: http://127.0.0.1:11434 (Ollama) o https://openrouter.ai/api/v1/chat/completions</span>
                 </div>
                 <input type="text" id="input-ai-endpoint" class="studio-select studio-text-input" placeholder="Por defecto del proveedor seleccionado" autocomplete="off">
+              </div>
+            </div>
+
+            <div class="setting-grid-2">
+              <div class="setting-field">
+                <div class="field-label-group">
+                  <label for="input-cloud-redeem-code">CÓDIGO DE RECARGA / LICENCIA CLOUD (STRIPE • LEMONSQUEEZY):</label>
+                  <span class="field-desc">Canjea un voucher de créditos o licencia Pro (ej. TEPUI-PRO-2026)</span>
+                </div>
+                <input type="text" id="input-cloud-redeem-code" class="studio-select studio-text-input" placeholder="TEPUI-PRO-XXXX-XXXX" autocomplete="off">
+              </div>
+
+              <div class="setting-field">
+                <div class="field-label-group">
+                  <label for="btn-redeem-cloud-code">ACTIVACIÓN INSTANTÁNEA EN EDGE KV:</label>
+                  <span class="field-desc">Acredita saldo en TEPUI_CREDITS_KV sin reiniciar el DAW</span>
+                </div>
+                <button id="btn-redeem-cloud-code" class="btn-test-tone" type="button">
+                  <span>+ CANJEAR CÓDIGO / RECARGAR CRÉDITOS</span>
+                </button>
               </div>
             </div>
 

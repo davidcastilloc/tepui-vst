@@ -15,6 +15,10 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
         let file_name = entry.file_name();
         let dst_name = if file_name == "plugin_vst.vst3" {
             std::ffi::OsString::from("TEPUI.vst3")
+        } else if file_name == "plugin_vst.clap" {
+            std::ffi::OsString::from("TEPUI.clap")
+        } else if file_name == "plugin_vst.so" {
+            std::ffi::OsString::from("TEPUI.so")
         } else {
             file_name
         };
@@ -200,7 +204,13 @@ fn ensure_tepui_bundles(bundled_dir: &Path) {
     let src_clap = bundled_dir.join("plugin_vst.clap");
     let dst_clap = bundled_dir.join("TEPUI.clap");
     if src_clap.exists() {
-        if let Err(e) = fs::copy(&src_clap, &dst_clap) {
+        let copy_res = if src_clap.is_dir() {
+            let _ = fs::remove_dir_all(&dst_clap);
+            copy_dir_recursive(&src_clap, &dst_clap)
+        } else {
+            fs::copy(&src_clap, &dst_clap).map(|_| ())
+        };
+        if let Err(e) = copy_res {
             eprintln!("[TEPUI XTASK] Warning copying TEPUI.clap: {}", e);
         } else {
             println!("Created a CLAP bundle at '{}'", dst_clap.display());
@@ -218,7 +228,14 @@ fn ensure_tepui_bundles(bundled_dir: &Path) {
         }
     }
 
-    if dst_clap.exists() || dst_vst3.exists() {
+    for bin_name in ["tepui_studio.exe", "tepui_studio"] {
+        let src_bin = Path::new("target/release").join(bin_name);
+        if src_bin.exists() {
+            let _ = fs::copy(&src_bin, bundled_dir.join(bin_name));
+        }
+    }
+
+    if cfg!(windows) && (dst_clap.exists() || dst_vst3.exists()) {
         if let Err(e) = build_sfx_installer(bundled_dir) {
             eprintln!(
                 "[TEPUI XTASK] Warning building TEPUI-Setup-Windows-x64.exe: {}",
@@ -254,11 +271,55 @@ fn install_clap_bundle(
     let try_install = |base_dir: &Path| -> std::io::Result<PathBuf> {
         fs::create_dir_all(base_dir)?;
         let dst = base_dir.join("TEPUI.clap");
-        fs::copy(src_clap, &dst)?;
+        if src_clap.is_dir() {
+            if dst.exists() {
+                let _ = fs::remove_dir_all(&dst);
+            }
+            copy_dir_recursive(src_clap, &dst)?;
+        } else {
+            fs::copy(src_clap, &dst)?;
+        }
         Ok(dst)
     };
 
     try_install(preferred_dir).or_else(|_| try_install(fallback_dir))
+}
+
+fn default_plugin_install_dirs() -> (PathBuf, PathBuf, PathBuf, PathBuf, PathBuf) {
+    if cfg!(target_os = "macos") {
+        let home = env::var("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("target/user_plugins"));
+        (
+            PathBuf::from("/Library/Audio/Plug-Ins/VST3"),
+            home.join("Library/Audio/Plug-Ins/VST3"),
+            PathBuf::from("/Library/Audio/Plug-Ins/CLAP"),
+            home.join("Library/Audio/Plug-Ins/CLAP"),
+            home.join("Applications/Tepui"),
+        )
+    } else if cfg!(target_os = "linux") {
+        let home = env::var("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("target/user_plugins"));
+        (
+            PathBuf::from("/usr/lib/vst3"),
+            home.join(".vst3"),
+            PathBuf::from("/usr/lib/clap"),
+            home.join(".clap"),
+            home.join(".local/bin"),
+        )
+    } else {
+        let local_app_data = env::var("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("target/user_plugins"));
+        (
+            PathBuf::from(r"C:\Program Files\Common Files\VST3"),
+            local_app_data.join(r"Programs\Common\VST3"),
+            PathBuf::from(r"C:\Program Files\Common Files\CLAP"),
+            local_app_data.join(r"Programs\Common\CLAP"),
+            local_app_data.join(r"Programs\Tepui"),
+        )
+    }
 }
 
 fn run_install() -> nih_plug_xtask::Result<()> {
@@ -281,41 +342,39 @@ fn run_install() -> nih_plug_xtask::Result<()> {
         ensure_tepui_bundles(bundled_dir);
     }
 
-    let local_app_data = env::var("LOCALAPPDATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("target/user_plugins"));
+    let (sys_vst3, usr_vst3, sys_clap, usr_clap, standalone_dir) = default_plugin_install_dirs();
 
-    let sys_vst3 = Path::new(r"C:\Program Files\Common Files\VST3");
-    let usr_vst3 = local_app_data.join(r"Programs\Common\VST3");
-    let installed_vst3 = install_vst3_bundle(&dst_vst3, sys_vst3, &usr_vst3)?;
+    let installed_vst3 = install_vst3_bundle(&dst_vst3, &sys_vst3, &usr_vst3)?;
     println!(
         "[TEPUI INSTALLER] VST3 instalado exitosamente en: '{}'",
         installed_vst3.display()
     );
 
-    let sys_clap = Path::new(r"C:\Program Files\Common Files\CLAP");
-    let usr_clap = local_app_data.join(r"Programs\Common\CLAP");
-    let installed_clap = install_clap_bundle(&dst_clap, sys_clap, &usr_clap)?;
+    let installed_clap = install_clap_bundle(&dst_clap, &sys_clap, &usr_clap)?;
     println!(
         "[TEPUI INSTALLER] CLAP instalado exitosamente en: '{}'",
         installed_clap.display()
     );
 
-    let standalone_src = Path::new("target/release/tepui_studio.exe");
-    if standalone_src.exists() {
-        let standalone_dir = local_app_data.join(r"Programs\Tepui");
-        if fs::create_dir_all(&standalone_dir).is_ok() {
-            let standalone_dst = standalone_dir.join("tepui_studio.exe");
-            if fs::copy(standalone_src, &standalone_dst).is_ok() {
-                println!(
-                    "[TEPUI INSTALLER] Standalone Studio instalado exitosamente en: '{}'",
-                    standalone_dst.display()
-                );
-            }
+    let standalone_bin_name = if cfg!(windows) {
+        "tepui_studio.exe"
+    } else {
+        "tepui_studio"
+    };
+    let standalone_src = Path::new("target/release").join(standalone_bin_name);
+    if standalone_src.exists() && fs::create_dir_all(&standalone_dir).is_ok() {
+        let standalone_dst = standalone_dir.join(standalone_bin_name);
+        if fs::copy(&standalone_src, &standalone_dst).is_ok() {
+            println!(
+                "[TEPUI INSTALLER] Standalone Studio instalado exitosamente en: '{}'",
+                standalone_dst.display()
+            );
         }
     }
 
-    let _ = build_sfx_installer(bundled_dir);
+    if cfg!(windows) {
+        let _ = build_sfx_installer(bundled_dir);
+    }
     Ok(())
 }
 
