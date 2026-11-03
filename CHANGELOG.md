@@ -2,6 +2,16 @@
 
 Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
 
+## [1.12.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.11.0...v1.12.0) (2026-11-03)
+
+### Nuevas Funcionalidades (Features)
+
+* **synth:** modo de dibujo wavetable de 64 puntos y pagina oficial de producto ([639521c](https://github.com/davidcastilloc/tepui-vst/commit/639521cde065de4d60e6d1df71bd28c45b663a92))
+
+# Changelog
+
+Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
+
 ## [1.11.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.10.0...v1.11.0) (2026-11-03)
 
 ### Nuevas Funcionalidades (Features)
