@@ -15,7 +15,8 @@ use synth_core::{
 };
 
 use crate::cloudflare::{
-    design_patch_spec_from_prompt, try_fetch_cloudflare_ai_gateway_wav, AiSynthesizerPatchSpec,
+    design_patch_spec_from_prompt, design_patch_spec_with_cloudflare_live,
+    synthesize_sample_from_patch_spec, try_fetch_cloudflare_ai_gateway_wav, AiSynthesizerPatchSpec,
 };
 use crate::fallback_synth::generate_grand_piano_c4;
 use crate::npu_synth::{generate_sample_with_cache, npu_cache_hits, npu_cache_misses};
@@ -54,6 +55,7 @@ pub struct AiWorker {
     last_generation_duration_us: Arc<AtomicU32>,
     generation_count: Arc<AtomicU32>,
     last_patch_spec: Arc<ArcSwap<Option<AiSynthesizerPatchSpec>>>,
+    has_pending_cloud_spec: Arc<AtomicBool>,
     ai_presets_synthesized: Arc<AtomicU32>,
     piano_roll_auto_trims: Arc<AtomicU32>,
     last_detected_pitch_hz: Arc<AtomicU32>,
@@ -84,6 +86,7 @@ impl AiWorker {
         let generation_count = Arc::new(AtomicU32::new(1));
         let (initial_spec, _) = design_patch_spec_from_prompt("Concert Grand Piano C4");
         let last_patch_spec = Arc::new(ArcSwap::from_pointee(Some(initial_spec)));
+        let has_pending_cloud_spec = Arc::new(AtomicBool::new(false));
         let ai_presets_synthesized = Arc::new(AtomicU32::new(1));
         let piano_roll_auto_trims = Arc::new(AtomicU32::new(0));
         let last_detected_pitch_hz = Arc::new(AtomicU32::new(261.63_f32.to_bits()));
@@ -98,6 +101,7 @@ impl AiWorker {
         let dur_clone = last_generation_duration_us.clone();
         let count_clone = generation_count.clone();
         let spec_clone = last_patch_spec.clone();
+        let pending_spec_clone = has_pending_cloud_spec.clone();
         let presets_synth_clone = ai_presets_synthesized.clone();
         let auto_trims_clone = piano_roll_auto_trims.clone();
         let pitch_hz_clone = last_detected_pitch_hz.clone();
@@ -117,6 +121,7 @@ impl AiWorker {
                     dur_clone,
                     count_clone,
                     spec_clone,
+                    pending_spec_clone,
                     presets_synth_clone,
                     auto_trims_clone,
                     pitch_hz_clone,
@@ -141,6 +146,7 @@ impl AiWorker {
             last_generation_duration_us,
             generation_count,
             last_patch_spec,
+            has_pending_cloud_spec,
             ai_presets_synthesized,
             piano_roll_auto_trims,
             last_detected_pitch_hz,
@@ -401,6 +407,16 @@ impl AiWorker {
         (**self.last_patch_spec.load()).clone()
     }
 
+    /// Extrae una sola vez la especificación de preset recién llegada desde Cloudflare Workers AI
+    /// para que el servidor UI sincronice automáticamente `LiveParamStore`.
+    pub fn take_pending_cloud_patch_spec(&self) -> Option<AiSynthesizerPatchSpec> {
+        if self.has_pending_cloud_spec.swap(false, Ordering::AcqRel) {
+            self.last_patch_spec()
+        } else {
+            None
+        }
+    }
+
     /// Retorna el total acumulado de presets sintetizados por el arquitecto IA (ODD).
     pub fn ai_presets_synthesized(&self) -> u32 {
         self.ai_presets_synthesized.load(Ordering::Relaxed)
@@ -451,6 +467,7 @@ impl AiWorker {
         last_generation_duration_us: Arc<AtomicU32>,
         generation_count: Arc<AtomicU32>,
         last_patch_spec: Arc<ArcSwap<Option<AiSynthesizerPatchSpec>>>,
+        has_pending_cloud_spec: Arc<AtomicBool>,
         ai_presets_synthesized: Arc<AtomicU32>,
         piano_roll_auto_trims: Arc<AtomicU32>,
         last_detected_pitch_hz: Arc<AtomicU32>,
@@ -460,9 +477,17 @@ impl AiWorker {
             is_busy.store(true, Ordering::SeqCst);
             let t0 = Instant::now();
 
-            // 1. Diseñar el Preset del sintetizador + Receta de parciales modales (Cloudflare Workers AI / NPU)
-            let (patch_spec, _spec_backend) = design_patch_spec_from_prompt(&req.prompt);
+            // 1. Diseñar el Preset del sintetizador + Receta de parciales modales (Cloudflare Workers AI Edge en vivo / NPU fallback)
+            let (patch_spec, spec_backend, is_live_cloudflare) = if cfg!(test) {
+                let (s, b) = design_patch_spec_from_prompt(&req.prompt);
+                (s, b, false)
+            } else {
+                design_patch_spec_with_cloudflare_live(&req.prompt)
+            };
             last_patch_spec.store(Arc::new(Some(patch_spec.clone())));
+            if is_live_cloudflare {
+                has_pending_cloud_spec.store(true, Ordering::Release);
+            }
             ai_presets_synthesized.fetch_add(1, Ordering::Relaxed);
 
             let effective_endpoint = req
@@ -478,6 +503,10 @@ impl AiWorker {
                 try_fetch_cloudflare_ai_gateway_wav(&req.prompt, patch_spec.root_note)
             {
                 (gw_buf, "Cloudflare-AIGateway-WAV", true)
+            } else if is_live_cloudflare {
+                let (cf_buf, _rep) =
+                    synthesize_sample_from_patch_spec(&patch_spec, req.sample_rate);
+                (cf_buf, spec_backend, false)
             } else {
                 let (buf, b_str, _is_hit) =
                     generate_sample_with_cache(&req.prompt, req.sample_rate);

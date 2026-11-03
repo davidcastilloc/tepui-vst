@@ -677,6 +677,9 @@ pub fn build_init_state_json(
     ai_worker: &AiWorker,
 ) -> String {
     let sample = ai_worker.get_sample();
+    if let Some(cloud_spec) = ai_worker.take_pending_cloud_patch_spec() {
+        apply_patch_spec_to_live_params(&cloud_spec, live_params, false);
+    }
     let waveform = extract_waveform_points(&sample);
     let effective_root = live_params.get_root_note().clamp(0, 127);
     let sample_info = SampleInfo {
@@ -803,6 +806,9 @@ pub fn build_telemetry_json(
     ai_worker: &AiWorker,
 ) -> String {
     let sample = ai_worker.get_sample();
+    if let Some(cloud_spec) = ai_worker.take_pending_cloud_patch_spec() {
+        apply_patch_spec_to_live_params(&cloud_spec, live_params, false);
+    }
     let effective_root = live_params.get_root_note().clamp(0, 127);
     let msg = TelemetryMessage {
         peak_l: live_params.get_peak_l(),
@@ -1717,8 +1723,11 @@ fn handle_native_ipc_message(
     }
 }
 
-pub fn apply_ai_synthesized_patch_to_live_params(prompt: &str, live_params: &LiveParamStore) {
-    let (spec, _backend) = ai_bridge::design_patch_spec_from_prompt(prompt);
+pub fn apply_patch_spec_to_live_params(
+    spec: &ai_bridge::AiSynthesizerPatchSpec,
+    live_params: &LiveParamStore,
+    count_as_ui_load: bool,
+) {
     live_params.set_attack(spec.attack.clamp(0.001, 5.0));
     live_params.set_decay(spec.decay.clamp(0.001, 5.0));
     live_params.set_sustain(spec.sustain.clamp(0.0, 1.0));
@@ -1733,8 +1742,15 @@ pub fn apply_ai_synthesized_patch_to_live_params(prompt: &str, live_params: &Liv
     live_params.set_space_mix(spec.space_mix.clamp(0.0, 1.0));
     live_params.set_mod_matrix_mask(spec.mod_matrix_mask);
     live_params.set_root_note((spec.root_note as i32).clamp(0, 127));
-    live_params.bump_ui_preset_loads();
+    if count_as_ui_load {
+        live_params.bump_ui_preset_loads();
+    }
     live_params.bump_revision();
+}
+
+pub fn apply_ai_synthesized_patch_to_live_params(prompt: &str, live_params: &LiveParamStore) {
+    let (spec, _backend) = ai_bridge::design_patch_spec_from_prompt(prompt);
+    apply_patch_spec_to_live_params(&spec, live_params, true);
 }
 
 pub fn parse_resize_ipc(body: &str) -> Option<(u32, u32)> {

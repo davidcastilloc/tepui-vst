@@ -16,6 +16,20 @@ pub const DEFAULT_CF_PRESET_MODEL: &str = "@cf/meta/llama-3.3-70b-instruct-fp8-f
 /// Modelo de difusión de samples instrumentales one-shot vía Cloudflare AI Gateway.
 pub const DEFAULT_CF_SAMPLE_DIFFUSION_MODEL: &str = "stability-ai/stable-audio-open-1.0";
 
+/// Endpoint Edge en vivo desplegado en Cloudflare Workers (`PC911 IT Services Global`)
+/// con binding nativo a Cloudflare Workers AI (`env.AI`).
+pub const DEFAULT_CF_EDGE_WORKER_URL: &str =
+    "https://tepui-ai-synth-gateway.pc911itservices.workers.dev";
+
+fn configure_silent_command(cmd: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+}
+
 /// Especificación de un parcial modal o armónico para síntesis aditiva/física.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ModalPartialSpec {
@@ -25,6 +39,12 @@ pub struct ModalPartialSpec {
     pub amplitude: f32,
     /// Tasa de decaimiento exponencial por segundo (`0.3..=25.0`)
     pub decay_rate: f32,
+    /// Desafinación microtonal del parcial en cents (`-50.0..=50.0`)
+    #[serde(default)]
+    pub detune_cents: f32,
+    /// Posición panorámica estéreo del parcial (`-1.0` L .. `+1.0` R)
+    #[serde(default)]
+    pub pan: f32,
 }
 
 /// Especificación completa generada por IA que combina:
@@ -158,6 +178,55 @@ pub fn build_cloudflare_workers_ai_preset_request(prompt: &str) -> serde_json::V
     })
 }
 
+/// Consulta en vivo el Worker Edge desplegado en Cloudflare (`https://tepui-ai-synth-gateway.pc911itservices.workers.dev/v1/preset`)
+/// que utiliza el binding nativo `env.AI` (`@cf/meta/llama-3.3-70b-instruct-fp8-fast`).
+pub fn try_fetch_cloudflare_edge_worker_patch(prompt: &str) -> Option<AiSynthesizerPatchSpec> {
+    if std::env::var("TEPUI_OFFLINE_ONLY")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+    {
+        return None;
+    }
+
+    let base_url = std::env::var("TEPUI_CF_EDGE_WORKER_URL")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_CF_EDGE_WORKER_URL.to_string());
+    let endpoint = format!("{}/v1/preset", base_url.trim_end_matches('/'));
+    let body = serde_json::json!({ "prompt": prompt.trim() }).to_string();
+
+    let mut cmd = Command::new("curl");
+    configure_silent_command(&mut cmd);
+    let output = cmd
+        .args([
+            "-sS",
+            "--max-time",
+            "28",
+            "-X",
+            "POST",
+            &endpoint,
+            "-H",
+            "Content-Type: application/json",
+            "-d",
+            &body,
+        ])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let resp_json: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
+    if resp_json.get("ok").and_then(|v| v.as_bool()) != Some(true) {
+        return None;
+    }
+    let spec_val = resp_json.get("spec")?;
+    let mut spec: AiSynthesizerPatchSpec = serde_json::from_value(spec_val.clone()).ok()?;
+    sanitize_patch_spec(&mut spec);
+    Some(spec)
+}
+
 /// Intenta consultar Cloudflare Workers AI si el usuario configuró `TEPUI_CF_ACCOUNT_ID` y `TEPUI_CF_API_TOKEN`.
 fn try_fetch_cloudflare_workers_ai_patch(prompt: &str) -> Option<AiSynthesizerPatchSpec> {
     let account_id = std::env::var("TEPUI_CF_ACCOUNT_ID").ok()?;
@@ -175,11 +244,13 @@ fn try_fetch_cloudflare_workers_ai_patch(prompt: &str) -> Option<AiSynthesizerPa
     });
     let body = build_cloudflare_workers_ai_preset_request(prompt).to_string();
 
-    let output = Command::new("curl")
+    let mut cmd = Command::new("curl");
+    configure_silent_command(&mut cmd);
+    let output = cmd
         .args([
             "-sS",
             "--max-time",
-            "6",
+            "12",
             "-X",
             "POST",
             &url,
@@ -229,6 +300,7 @@ pub fn try_fetch_cloudflare_ai_gateway_wav(prompt: &str, root_note: u8) -> Optio
     .to_string();
 
     let mut cmd = Command::new("curl");
+    configure_silent_command(&mut cmd);
     cmd.args([
         "-sS",
         "--max-time",
@@ -282,13 +354,33 @@ fn sanitize_patch_spec(spec: &mut AiSynthesizerPatchSpec) {
             ratio: 1.0,
             amplitude: 1.0,
             decay_rate: 1.5,
+            detune_cents: 0.0,
+            pan: 0.0,
         });
     }
     for p in &mut spec.partials {
         p.ratio = p.ratio.clamp(0.25, 24.0);
         p.amplitude = p.amplitude.clamp(0.001, 1.0);
         p.decay_rate = p.decay_rate.clamp(0.15, 35.0);
+        p.detune_cents = p.detune_cents.clamp(-50.0, 50.0);
+        p.pan = p.pan.clamp(-1.0, 1.0);
     }
+}
+
+/// Consulta primero el Worker Edge desplegado en Cloudflare (`https://tepui-ai-synth-gateway.pc911itservices.workers.dev`)
+/// o la API directa de Workers AI; si no hay red, retorna el diseño determinista local NPU/DSP.
+/// El tercer elemento de la tupla indica `true` cuando provino en vivo de Cloudflare Workers AI.
+pub fn design_patch_spec_with_cloudflare_live(
+    prompt: &str,
+) -> (AiSynthesizerPatchSpec, &'static str, bool) {
+    if let Some(edge_spec) = try_fetch_cloudflare_edge_worker_patch(prompt) {
+        return (edge_spec, "Cloudflare-Workers-AI", true);
+    }
+    if let Some(cf_spec) = try_fetch_cloudflare_workers_ai_patch(prompt) {
+        return (cf_spec, "Cloudflare-Workers-AI-JSON", true);
+    }
+    let (local_spec, backend) = design_patch_spec_from_prompt(prompt);
+    (local_spec, backend, false)
 }
 
 /// Diseña el `AiSynthesizerPatchSpec` completo (Preset de sintetizador + Receta de parciales modales)
@@ -415,6 +507,8 @@ pub fn design_patch_spec_from_prompt(prompt: &str) -> (AiSynthesizerPatchSpec, &
             ratio,
             amplitude,
             decay_rate,
+            detune_cents: if k % 2 == 0 { 1.2 } else { -1.2 },
+            pan: ((k % 3) - 1) as f32 * 0.18,
         });
     }
 
@@ -476,16 +570,25 @@ pub fn synthesize_sample_from_patch_spec(
         let mut sum_r = 0.0_f32;
 
         for (idx, p) in spec.partials.iter().enumerate() {
-            let freq = f0 * p.ratio;
+            let detune_ratio = if p.detune_cents.abs() > 0.01 {
+                2.0_f32.powf(p.detune_cents / 1200.0)
+            } else if idx % 2 == 0 {
+                1.0007
+            } else {
+                0.9993
+            };
+            let freq = f0 * p.ratio * detune_ratio;
             if freq >= nyquist {
                 continue;
             }
             let p_env = (-t * p.decay_rate).exp();
-            let detune = if idx % 2 == 0 { 1.0007 } else { 0.9993 };
-            let phase_l = 2.0 * PI * (freq * detune) * t + fm_mod / (idx as f32 + 1.0);
-            let phase_r = 2.0 * PI * (freq / detune) * t + fm_mod / (idx as f32 + 1.0) + 0.25;
-            sum_l += p.amplitude * p_env * phase_l.sin();
-            sum_r += p.amplitude * p_env * phase_r.sin();
+            let pan_angle = (p.pan.clamp(-1.0, 1.0) + 1.0) * 0.25 * PI;
+            let gain_l = pan_angle.cos();
+            let gain_r = pan_angle.sin();
+            let phase_l = 2.0 * PI * freq * t + fm_mod / (idx as f32 + 1.0);
+            let phase_r = 2.0 * PI * (freq / detune_ratio) * t + fm_mod / (idx as f32 + 1.0) + 0.22;
+            sum_l += p.amplitude * p_env * phase_l.sin() * gain_l;
+            sum_r += p.amplitude * p_env * phase_r.sin() * gain_r;
         }
 
         left[i] = sum_l * env_att;

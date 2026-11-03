@@ -12,8 +12,10 @@ pub mod worker;
 
 pub use cloudflare::{
     build_cloudflare_workers_ai_preset_request, design_patch_spec_from_prompt,
-    format_piano_roll_oneshot_prompt, synthesize_sample_from_patch_spec, AiSynthesizerPatchSpec,
-    ModalPartialSpec, DEFAULT_CF_PRESET_MODEL, DEFAULT_CF_SAMPLE_DIFFUSION_MODEL,
+    design_patch_spec_with_cloudflare_live, format_piano_roll_oneshot_prompt,
+    synthesize_sample_from_patch_spec, try_fetch_cloudflare_edge_worker_patch,
+    AiSynthesizerPatchSpec, ModalPartialSpec, DEFAULT_CF_EDGE_WORKER_URL, DEFAULT_CF_PRESET_MODEL,
+    DEFAULT_CF_SAMPLE_DIFFUSION_MODEL,
 };
 pub use fallback_synth::{
     generate_grand_piano_c4, generate_sample_from_prompt, generate_sample_from_prompt_with_backend,
