@@ -2,6 +2,16 @@
 
 Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
 
+## [1.14.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.13.1...v1.14.0) (2026-11-03)
+
+### Nuevas Funcionalidades (Features)
+
+* **synth:** oscilador dual FM B, canje de licencias cloud y matriz CI/CD multiplataforma ([adf1430](https://github.com/davidcastilloc/tepui-vst/commit/adf14303fab0ef5e4dcb04a129c05b72c0003fda))
+
+# Changelog
+
+Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
+
 ## [1.13.1](https://github.com/davidcastilloc/tepui-vst/compare/v1.13.0...v1.13.1) (2026-11-03)
 
 ### Correcciones de Errores (Bug Fixes)
