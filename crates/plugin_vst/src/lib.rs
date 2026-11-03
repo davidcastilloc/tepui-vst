@@ -29,6 +29,8 @@ pub enum GuiMidiEvent {
     PitchBend(f32),
     ModWheel(f32),
     SustainPedal(bool),
+    Aftertouch(f32),
+    BrightnessCC74(f32),
     AllNotesOff,
 }
 
@@ -82,6 +84,9 @@ impl Default for AiSamplerPlugin {
         let fx_rack = StereoFxRack::new(sample_rate);
         let (gui_midi_tx, gui_midi_rx) = bounded(1024);
         let (web_gui_tx, web_gui_rx) = bounded(512);
+        if audio_devices::is_standalone() {
+            audio_devices::init_hardware_midi_router(gui_midi_tx.clone());
+        }
         let live_params = Arc::new(LiveParamStore::default());
         let params = Arc::new(SamplerParams::new_linked(
             live_params.clone(),
@@ -537,6 +542,14 @@ impl Plugin for AiSamplerPlugin {
                     self.live_params.set_sustain_pedal(down);
                     self.live_params.bump_midi_cc_events();
                 }
+                GuiMidiEvent::Aftertouch(pressure) => {
+                    self.voice_manager.set_aftertouch(pressure);
+                    self.live_params.bump_midi_cc_events();
+                }
+                GuiMidiEvent::BrightnessCC74(val) => {
+                    self.voice_manager.set_brightness_cc74(val);
+                    self.live_params.bump_midi_cc_events();
+                }
                 GuiMidiEvent::AllNotesOff => {
                     #[cfg(debug_assertions)]
                     eprintln!("[TEPUI AUDIO THREAD] AllNotesOff / Panic");
@@ -905,6 +918,12 @@ mod tests {
                 GuiMidiEvent::SustainPedal(active) => {
                     plugin.voice_manager.set_sustain_pedal(active);
                 }
+                GuiMidiEvent::Aftertouch(pressure) => {
+                    plugin.voice_manager.set_aftertouch(pressure);
+                }
+                GuiMidiEvent::BrightnessCC74(slide) => {
+                    plugin.voice_manager.set_brightness_cc74(slide);
+                }
                 GuiMidiEvent::AllNotesOff => {
                     plugin.voice_manager.kill_all();
                 }
@@ -934,6 +953,12 @@ mod tests {
                 }
                 GuiMidiEvent::SustainPedal(active) => {
                     plugin.voice_manager.set_sustain_pedal(active);
+                }
+                GuiMidiEvent::Aftertouch(pressure) => {
+                    plugin.voice_manager.set_aftertouch(pressure);
+                }
+                GuiMidiEvent::BrightnessCC74(slide) => {
+                    plugin.voice_manager.set_brightness_cc74(slide);
                 }
                 GuiMidiEvent::AllNotesOff => {
                     plugin.voice_manager.kill_all();
@@ -982,6 +1007,8 @@ mod tests {
                 GuiMidiEvent::PitchBend(s) => plugin.voice_manager.set_pitch_bend(s),
                 GuiMidiEvent::ModWheel(m) => plugin.voice_manager.set_mod_wheel(m),
                 GuiMidiEvent::SustainPedal(sus) => plugin.voice_manager.set_sustain_pedal(sus),
+                GuiMidiEvent::Aftertouch(p) => plugin.voice_manager.set_aftertouch(p),
+                GuiMidiEvent::BrightnessCC74(b) => plugin.voice_manager.set_brightness_cc74(b),
                 GuiMidiEvent::AllNotesOff => plugin.voice_manager.kill_all(),
             }
         }
@@ -998,6 +1025,8 @@ mod tests {
                 GuiMidiEvent::PitchBend(s) => plugin.voice_manager.set_pitch_bend(s),
                 GuiMidiEvent::ModWheel(m) => plugin.voice_manager.set_mod_wheel(m),
                 GuiMidiEvent::SustainPedal(sus) => plugin.voice_manager.set_sustain_pedal(sus),
+                GuiMidiEvent::Aftertouch(p) => plugin.voice_manager.set_aftertouch(p),
+                GuiMidiEvent::BrightnessCC74(b) => plugin.voice_manager.set_brightness_cc74(b),
                 GuiMidiEvent::AllNotesOff => plugin.voice_manager.kill_all(),
             }
         }

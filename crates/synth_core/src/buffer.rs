@@ -366,6 +366,112 @@ impl SampleBuffer {
             }
         }
     }
+
+    /// Extrae un ciclo armónico único de 64 puntos (`Audio-to-Wavetable Resynthesis`, estilo Vital/Serum)
+    /// a partir del contenido de audio del `SampleBuffer`:
+    /// 1. Estima el período fundamental exacto (`period_samples`) mediante YIN (`detect_fundamental_pitch_hz`)
+    ///    o la nota raíz MIDI asignada.
+    /// 2. Localiza la región de estado estacionario con mayor energía armónica (RMS).
+    /// 3. Alinea el inicio del ciclo al cruce por cero ascendente (`s[i] <= 0 && s[i+1] > 0`) más cercano.
+    /// 4. Remuestrea con interpolación cúbica Hermite de 4 puntos a 64 muestras, elimina componente DC
+    ///    y normaliza el pico a `0.95` garantizando continuidad circular libre de clics.
+    pub fn extract_wavetable_cycle_64(&self) -> [f32; 64] {
+        let total = self.raw_len();
+        if total < 16 {
+            let mut fallback = [0.0_f32; 64];
+            for (i, slot) in fallback.iter_mut().enumerate() {
+                *slot = (i as f32 / 64.0 * std::f32::consts::TAU).sin() * 0.9;
+            }
+            return fallback;
+        }
+
+        let f0_hz = self
+            .detect_fundamental_pitch_hz()
+            .map(|(f0, _, _, _)| f0)
+            .unwrap_or_else(|| {
+                440.0 * 2.0_f32.powf((self.root_note.clamp(24, 96) as f32 - 69.0) / 12.0)
+            });
+        let period_f = (self.sample_rate.max(8000.0) / f0_hz.clamp(32.0, 2000.0))
+            .clamp(16.0, (total as f32 * 0.45).max(16.0));
+        let period_i = (period_f.round() as usize).clamp(16, total.saturating_sub(4).max(16));
+
+        let mono_at = |idx: usize| -> f32 {
+            let i = idx.min(total.saturating_sub(1));
+            0.5 * (self.left[i] + self.right[i])
+        };
+
+        // Buscar ventana de mayor energía RMS en el cuerpo armónico de la muestra
+        let onset = self.detect_onset_sample(-40.0);
+        let search_start =
+            (onset + (self.sample_rate * 0.012) as usize).min(total.saturating_sub(period_i + 4));
+        let search_end = (search_start + (total / 2).max(period_i * 2))
+            .min(total.saturating_sub(period_i + 4))
+            .max(search_start + 1);
+
+        let step = (period_i / 2).max(8);
+        let mut best_win_start = search_start;
+        let mut best_energy = -1.0_f32;
+        let mut pos = search_start;
+        while pos < search_end {
+            let mut e = 0.0_f32;
+            for k in 0..period_i {
+                let s = mono_at(pos + k);
+                e += s * s;
+            }
+            if e > best_energy {
+                best_energy = e;
+                best_win_start = pos;
+            }
+            pos += step;
+        }
+
+        // Alinear al cruce por cero ascendente más cercano a best_win_start
+        let zc_limit = (best_win_start + period_i).min(total.saturating_sub(period_i + 3));
+        let mut cycle_start = best_win_start;
+        for idx in best_win_start..zc_limit {
+            let s0 = mono_at(idx);
+            let s1 = mono_at(idx + 1);
+            if s0 <= 0.0 && s1 > 0.0 {
+                cycle_start = idx;
+                break;
+            }
+        }
+
+        // Remuestrear exactamente `period_f` muestras a 64 puntos con Hermite 4p
+        let mut cycle = [0.0_f32; 64];
+        let mut dc_sum = 0.0_f32;
+        for (i, slot) in cycle.iter_mut().enumerate() {
+            let src_pos = cycle_start as f32 + (i as f32 / 64.0) * period_f;
+            let idx0 = src_pos.floor() as usize;
+            let frac = src_pos - idx0 as f32;
+            let xm1 = mono_at(idx0.saturating_sub(1));
+            let x0 = mono_at(idx0);
+            let x1 = mono_at(idx0 + 1);
+            let x2 = mono_at(idx0 + 2);
+            let val = crate::resampler::hermite_interpolate_4p(xm1, x0, x1, x2, frac);
+            *slot = if val.is_finite() { val } else { 0.0 };
+            dc_sum += *slot;
+        }
+
+        // Eliminar DC offset y normalizar pico a 0.95
+        let dc = dc_sum / 64.0;
+        let mut max_abs = 0.0_f32;
+        for slot in &mut cycle {
+            *slot -= dc;
+            max_abs = max_abs.max(slot.abs());
+        }
+        if max_abs > 1e-4 {
+            let scale = 0.95 / max_abs;
+            for slot in &mut cycle {
+                *slot = (*slot * scale).clamp(-1.0, 1.0);
+            }
+        }
+
+        // Suavizar cierre de fase en los extremos para bucle circular libre de clics
+        cycle[0] = (cycle[0] * 0.5 + cycle[63] * 0.25 + cycle[1] * 0.25).clamp(-1.0, 1.0);
+        cycle[63] = (cycle[63] * 0.5 + cycle[62] * 0.25 + cycle[0] * 0.25).clamp(-1.0, 1.0);
+        cycle
+    }
 }
 
 /// Reporte de calibración DSP `Piano-Roll Ready` (Auto-Onset Trim + Auto-Pitch YIN).

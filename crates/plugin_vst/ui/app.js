@@ -962,6 +962,43 @@ function initOscilloscope() {
     });
   }
 
+  const wavToWtBtn = document.getElementById('btn-wav-to-wt');
+  if (wavToWtBtn) {
+    wavToWtBtn.addEventListener('click', async () => {
+      sendIpc('wtdraw:from_sample');
+      state.wtDrawMode = true;
+      if (wtDrawBtn) wtDrawBtn.classList.add('active');
+      wavToWtBtn.classList.add('active');
+      setTimeout(() => wavToWtBtn.classList.remove('active'), 800);
+
+      try {
+        const res = await fetch('tepui://localhost/api/wav-to-wt');
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.cycle) && data.cycle.length === 64) {
+            state.customWtCycle = data.cycle;
+            const multi = [];
+            for (let i = 0; i < 192; i++) {
+              multi.push(state.customWtCycle[i % 64]);
+            }
+            state.waveform = multi;
+          }
+        }
+      } catch (_) {
+        // Fallback local extraction from state.waveform if running in preview
+        if (Array.isArray(state.waveform) && state.waveform.length >= 64) {
+          for (let i = 0; i < 64; i++) {
+            state.customWtCycle[i] = state.waveform[i % state.waveform.length] || 0;
+          }
+        }
+      }
+      const telemRootEl = document.getElementById('telemetry-root');
+      if (telemRootEl) {
+        telemRootEl.innerText = 'WAV → WT RESYNTHESIS • 64 PTS YIN';
+      }
+    });
+  }
+
   const uniBtn = document.getElementById('btn-unison-voices');
   if (uniBtn) {
     const UNISON_STEPS = [1, 2, 4, 7, 8];
@@ -2906,7 +2943,14 @@ function initAudioSettingsModal() {
           opt.innerText = "No se detectaron teclados MIDI USB";
           selectMidi.appendChild(opt);
         }
-        selectMidi.onchange = autoSaveConfig;
+        selectMidi.onchange = () => {
+          autoSaveConfig();
+          if (selectMidi.value) {
+            showStatus('[OK] Controlador MIDI USB "' + selectMidi.value + '" conectado en caliente (Hot-Plug activo, sin reinicio).', false);
+          } else {
+            showStatus('[OK] Entrada MIDI USB desconectada (usando teclado virtual / host DAW).', false);
+          }
+        };
       }
     } catch (e) {
       console.warn('[TEPUI AUDIO SETTINGS FETCH ERROR]', e);

@@ -713,4 +713,27 @@ mod tests {
         vm.clear_custom_wavetable_cycle();
         assert!(!vm.is_custom_wavetable_active());
     }
+
+    #[test]
+    fn test_audio_to_wavetable_single_cycle_extraction() {
+        let sr = 48000.0;
+        let f0 = 220.0_f32;
+        let samples: Vec<f32> = (0..4800)
+            .map(|i| {
+                let t = i as f32 / sr;
+                let w = std::f32::consts::TAU * f0 * t;
+                w.sin() * 0.65 + (w * 2.0).sin() * 0.25 + (w * 3.0).sin() * 0.10
+            })
+            .collect();
+        let buf = SampleBuffer::new_mono(samples, sr, 57);
+        let cycle = buf.extract_wavetable_cycle_64();
+        let peak = cycle.iter().fold(0.0_f32, |acc, &x| acc.max(x.abs()));
+        let dc: f32 = cycle.iter().sum::<f32>() / 64.0;
+        assert!(
+            peak > 0.85 && peak <= 1.0,
+            "Peak should be ~0.95, got {}",
+            peak
+        );
+        assert!(dc.abs() < 0.08, "DC offset should be near zero, got {}", dc);
+    }
 }

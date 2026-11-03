@@ -8,7 +8,8 @@
 
 use std::any::Any;
 use std::borrow::Cow;
-use std::num::NonZeroIsize;
+use std::num::{NonZeroIsize, NonZeroU32};
+use std::ptr::NonNull;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
@@ -16,8 +17,9 @@ use ai_bridge::AiWorker;
 use crossbeam_channel::Sender;
 use nih_plug::prelude::{Editor, GuiContext, Param, ParentWindowHandle};
 use raw_window_handle_06::{
-    DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, RawWindowHandle,
-    Win32WindowHandle, WindowHandle,
+    AppKitWindowHandle, DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle,
+    RawDisplayHandle, RawWindowHandle, Win32WindowHandle, WindowHandle, XcbDisplayHandle,
+    XcbWindowHandle,
 };
 use serde::{Deserialize, Serialize};
 use std::rc::Rc;
@@ -193,6 +195,7 @@ struct OddMetrics {
     vital_serum_dsp_frames: u32,
     custom_wt_draws: u32,
     custom_wt_active: bool,
+    hardware_midi_events: u32,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -256,19 +259,40 @@ pub fn append_persisted_user_preset(preset_val: serde_json::Value) {
     save_persisted_preset_store(&store);
 }
 
-pub struct NativeHwnd(pub isize);
+pub struct NativeParentWindow(pub ParentWindowHandle);
 
-impl HasWindowHandle for NativeHwnd {
+impl HasWindowHandle for NativeParentWindow {
     fn window_handle(&self) -> Result<WindowHandle<'_>, HandleError> {
-        let nz = NonZeroIsize::new(self.0).ok_or(HandleError::Unavailable)?;
-        let win32 = Win32WindowHandle::new(nz);
-        unsafe { Ok(WindowHandle::borrow_raw(RawWindowHandle::Win32(win32))) }
+        match self.0 {
+            ParentWindowHandle::Win32Hwnd(hwnd) => {
+                let nz = NonZeroIsize::new(hwnd as isize).ok_or(HandleError::Unavailable)?;
+                let win32 = Win32WindowHandle::new(nz);
+                unsafe { Ok(WindowHandle::borrow_raw(RawWindowHandle::Win32(win32))) }
+            }
+            ParentWindowHandle::AppKitNsView(ns_view) => {
+                let ptr = NonNull::new(ns_view).ok_or(HandleError::Unavailable)?;
+                let appkit = AppKitWindowHandle::new(ptr);
+                unsafe { Ok(WindowHandle::borrow_raw(RawWindowHandle::AppKit(appkit))) }
+            }
+            ParentWindowHandle::X11Window(xid) => {
+                let nz = NonZeroU32::new(xid).ok_or(HandleError::Unavailable)?;
+                let xcb = XcbWindowHandle::new(nz);
+                unsafe { Ok(WindowHandle::borrow_raw(RawWindowHandle::Xcb(xcb))) }
+            }
+        }
     }
 }
 
-impl HasDisplayHandle for NativeHwnd {
+impl HasDisplayHandle for NativeParentWindow {
     fn display_handle(&self) -> Result<DisplayHandle<'_>, HandleError> {
-        Ok(DisplayHandle::windows())
+        match self.0 {
+            ParentWindowHandle::Win32Hwnd(_) => Ok(DisplayHandle::windows()),
+            ParentWindowHandle::AppKitNsView(_) => Ok(DisplayHandle::appkit()),
+            ParentWindowHandle::X11Window(_) => {
+                let xcb = XcbDisplayHandle::new(None, 0);
+                unsafe { Ok(DisplayHandle::borrow_raw(RawDisplayHandle::Xcb(xcb))) }
+            }
+        }
     }
 }
 
@@ -760,6 +784,7 @@ pub fn build_init_state_json(
         vital_serum_dsp_frames: live_params.get_vital_serum_dsp_frames(),
         custom_wt_draws: live_params.get_custom_wavetable_draws(),
         custom_wt_active: live_params.is_custom_wavetable_active(),
+        hardware_midi_events: crate::audio_devices::hardware_midi_events_count(),
     };
     let preset_store = load_persisted_preset_store();
 
@@ -964,6 +989,7 @@ pub fn build_telemetry_json(
             vital_serum_dsp_frames: live_params.get_vital_serum_dsp_frames(),
             custom_wt_draws: live_params.get_custom_wavetable_draws(),
             custom_wt_active: live_params.is_custom_wavetable_active(),
+            hardware_midi_events: crate::audio_devices::hardware_midi_events_count(),
         },
     };
     serde_json::to_string(&msg).unwrap_or_else(|_| "{}".to_string())
@@ -1360,11 +1386,20 @@ fn handle_native_ipc_message(
         return;
     }
 
-    // 0b. Custom Freehand Wavetable Draw IPC: "wtdraw:v0,v1,..." o "wtdraw:clear"
+    // 0b. Custom Freehand Wavetable Draw & Audio-to-Wavetable Resynthesis IPC:
+    //     "wtdraw:v0,v1,..." | "wtdraw:clear" | "wtdraw:from_sample"
     if let Some(rest) = trimmed.strip_prefix("wtdraw:") {
         let cmd = rest.trim();
         if cmd.eq_ignore_ascii_case("clear") || cmd.eq_ignore_ascii_case("off") {
             live_params.clear_custom_wavetable();
+            live_params.bump_gui_param_sync();
+            live_params.bump_revision();
+            return;
+        }
+        if cmd.eq_ignore_ascii_case("from_sample") || cmd.eq_ignore_ascii_case("wav_to_wt") {
+            let sample = ai_worker.get_sample();
+            let cycle = sample.extract_wavetable_cycle_64();
+            live_params.set_custom_wavetable(&cycle);
             live_params.bump_gui_param_sync();
             live_params.bump_revision();
             return;
@@ -1409,7 +1444,12 @@ fn handle_native_ipc_message(
 
         match parsed {
             Ok(config) => match crate::audio_devices::save_config(&config) {
-                Ok(_) => println!("[TEPUI CONFIG] Guardado via IPC exitosamente: {:?}", config),
+                Ok(_) => {
+                    let _ = crate::audio_devices::connect_hardware_midi_port(
+                        config.midi_input.as_deref(),
+                    );
+                    println!("[TEPUI CONFIG] Guardado via IPC exitosamente: {:?}", config);
+                }
                 Err(e) => eprintln!("[TEPUI CONFIG ERROR] Fallo al escribir archivo: {}", e),
             },
             Err(e) => {
@@ -1994,48 +2034,51 @@ impl Editor for WebViewEditor {
         parent: ParentWindowHandle,
         context: Arc<dyn GuiContext>,
     ) -> Box<dyn Any + Send> {
-        match parent {
-            ParentWindowHandle::Win32Hwnd(hwnd) => {
-                let hwnd_isize = hwnd as isize;
-                let native_window = NativeHwnd(hwnd_isize);
-                let (w, h) = self.size();
-                println!(
-                    "[TEPUI WEBVIEW] Incrustando WebView2 Serverless (tepui://app/) en HWND {:?}",
-                    hwnd
+        let native_window = NativeParentWindow(parent);
+        let (w, h) = self.size();
+
+        #[cfg(windows)]
+        let win_hwnd: win32_pump::HWND = match parent {
+            ParentWindowHandle::Win32Hwnd(hwnd) => hwnd as win32_pump::HWND,
+            _ => std::ptr::null_mut(),
+        };
+
+        #[cfg(windows)]
+        if !win_hwnd.is_null() {
+            unsafe {
+                win32_pump::apply_window_icon(win_hwnd);
+                let _ = win32_pump::setup_resizable_window(win_hwnd, w, h);
+                win32_pump::SetTimer(
+                    win_hwnd,
+                    win32_pump::TIMER_ID,
+                    8,
+                    Some(win32_pump::timer_pump_proc),
                 );
+            }
+        }
 
-                #[cfg(windows)]
-                unsafe {
-                    win32_pump::apply_window_icon(hwnd as win32_pump::HWND);
-                    let _ = win32_pump::setup_resizable_window(hwnd as win32_pump::HWND, w, h);
-                    win32_pump::SetTimer(
-                        hwnd as win32_pump::HWND,
-                        win32_pump::TIMER_ID,
-                        8,
-                        Some(win32_pump::timer_pump_proc),
-                    );
-                }
+        let gui_midi_tx = self.gui_midi_tx.clone();
+        let params = self.params.clone();
+        let live_params = self.live_params.clone();
+        let ai_worker = self.ai_worker.clone();
+        let sample_rate = self.sample_rate.clone();
+        let gui_param_tx = self.gui_param_tx.clone();
+        let size_w_ipc = self.size_w.clone();
+        let size_h_ipc = self.size_h.clone();
+        let ctx_ipc = context.clone();
+        #[cfg(windows)]
+        let size_w_reg = self.size_w.clone();
+        #[cfg(windows)]
+        let size_h_reg = self.size_h.clone();
 
-                let gui_midi_tx = self.gui_midi_tx.clone();
-                let params = self.params.clone();
-                let live_params = self.live_params.clone();
-                let ai_worker = self.ai_worker.clone();
-                let sample_rate = self.sample_rate.clone();
-                let gui_param_tx = self.gui_param_tx.clone();
-                let size_w_ipc = self.size_w.clone();
-                let size_h_ipc = self.size_h.clone();
-                let ctx_ipc = context.clone();
-                let size_w_reg = self.size_w.clone();
-                let size_h_reg = self.size_h.clone();
+        let params_proto = self.params.clone();
+        let live_params_proto = self.live_params.clone();
+        let ai_worker_proto = self.ai_worker.clone();
+        let gui_param_tx_proto = self.gui_param_tx.clone();
 
-                let params_proto = self.params.clone();
-                let live_params_proto = self.live_params.clone();
-                let ai_worker_proto = self.ai_worker.clone();
-                let gui_param_tx_proto = self.gui_param_tx.clone();
+        let builder = WebViewBuilder::new().with_background_color((12, 14, 18, 255));
 
-                let builder = WebViewBuilder::new().with_background_color((12, 14, 18, 255));
-
-                let builder = builder
+        let builder = builder
                     .with_custom_protocol("tepui".into(), move |_webview_id, req: Request<Vec<u8>>| {
                         let path = req.uri().path().trim_start_matches('/');
                         let method = req.method().as_str();
@@ -2210,6 +2253,23 @@ impl Editor for WebViewEditor {
                                         .unwrap()
                                 }
                             }
+                        } else if path.ends_with("api/wav-to-wt") {
+                            let sample = ai_worker_proto.get_sample();
+                            let cycle = sample.extract_wavetable_cycle_64();
+                            live_params_proto.set_custom_wavetable(&cycle);
+                            live_params_proto.bump_gui_param_sync();
+                            live_params_proto.bump_revision();
+                            let json = serde_json::json!({
+                                "success": true,
+                                "cycle": cycle.to_vec(),
+                                "sample_name": sample.name,
+                            })
+                            .to_string();
+                            Response::builder()
+                                .header(CONTENT_TYPE, "application/json; charset=utf-8")
+                                .header("Access-Control-Allow-Origin", "*")
+                                .body(Cow::Owned(json.into_bytes()))
+                                .unwrap()
                         } else if path.ends_with("api/audio-devices") {
                             let config = crate::audio_devices::load_config();
                             let status = crate::audio_devices::enumerate_audio_system(&config);
@@ -2224,8 +2284,14 @@ impl Editor for WebViewEditor {
                             let resp_json = match serde_json::from_slice::<crate::audio_devices::StandaloneAudioConfig>(body) {
                                 Ok(cfg) => match crate::audio_devices::save_config(&cfg) {
                                     Ok(_) => {
-                                        println!("[TEPUI CONFIG] Guardado via Custom Protocol: {:?}", cfg);
-                                        r#"{"success":true,"message":"Configuración guardada exitosamente"}"#.to_string()
+                                        let active_midi = crate::audio_devices::connect_hardware_midi_port(cfg.midi_input.as_deref());
+                                        println!("[TEPUI CONFIG] Guardado via Custom Protocol: {:?} (MIDI activo: {:?})", cfg, active_midi);
+                                        serde_json::json!({
+                                            "success": true,
+                                            "message": "Configuración guardada y puerto MIDI conectado en caliente",
+                                            "active_midi_input": active_midi,
+                                        })
+                                        .to_string()
                                     }
                                     Err(e) => format!(r#"{{"success":false,"error":"{}"}}"#, e),
                                     },
@@ -2355,66 +2421,62 @@ impl Editor for WebViewEditor {
                         eprintln!("[TEPUI WEBVIEW LOAD] {} url: {}", ev_str, url);
                     });
 
-                match builder.build_as_child(&native_window) {
-                    Ok(webview) => {
-                        let webview = Rc::new(webview);
-                        #[cfg(windows)]
-                        win32_pump::register_active_webview(win32_pump::ActiveResizeState {
-                            hwnd: hwnd as win32_pump::HWND,
-                            track_hwnd: unsafe {
-                                win32_pump::setup_resizable_window(hwnd as win32_pump::HWND, w, h)
-                            },
-                            webview: Rc::clone(&webview),
-                            size_w: size_w_reg,
-                            size_h: size_h_reg,
-                            last_w: w as i32,
-                            last_h: h as i32,
-                        });
-                        let cur_url = webview.url().unwrap_or_default();
-                        println!("[TEPUI WEBVIEW] WebView2 Serverless 0-lag incrustado exitosamente! URL: {}", cur_url);
+        match builder.build_as_child(&native_window) {
+            Ok(webview) => {
+                let webview = Rc::new(webview);
+                #[cfg(windows)]
+                if !win_hwnd.is_null() {
+                    win32_pump::register_active_webview(win32_pump::ActiveResizeState {
+                        hwnd: win_hwnd,
+                        track_hwnd: unsafe { win32_pump::setup_resizable_window(win_hwnd, w, h) },
+                        webview: Rc::clone(&webview),
+                        size_w: size_w_reg,
+                        size_h: size_h_reg,
+                        last_w: w as i32,
+                        last_h: h as i32,
+                    });
+                }
+                let cur_url = webview.url().unwrap_or_default();
+                println!(
+                    "[TEPUI WEBVIEW] WebView Serverless 0-lag incrustado exitosamente! URL: {}",
+                    cur_url
+                );
 
-                        let bounds = Rect {
-                            position: LogicalPosition::new(0.0, 0.0).into(),
-                            size: LogicalSize::new(w as f64, h as f64).into(),
-                        };
-                        if let Err(e) = webview.set_bounds(bounds) {
-                            eprintln!("[TEPUI WEBVIEW] Error al configurar bounds: {:?}", e);
+                let bounds = Rect {
+                    position: LogicalPosition::new(0.0, 0.0).into(),
+                    size: LogicalSize::new(w as f64, h as f64).into(),
+                };
+                if let Err(e) = webview.set_bounds(bounds) {
+                    eprintln!("[TEPUI WEBVIEW] Error al configurar bounds: {:?}", e);
+                }
+                let _ = webview.focus();
+
+                #[cfg(windows)]
+                if !win_hwnd.is_null() {
+                    unsafe {
+                        let mut msg: win32_pump::MSG = std::mem::zeroed();
+                        while win32_pump::PeekMessageW(
+                            &mut msg,
+                            std::ptr::null_mut(),
+                            0,
+                            0,
+                            win32_pump::PM_REMOVE,
+                        ) != 0
+                        {
+                            win32_pump::TranslateMessage(&msg);
+                            win32_pump::DispatchMessageW(&msg);
                         }
-                        let _ = webview.focus();
-
-                        #[cfg(windows)]
-                        unsafe {
-                            let mut msg: win32_pump::MSG = std::mem::zeroed();
-                            while win32_pump::PeekMessageW(
-                                &mut msg,
-                                std::ptr::null_mut(),
-                                0,
-                                0,
-                                win32_pump::PM_REMOVE,
-                            ) != 0
-                            {
-                                win32_pump::TranslateMessage(&msg);
-                                win32_pump::DispatchMessageW(&msg);
-                            }
-                        }
-
-                        Box::new(WebEditorHandle {
-                            _webview: webview,
-                            #[cfg(windows)]
-                            parent_hwnd: hwnd as win32_pump::HWND,
-                        })
-                    }
-                    Err(e) => {
-                        eprintln!(
-                            "[TEPUI WEBVIEW] Error creando WebView2 hijo en DAW: {:?}",
-                            e
-                        );
-                        Box::new(())
                     }
                 }
+
+                Box::new(WebEditorHandle {
+                    _webview: webview,
+                    #[cfg(windows)]
+                    parent_hwnd: win_hwnd,
+                })
             }
-            _ => {
-                eprintln!("[TEPUI WEBVIEW] Handle de ventana no soportado (se requiere Win32Hwnd)");
+            Err(e) => {
+                eprintln!("[TEPUI WEBVIEW] Error creando WebView hijo en DAW: {:?}", e);
                 Box::new(())
             }
         }
@@ -2484,6 +2546,14 @@ mod tests {
         assert!(bundle.contains("oled-svf"));
         assert!(bundle.contains("oled-adsr"));
         assert!(bundle.contains("oled-arp"));
+        assert!(bundle.contains("btn-wtdraw-toggle"));
+        assert!(bundle.contains("btn-wav-to-wt"));
+        if let Ok(out_path) = std::env::var("TEPUI_DUMP_PREVIEW") {
+            if let Some(parent) = std::path::Path::new(&out_path).parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = std::fs::write(&out_path, &bundle);
+        }
     }
 
     #[test]
@@ -2977,5 +3047,20 @@ mod tests {
         assert_eq!(live_params.get_root_note(), 64);
         assert_eq!(live_params.get_arp_mode(), synth_core::ArpMode::Joropo);
         assert!(live_params.get_cutoff() > 8000.0);
+
+        // 9. Probar resíntesis Audio-to-Wavetable vía IPC (wtdraw:from_sample)
+        handle_native_ipc_message(
+            "wtdraw:from_sample",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        assert!(live_params.is_custom_wavetable_active());
+        assert_eq!(live_params.get_custom_wavetable_draws(), 1);
+        let telem_final = build_telemetry_json(&params, &live_params, &ai_worker);
+        assert!(telem_final.contains(r#""hardware_midi_events":"#));
     }
 }

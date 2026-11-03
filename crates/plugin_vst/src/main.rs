@@ -162,7 +162,7 @@ fn main() {
 
     // 5. En Windows, si no se especifica backend, preferir WASAPI nativo
     let has_backend_arg = args.iter().any(|a| a == "-b" || a == "--backend");
-    if !has_backend_arg {
+    if cfg!(windows) && !has_backend_arg {
         args.push("-b".to_string());
         args.push("wasapi".to_string());
     }
