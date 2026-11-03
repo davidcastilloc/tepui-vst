@@ -2,6 +2,16 @@
 
 Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
 
+## [1.13.1](https://github.com/davidcastilloc/tepui-vst/compare/v1.13.0...v1.13.1) (2026-11-03)
+
+### Correcciones de Errores (Bug Fixes)
+
+* **ui:** corregir solapamientos de layout, desbordamiento oled y escalado a 1180x780 ([d6c7ffa](https://github.com/davidcastilloc/tepui-vst/commit/d6c7ffa475205ecbcad95f68e053a2b0dfe1b98c))
+
+# Changelog
+
+Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
+
 ## [1.13.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.12.0...v1.13.0) (2026-11-03)
 
 ### Nuevas Funcionalidades (Features)
