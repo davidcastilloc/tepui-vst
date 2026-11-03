@@ -47,7 +47,7 @@ pub struct VoiceManager {
     velocity_events_count: u32,
     arp: TepuiArpeggiator,
 
-    // Motor Vital / Serum: Wavetable 3D + Super-Unison + Sub-Oscillator + 4 Macros + LFO Shape
+    // Motor Vital / Serum: Wavetable 3D + Super-Unison + Sub-Oscillator + 4 Macros + LFO Shape + Custom Drawn WT
     wt_pos: f32,
     wt_warp: f32,
     unison_voices: u8,
@@ -55,6 +55,9 @@ pub struct VoiceManager {
     sub_level: f32,
     macros: [f32; 4],
     vital_serum_dsp_frames: u32,
+    custom_wt_active: bool,
+    custom_wt_cycle: [f32; 64],
+    custom_wt_draws_count: u32,
 }
 
 impl Default for VoiceManager {
@@ -109,7 +112,75 @@ impl VoiceManager {
             sub_level: 0.0,
             macros: [0.0; 4],
             vital_serum_dsp_frames: 0,
+            custom_wt_active: false,
+            custom_wt_cycle: [0.0; 64],
+            custom_wt_draws_count: 0,
         }
+    }
+
+    /// Registra una forma de onda de ciclo único (`64` muestras) dibujada a mano en el visor OLED (0 asignaciones dinámicas).
+    /// Elimina el offset DC, aplica suavizado anti-aliasing de 3 puntos y sincroniza todas las voces activas.
+    #[inline]
+    pub fn set_custom_wavetable_cycle(&mut self, raw_points: &[f32]) {
+        if raw_points.is_empty() {
+            return;
+        }
+        let mut resampled = [0.0_f32; 64];
+        let src_len = raw_points.len();
+        let mut mean = 0.0_f32;
+        for (i, slot) in resampled.iter_mut().enumerate() {
+            let src_pos = (i as f32 / 64.0) * (src_len as f32);
+            let idx0 = (src_pos.floor() as usize) % src_len;
+            let idx1 = (idx0 + 1) % src_len;
+            let frac = src_pos.fract();
+            let val = (raw_points[idx0] * (1.0 - frac) + raw_points[idx1] * frac).clamp(-1.0, 1.0);
+            *slot = val;
+            mean += val;
+        }
+        mean /= 64.0;
+
+        // Remover DC offset, aplicar kernel anti-aliasing 3-tap y normalizar a pico 0.95
+        let mut smoothed = [0.0_f32; 64];
+        let mut peak = 0.001_f32;
+        for i in 0..64 {
+            let prev = resampled[(i + 63) & 63] - mean;
+            let curr = resampled[i] - mean;
+            let next = resampled[(i + 1) & 63] - mean;
+            let s = 0.20 * prev + 0.60 * curr + 0.20 * next;
+            smoothed[i] = s;
+            peak = peak.max(s.abs());
+        }
+        let gain = (0.95 / peak).min(3.0);
+        for slot in &mut smoothed {
+            *slot = (*slot * gain).clamp(-1.0, 1.0);
+        }
+
+        self.custom_wt_cycle = smoothed;
+        self.custom_wt_active = true;
+        self.custom_wt_draws_count = self.custom_wt_draws_count.wrapping_add(1);
+        for voice in &mut self.voices {
+            voice.custom_wt_active = true;
+            voice.custom_wt_cycle = smoothed;
+        }
+    }
+
+    /// Desactiva la tabla de ondas dibujada a mano y regresa al motor 3D Wavetable / Sample estándar.
+    #[inline]
+    pub fn clear_custom_wavetable_cycle(&mut self) {
+        self.custom_wt_active = false;
+        for voice in &mut self.voices {
+            voice.custom_wt_active = false;
+        }
+    }
+
+    #[inline]
+    pub fn is_custom_wavetable_active(&self) -> bool {
+        self.custom_wt_active
+    }
+
+    #[inline]
+    pub fn custom_wt_draws_count(&self) -> u32 {
+        self.custom_wt_draws_count
     }
 
     /// Configura el motor Wavetable 3D, Super-Unison, Sub-Oscilador, forma de LFO y 4 Macros estilo Vital / Serum.
@@ -846,7 +917,8 @@ impl VoiceManager {
                     _ => primary_buffer,
                 };
 
-                if voice.wt_pos > 0.001
+                if voice.custom_wt_active
+                    || voice.wt_pos > 0.001
                     || voice.wt_warp > 0.001
                     || voice.unison_voices > 1
                     || voice.sub_level > 0.001

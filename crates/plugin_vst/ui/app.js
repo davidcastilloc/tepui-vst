@@ -925,6 +925,43 @@ function initOscilloscope() {
     });
   }
 
+  if (!Array.isArray(state.customWtCycle) || state.customWtCycle.length !== 64) {
+    state.customWtCycle = Array.from({ length: 64 }, (_, i) =>
+      Math.sin((i / 64) * Math.PI * 2) * 0.8 + Math.sin((i / 64) * Math.PI * 4) * 0.2
+    );
+  }
+  const wtDrawBtn = document.getElementById('btn-wtdraw-toggle');
+  const pushCustomWtToDsp = () => {
+    const csv = state.customWtCycle.map((v) => v.toFixed(3)).join(',');
+    sendIpc(`wtdraw:${csv}`);
+    // Reflejar 3 ciclos de la onda dibujada en el oscilograma principal
+    const multi = [];
+    for (let i = 0; i < 192; i++) {
+      multi.push(state.customWtCycle[i % 64]);
+    }
+    state.waveform = multi;
+    const telemRootEl = document.getElementById('telemetry-root');
+    if (telemRootEl) {
+      telemRootEl.innerText = 'CUSTOM WT DRAW • PINTA EN EL OLED';
+    }
+  };
+  if (wtDrawBtn) {
+    wtDrawBtn.addEventListener('click', () => {
+      state.wtDrawMode = !state.wtDrawMode;
+      wtDrawBtn.classList.toggle('active', !!state.wtDrawMode);
+      if (state.wtDrawMode) {
+        pushCustomWtToDsp();
+      } else {
+        sendIpc('wtdraw:clear');
+      }
+    });
+    wtDrawBtn.addEventListener('dblclick', () => {
+      state.wtDrawMode = false;
+      wtDrawBtn.classList.remove('active');
+      sendIpc('wtdraw:clear');
+    });
+  }
+
   const uniBtn = document.getElementById('btn-unison-voices');
   if (uniBtn) {
     const UNISON_STEPS = [1, 2, 4, 7, 8];
@@ -933,7 +970,7 @@ function initOscilloscope() {
       const idx = UNISON_STEPS.indexOf(cur);
       const next = UNISON_STEPS[(idx + 1) % UNISON_STEPS.length];
       updateUnisonVoicesUI(next);
-      sendIpc(`uv,${next}`);
+      sendIpc(`uni,${next}`);
     });
   }
 
@@ -964,11 +1001,41 @@ function initOscilloscope() {
       return best;
     };
 
+    let isDrawingWt = false;
+    let lastDrawIdx = -1;
+    let lastDrawVal = 0;
+
+    const paintCustomWtAt = (normX, normY) => {
+      const idx = Math.max(0, Math.min(63, Math.floor(normX * 64)));
+      const val = Math.max(-1.0, Math.min(1.0, (0.5 - normY) * 2.15));
+      if (lastDrawIdx >= 0 && lastDrawIdx !== idx) {
+        const step = idx > lastDrawIdx ? 1 : -1;
+        const span = Math.abs(idx - lastDrawIdx);
+        for (let k = 0; k <= span; k++) {
+          const i = lastDrawIdx + k * step;
+          const t = k / span;
+          state.customWtCycle[i] = lastDrawVal * (1 - t) + val * t;
+        }
+      } else {
+        state.customWtCycle[idx] = val;
+      }
+      lastDrawIdx = idx;
+      lastDrawVal = val;
+      pushCustomWtToDsp();
+    };
+
     canvas.addEventListener('mousedown', (e) => {
       const rect = canvas.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return;
       const normX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
       const normY = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+      if (state.wtDrawMode) {
+        isDrawingWt = true;
+        lastDrawIdx = -1;
+        paintCustomWtAt(normX, normY);
+        e.preventDefault();
+        return;
+      }
       const picked = pickMarker(normX, normY);
       if (picked) {
         activeRegionMarker = picked;
@@ -984,10 +1051,19 @@ function initOscilloscope() {
       const normX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
       const normY = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
 
+      if (isDrawingWt && state.wtDrawMode) {
+        paintCustomWtAt(normX, normY);
+        return;
+      }
+
       if (!activeRegionMarker) {
         if (e.target === canvas) {
-          const hover = pickMarker(normX, normY);
-          canvas.style.cursor = hover ? 'ew-resize' : 'crosshair';
+          if (state.wtDrawMode) {
+            canvas.style.cursor = 'crosshair';
+          } else {
+            const hover = pickMarker(normX, normY);
+            canvas.style.cursor = hover ? 'ew-resize' : 'crosshair';
+          }
         }
         return;
       }
@@ -1008,6 +1084,10 @@ function initOscilloscope() {
     });
 
     window.addEventListener('mouseup', () => {
+      if (isDrawingWt) {
+        isDrawingWt = false;
+        lastDrawIdx = -1;
+      }
       if (activeRegionMarker) {
         activeRegionMarker = null;
         state.isDraggingRegion = false;
@@ -1453,7 +1533,9 @@ function drawOscilloscope() {
         const t = i / 48;
         const warpedT = Math.pow(t, 1.0 - wtWarp * 0.55);
         const p = warpedT * Math.PI * 2;
-        const f0 = Math.sin(p);
+        const f0 = (state.wtDrawMode && Array.isArray(state.customWtCycle))
+          ? state.customWtCycle[Math.min(63, Math.floor(warpedT * 64))]
+          : Math.sin(p);
         const f1 = f0 + 0.5 * Math.sin(2 * p) + 0.25 * Math.sin(3 * p);
         const f2 = Math.sin(p + Math.sin(3 * p) * 0.85);
         const f3 = Math.sin(p + Math.sin(5 * p) * (1.2 + wtWarp));

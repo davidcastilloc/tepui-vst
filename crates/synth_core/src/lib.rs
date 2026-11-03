@@ -680,4 +680,37 @@ mod tests {
         assert!(l.iter().all(|x| x.is_finite()));
         assert!(r.iter().all(|x| x.is_finite()));
     }
+
+    #[test]
+    fn test_custom_wavetable_freehand_draw_dsp() {
+        let sr = 48000.0;
+        let buf = SampleBuffer::new_mono(vec![0.05; 4800], sr, 60);
+        let mut vm = VoiceManager::new(sr, 4);
+        assert!(!vm.is_custom_wavetable_active());
+
+        // Dibujar una onda personalizada de 64 puntos (diente de sierra escalonado con armónicos)
+        let mut custom_pts = [0.0_f32; 64];
+        for (i, slot) in custom_pts.iter_mut().enumerate() {
+            *slot = ((i as f32 / 32.0) - 1.0).sin();
+        }
+        vm.set_custom_wavetable_cycle(&custom_pts);
+        assert!(vm.is_custom_wavetable_active());
+        assert_eq!(vm.custom_wt_draws_count(), 1);
+
+        vm.note_on(60, 0.95, &buf);
+        let mut l = vec![0.0; 256];
+        let mut r = vec![0.0; 256];
+        vm.process_block(&buf, &mut l, &mut r);
+
+        let peak = l.iter().fold(0.0_f32, |acc, &x| acc.max(x.abs()));
+        assert!(
+            peak > 0.20,
+            "Custom wavetable must produce strong signal, got {}",
+            peak
+        );
+        assert!(vm.vital_serum_dsp_frames() >= 256);
+
+        vm.clear_custom_wavetable_cycle();
+        assert!(!vm.is_custom_wavetable_active());
+    }
 }

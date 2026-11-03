@@ -191,6 +191,8 @@ struct OddMetrics {
     cloud_daily_neurons: u32,
     cloud_budget_guard_trips: u32,
     vital_serum_dsp_frames: u32,
+    custom_wt_draws: u32,
+    custom_wt_active: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -756,6 +758,8 @@ pub fn build_init_state_json(
         cloud_daily_neurons: ai_worker.cloud_daily_neurons(),
         cloud_budget_guard_trips: ai_worker.cloud_budget_guard_trips(),
         vital_serum_dsp_frames: live_params.get_vital_serum_dsp_frames(),
+        custom_wt_draws: live_params.get_custom_wavetable_draws(),
+        custom_wt_active: live_params.is_custom_wavetable_active(),
     };
     let preset_store = load_persisted_preset_store();
 
@@ -958,6 +962,8 @@ pub fn build_telemetry_json(
             cloud_daily_neurons: ai_worker.cloud_daily_neurons(),
             cloud_budget_guard_trips: ai_worker.cloud_budget_guard_trips(),
             vital_serum_dsp_frames: live_params.get_vital_serum_dsp_frames(),
+            custom_wt_draws: live_params.get_custom_wavetable_draws(),
+            custom_wt_active: live_params.is_custom_wavetable_active(),
         },
     };
     serde_json::to_string(&msg).unwrap_or_else(|_| "{}".to_string())
@@ -1351,6 +1357,32 @@ fn handle_native_ipc_message(
     // 0. Ultra-fast compact Panic / Kill all: "k" o "panic" (0 asignaciones)
     if trimmed == "k" || trimmed == "panic" || trimmed == "all_notes_off" {
         let _ = gui_midi_tx.try_send(GuiMidiEvent::AllNotesOff);
+        return;
+    }
+
+    // 0b. Custom Freehand Wavetable Draw IPC: "wtdraw:v0,v1,..." o "wtdraw:clear"
+    if let Some(rest) = trimmed.strip_prefix("wtdraw:") {
+        let cmd = rest.trim();
+        if cmd.eq_ignore_ascii_case("clear") || cmd.eq_ignore_ascii_case("off") {
+            live_params.clear_custom_wavetable();
+            live_params.bump_gui_param_sync();
+            live_params.bump_revision();
+            return;
+        }
+        let mut pts = Vec::with_capacity(64);
+        for tok in cmd.split(',') {
+            if let Ok(v) = tok.trim().parse::<f32>() {
+                pts.push(v.clamp(-1.0, 1.0));
+                if pts.len() >= 128 {
+                    break;
+                }
+            }
+        }
+        if !pts.is_empty() {
+            live_params.set_custom_wavetable(&pts);
+            live_params.bump_gui_param_sync();
+            live_params.bump_revision();
+        }
         return;
     }
 

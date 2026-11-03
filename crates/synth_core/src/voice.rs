@@ -84,12 +84,14 @@ pub struct Voice {
     pub quality: ResamplingQuality,
     pub region_override: SampleRegionOverride,
 
-    // Motor Wavetable 3D + Super-Unison + Sub-Oscillator estilo Vital / Serum (0 asignaciones)
+    // Motor Wavetable 3D + Super-Unison + Sub-Oscillator + Custom Drawn Wavetable estilo Vital / Serum (0 asignaciones)
     pub wt_pos: f32,
     pub wt_warp: f32,
     pub unison_voices: u8,
     pub unison_detune: f32,
     pub sub_level: f32,
+    pub custom_wt_active: bool,
+    pub custom_wt_cycle: [f32; 64],
     sub_phase: f32,
     unison_phases: [f32; 8],
 
@@ -117,6 +119,8 @@ impl Voice {
             unison_voices: 1,
             unison_detune: 0.20,
             sub_level: 0.0,
+            custom_wt_active: false,
+            custom_wt_cycle: [0.0; 64],
             sub_phase: 0.0,
             unison_phases: [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875],
             sample_rate,
@@ -274,17 +278,22 @@ impl Voice {
         let mut sig_left = raw_left;
         let mut sig_right = raw_right;
 
-        // Motor Vital / Serum: Oscilador Wavetable 3D Morfable + Super-Unison Estéreo + Sub-Oscilador (-1 Oct) + Spectral Warp
+        // Motor Vital / Serum: Oscilador Wavetable 3D Morfable + Custom Drawn WT + Super-Unison Estéreo + Sub-Oscilador (-1 Oct) + Spectral Warp
         let u_voices = self.unison_voices.clamp(1, 8);
-        if self.wt_pos > 0.001 || self.wt_warp > 0.001 || u_voices > 1 || self.sub_level > 0.001 {
+        if self.custom_wt_active
+            || self.wt_pos > 0.001
+            || self.wt_warp > 0.001
+            || u_voices > 1
+            || self.sub_level > 0.001
+        {
             let sr = self.sample_rate.max(8000.0);
             let bend_factor = (self.playback_ratio / self.base_ratio.max(1e-6)) as f32;
             let base_freq = 440.0
                 * 2.0_f32.powf((self.note as f32 - 69.0) / 12.0)
                 * bend_factor.clamp(0.25, 4.0);
 
-            // 1. Super-Unison + 3D Wavetable Morphing (4 cuadros espectrales: Sub-Tri -> Saw -> Formant -> Metallic FM)
-            if self.wt_pos > 0.001 || u_voices > 1 {
+            // 1. Super-Unison + 3D Wavetable Morphing (4 cuadros espectrales: Custom/Sub-Tri -> Saw -> Formant -> Metallic FM)
+            if self.custom_wt_active || self.wt_pos > 0.001 || u_voices > 1 {
                 let mut uni_l = 0.0_f32;
                 let mut uni_r = 0.0_f32;
                 let center = (u_voices as f32 - 1.0) * 0.5;
@@ -303,8 +312,17 @@ impl Voice {
                     self.unison_phases[idx] = next_ph;
 
                     let ang = ph * std::f32::consts::TAU;
-                    // Cuadro 0: Fundamental cálida + 2º armónico
-                    let f0 = ang.sin() * 0.8 + (ang * 2.0).sin() * 0.2;
+                    // Cuadro 0: Onda dibujada a mano en el OLED (Custom WT) o Fundamental cálida + 2º armónico
+                    let f0 = if self.custom_wt_active {
+                        let pos64 = ph.clamp(0.0, 0.999_999) * 64.0;
+                        let idx0 = (pos64 as usize) & 63;
+                        let idx1 = (idx0 + 1) & 63;
+                        let frac = pos64 - (idx0 as f32);
+                        self.custom_wt_cycle[idx0] * (1.0 - frac)
+                            + self.custom_wt_cycle[idx1] * frac
+                    } else {
+                        ang.sin() * 0.8 + (ang * 2.0).sin() * 0.2
+                    };
                     // Cuadro 1: Sawtooth analógica rica
                     let f1 = (1.0 - 2.0 * ph) * 0.75 + ang.sin() * 0.25;
                     // Cuadro 2: Formante vocal / Sync
@@ -349,10 +367,16 @@ impl Voice {
                     sig_right = sig_right * (1.0 - u_mix * 0.4) + det_l * u_mix;
                 }
 
-                let wt_blend =
-                    (pos * 0.68 + if u_voices > 1 { 0.22 } else { 0.0 }).clamp(0.0, 0.82);
-                sig_left = sig_left * (1.0 - wt_blend * 0.55) + uni_l * wt_blend * 0.55;
-                sig_right = sig_right * (1.0 - wt_blend * 0.55) + uni_r * wt_blend * 0.55;
+                if self.custom_wt_active {
+                    // En modo Custom Freehand Wavetable Draw, el ciclo dibujado lidera el timbre
+                    sig_left = sig_left * 0.18 + uni_l * 1.15;
+                    sig_right = sig_right * 0.18 + uni_r * 1.15;
+                } else {
+                    let wt_blend =
+                        (pos * 0.68 + if u_voices > 1 { 0.22 } else { 0.0 }).clamp(0.0, 0.82);
+                    sig_left = sig_left * (1.0 - wt_blend * 0.55) + uni_l * wt_blend * 0.55;
+                    sig_right = sig_right * (1.0 - wt_blend * 0.55) + uni_r * wt_blend * 0.55;
+                }
             }
 
             // 2. Sub-Oscilador dedicado a -1 Octava (Seno/Triángulo saturado)

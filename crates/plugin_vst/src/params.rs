@@ -636,6 +636,10 @@ pub struct LiveParamStore {
     pub lfo_shape: AtomicI32,
     pub macros: [AtomicU32; 4],
     pub vital_serum_dsp_frames: AtomicU32,
+    pub custom_wt_active: AtomicI32,
+    pub custom_wt_revision: AtomicU32,
+    pub custom_wt_draws: AtomicU32,
+    pub custom_wt_cycle: [AtomicU32; 64],
 
     pub active_keyzones_mask: AtomicU32,
     pub lfo_mod_value: AtomicU32,
@@ -706,6 +710,10 @@ impl Default for LiveParamStore {
                 AtomicU32::new(0.0_f32.to_bits()),
             ],
             vital_serum_dsp_frames: AtomicU32::new(0),
+            custom_wt_active: AtomicI32::new(0),
+            custom_wt_revision: AtomicU32::new(0),
+            custom_wt_draws: AtomicU32::new(0),
+            custom_wt_cycle: std::array::from_fn(|_| AtomicU32::new(0.0_f32.to_bits())),
             active_keyzones_mask: AtomicU32::new(0),
             lfo_mod_value: AtomicU32::new(0.0_f32.to_bits()),
             playhead_norm: AtomicU32::new(0.0_f32.to_bits()),
@@ -1421,6 +1429,60 @@ impl LiveParamStore {
     #[inline]
     pub fn get_vital_serum_dsp_frames(&self) -> u32 {
         self.vital_serum_dsp_frames.load(Ordering::Relaxed)
+    }
+
+    #[inline]
+    pub fn set_custom_wavetable(&self, raw_points: &[f32]) {
+        if raw_points.is_empty() {
+            return;
+        }
+        let src_len = raw_points.len();
+        for (i, slot) in self.custom_wt_cycle.iter().enumerate() {
+            let src_pos = (i as f32 / 64.0) * (src_len as f32);
+            let idx0 = (src_pos.floor() as usize) % src_len;
+            let idx1 = (idx0 + 1) % src_len;
+            let frac = src_pos.fract();
+            let val = raw_points[idx0] * (1.0 - frac) + raw_points[idx1] * frac;
+            let clean = if val.is_finite() {
+                val.clamp(-1.0, 1.0)
+            } else {
+                0.0
+            };
+            slot.store(clean.to_bits(), Ordering::Relaxed);
+        }
+        self.custom_wt_active.store(1, Ordering::Release);
+        self.custom_wt_revision.fetch_add(1, Ordering::AcqRel);
+        self.custom_wt_draws.fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[inline]
+    pub fn clear_custom_wavetable(&self) {
+        self.custom_wt_active.store(0, Ordering::Release);
+        self.custom_wt_revision.fetch_add(1, Ordering::AcqRel);
+    }
+
+    #[inline]
+    pub fn is_custom_wavetable_active(&self) -> bool {
+        self.custom_wt_active.load(Ordering::Acquire) != 0
+    }
+
+    #[inline]
+    pub fn get_custom_wavetable_revision(&self) -> u32 {
+        self.custom_wt_revision.load(Ordering::Acquire)
+    }
+
+    #[inline]
+    pub fn get_custom_wavetable_draws(&self) -> u32 {
+        self.custom_wt_draws.load(Ordering::Relaxed)
+    }
+
+    #[inline]
+    pub fn get_custom_wavetable_cycle(&self) -> [f32; 64] {
+        let mut out = [0.0_f32; 64];
+        for (i, slot) in self.custom_wt_cycle.iter().enumerate() {
+            out[i] = f32::from_bits(slot.load(Ordering::Relaxed));
+        }
+        out
     }
 
     #[allow(dead_code)]

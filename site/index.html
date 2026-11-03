@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TEPUI — Sintetizador Wavetable, Karplus-Strong y Motor Híbrido en Rust (VST3 / CLAP)</title>
+  <meta name="description" content="Sintetizador modular open-source en Rust nativo con dibujo de tablas de onda de 64 puntos, Super-Unison de 8 voces, filtros Cytomic SVF, OTT de 3 bandas y guía de ondas Karplus-Strong.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders:opsz,wght@10..72,800&family=Public+Sans:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-stone: #e2e2de;
+      --bg-surface: #d4d4cf;
+      --ink-black: #111111;
+      --font-display: 'Big Shoulders', sans-serif;
+      --font-sans: 'Public Sans', sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      background-color: var(--bg-stone);
+      color: var(--ink-black);
+      font-family: var(--font-sans);
+      font-size: 16px;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      background-color: var(--bg-stone);
+      color: var(--ink-black);
+      overflow-x: hidden;
+    }
+
+    a {
+      color: var(--ink-black);
+      text-decoration: none;
+    }
+
+    p {
+      max-width: 60ch;
+      color: var(--ink-black);
+      font-size: 1rem;
+    }
+
+    img, video {
+      display: block;
+      width: 100%;
+      max-width: 100%;
+      height: auto;
+    }
+
+    code, pre {
+      font-family: var(--font-sans);
+      font-size: 1rem;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    /* Strictly 5 Typographic Sizes:
+       1. Display (h1): clamp(3.5rem, 10vw, 8.5rem)
+       2. Heading (h2): clamp(2rem, 3.6vw, 3.25rem)
+       3. Subheading (h3, .brand-mark, th): 1.5rem (24px)
+       4. Lead (.hero-lead): 1.25rem (20px)
+       5. Body (p, a, button, td, pre): 1rem (16px)
+    */
+
+    .page-shell {
+      max-width: 1360px;
+      margin: 0 auto;
+      padding: 0 32px;
+    }
+
+    /* Top Navigation Bar */
+    .top-rail {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 24px 0;
+    }
+
+    .brand-mark {
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: 1.5rem;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 28px;
+      align-items: center;
+      font-weight: 600;
+      font-size: 1rem;
+    }
+
+    .nav-links a {
+      padding: 6px 0;
+      transition: transform 0.2s ease, opacity 0.2s ease;
+    }
+
+    .nav-links a:hover {
+      transform: translateY(-2px);
+      opacity: 0.75;
+    }
+
+    /* Hero Monument Section */
+    .hero-monument {
+      padding: 24px 0 64px;
+    }
+
+    .hero-title {
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: clamp(3.5rem, 10vw, 8.5rem);
+      line-height: 0.92;
+      letter-spacing: -0.02em;
+      text-transform: uppercase;
+      color: var(--ink-black);
+      margin-bottom: 28px;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 48px;
+      align-items: start;
+    }
+
+    .hero-lead {
+      font-size: 1.25rem;
+      line-height: 1.5;
+      color: var(--ink-black);
+      margin-bottom: 24px;
+      max-width: 54ch;
+    }
+
+    .cta-cluster {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      margin-bottom: 28px;
+    }
+
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 52px;
+      padding: 14px 24px;
+      background-color: var(--ink-black);
+      color: var(--bg-stone);
+      font-family: var(--font-sans);
+      font-weight: 600;
+      font-size: 1rem;
+      border: none;
+      cursor: pointer;
+      transition: transform 0.2s ease, opacity 0.2s ease;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      opacity: 0.9;
+    }
+
+    .btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 52px;
+      padding: 14px 22px;
+      background-color: var(--bg-surface);
+      color: var(--ink-black);
+      font-family: var(--font-sans);
+      font-weight: 600;
+      font-size: 1rem;
+      border: none;
+      cursor: pointer;
+      transition: transform 0.2s ease, opacity 0.2s ease;
+    }
+
+    .btn-secondary:hover {
+      transform: translateY(-2px);
+    }
+
+    .hero-visual-frame {
+      background-color: var(--bg-surface);
+      padding: 16px;
+    }
+
+    .hero-visual-caption {
+      padding-top: 12px;
+      color: var(--ink-black);
+      font-size: 1rem;
+      font-weight: 600;
+    }
+
+    /* Section Containers */
+    .section-band {
+      padding: 72px 0;
+    }
+
+    .section-band.alt-tone {
+      background-color: var(--bg-surface);
+    }
+
+    .section-header {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 48px;
+      align-items: end;
+      margin-bottom: 44px;
+    }
+
+    .section-title {
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: clamp(2rem, 3.6vw, 3.25rem);
+      line-height: 0.96;
+      text-transform: uppercase;
+    }
+
+    /* Interactive Browser Synth & Freehand Wavetable Draw Deck */
+    .two-col-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 48px;
+      align-items: start;
+    }
+
+    .surface-block {
+      background-color: var(--bg-stone);
+      padding: 28px;
+    }
+
+    .surface-block.tone-step {
+      background-color: var(--bg-surface);
+    }
+
+    .block-heading {
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: 1.5rem;
+      line-height: 1.05;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+
+    .block-copy {
+      margin-bottom: 20px;
+    }
+
+    .wt-canvas-box {
+      background-color: var(--ink-black);
+      padding: 8px;
+      margin-bottom: 18px;
+    }
+
+    #web-wt-canvas {
+      width: 100%;
+      height: 190px;
+      display: block;
+      cursor: crosshair;
+      background-color: #090d14;
+    }
+
+    .preset-audition-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+
+    .audition-btn {
+      min-height: 44px;
+      padding: 10px 16px;
+      border: none;
+      background-color: var(--bg-surface);
+      color: var(--ink-black);
+      font-family: var(--font-sans);
+      font-weight: 600;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: transform 0.15s ease, opacity 0.15s ease;
+    }
+
+    .audition-btn:hover {
+      transform: translateY(-2px);
+    }
+
+    .audition-btn.active {
+      background-color: var(--ink-black);
+      color: var(--bg-stone);
+    }
+
+    .note-strip {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+
+    .note-trigger {
+      min-height: 48px;
+      border: none;
+      background-color: var(--ink-black);
+      color: var(--bg-stone);
+      font-family: var(--font-sans);
+      font-weight: 600;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: transform 0.12s ease;
+    }
+
+    .note-trigger:hover {
+      transform: translateY(-2px);
+    }
+
+    .media-block {
+      margin-bottom: 36px;
+    }
+
+    .media-block img, .media-block video {
+      margin-bottom: 16px;
+    }
+
+    /* Sound Packs Specification Table */
+    .spec-table {
+      width: 100%;
+      border-collapse: collapse;
+      background-color: var(--bg-stone);
+      margin-bottom: 48px;
+    }
+
+    .spec-table th, .spec-table td {
+      padding: 16px;
+      text-align: left;
+      border-bottom: 1px solid var(--ink-black);
+      font-size: 1rem;
+    }
+
+    .spec-table th {
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: 1.5rem;
+      text-transform: uppercase;
+      background-color: var(--ink-black);
+      color: var(--bg-stone);
+    }
+
+    .code-panel {
+      background-color: var(--ink-black);
+      color: var(--bg-stone);
+      padding: 28px;
+    }
+
+    .code-panel p {
+      color: var(--bg-stone);
+      margin-bottom: 16px;
+    }
+
+    .site-footer {
+      padding: 40px 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+      font-size: 1rem;
+    }
+
+    @keyframes subtleFloat {
+      0%, 100% {
+        transform: translate3d(0, 0px, 0);
+      }
+      50% {
+        transform: translate3d(0, -4px, 0);
+      }
+    }
+
+    .motion-item {
+      will-change: transform, opacity;
+      animation: subtleFloat 4.2s ease-in-out infinite;
+      transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.35s ease;
+    }
+
+    @media (max-width: 960px) {
+      .page-shell {
+        padding: 0 20px;
+      }
+
+      .hero-grid,
+      .section-header,
+      .two-col-grid {
+        grid-template-columns: 1fr;
+        gap: 28px;
+      }
+
+      .nav-links {
+        display: none;
+      }
+
+      .hero-monument,
+      .section-band {
+        padding: 36px 0;
+      }
+
+      .spec-table th, .spec-table td {
+        padding: 10px 8px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="page-shell">
+    <header class="top-rail motion-item">
+      <a href="#top" class="brand-mark">TEPUI AUDIO LABS</a>
+      <nav class="nav-links" aria-label="Navegación principal">
+        <a href="#audicion">Audición Web</a>
+        <a href="#arquitectura">Arquitectura DSP</a>
+        <a href="#soundpacks">Sound Packs</a>
+        <a href="#descargas">Instaladores</a>
+        <a href="https://github.com/davidcastilloc/tepui-vst" target="_blank" rel="noopener">GitHub</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <!-- HERO MONUMENT -->
+      <section class="hero-monument">
+        <h1 class="hero-title motion-item">TEPUI SYNTHESIZER</h1>
+
+        <div class="hero-grid">
+          <div class="motion-item">
+            <p class="hero-lead">
+              Sintetizador wavetable de 64 puntos con dibujo a mano alzada sobre pantalla OLED, guía de ondas Karplus-Strong y diseño de parches asistido por IA en Rust nativo para productores en Windows 64-bit (VST3, CLAP y Standalone v1.12.0).
+            </p>
+
+            <div class="cta-cluster">
+              <a class="btn-primary" href="https://github.com/davidcastilloc/tepui-vst/releases/latest/download/TEPUI-Setup-Windows-x64.exe">
+                DESCARGAR INSTALADOR WINDOWS (.EXE)
+              </a>
+              <a class="btn-secondary" href="https://github.com/davidcastilloc/tepui-vst/releases/latest/download/TEPUI-Windows-VST3.zip">
+                PAQUETE VST3 + CLAP (.ZIP)
+              </a>
+            </div>
+
+            <p>
+              Hilo de audio en tiempo real con cero asignaciones de memoria, Super-Unison estéreo de 8 voces con sub-oscilador dedicado, más de 1,250 presets de fábrica y soporte abierto Bring Your Own Key.
+            </p>
+          </div>
+
+          <div class="hero-visual-frame motion-item">
+            <img src="assets/tepui-workstation.jpg" width="1200" height="750" alt="Estación de síntesis modular TEPUI v1.12.0 mostrando los 6 módulos Eurorack, modo WT DRAW y los 7 timbres Pro Synth">
+            <p class="hero-visual-caption">
+              Chasis Eurorack de 6 módulos con modo WT DRAW, Reese Bass, Supersaw y Karplus-Strong.
+            </p>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- INTERACTIVE BROWSER SYNTH & CUSTOM WAVETABLE DRAW -->
+  <section id="audicion" class="section-band alt-tone">
+    <div class="page-shell">
+      <div class="section-header">
+        <h2 class="section-title motion-item">AUDICIÓN EN VIVO</h2>
+        <p class="motion-item">
+          Prueba el motor tímbrico directamente en tu navegador o dibuja con el cursor tu propia forma de onda de 64 puntos. En el plugin nativo, cada trazo actualiza el oscilador de las 16 voces polifónicas sin bloqueos.
+        </p>
+      </div>
+
+      <div class="two-col-grid">
+        <div class="surface-block motion-item">
+          <h3 class="block-heading">LIENZO WT DRAW</h3>
+          <p class="block-copy">
+            Arrastra el cursor sobre la pantalla para esculpir los 64 armónicos del ciclo o selecciona uno de los motores Pro Synth incluidos.
+          </p>
+
+          <div class="wt-canvas-box">
+            <canvas id="web-wt-canvas" width="640" height="190" aria-label="Lienzo interactivo para dibujar formas de onda de 64 puntos"></canvas>
+          </div>
+
+          <div class="preset-audition-row">
+            <button type="button" class="audition-btn active" data-engine="reese">REESE BASS</button>
+            <button type="button" class="audition-btn" data-engine="supersaw">SUPERSAW 7V</button>
+            <button type="button" class="audition-btn" data-engine="acid303">ACID 303</button>
+            <button type="button" class="audition-btn" data-engine="karplus">KARPLUS PLUCK</button>
+            <button type="button" class="audition-btn" data-engine="custom">ONDA DIBUJADA</button>
+          </div>
+
+          <p class="block-copy" id="audition-status">
+            Motor activo: Neuro Reese Bass. Toca una nota para audicionar.
+          </p>
+
+          <div class="note-strip">
+            <button type="button" class="note-trigger" data-freq="130.81">C3 (DO)</button>
+            <button type="button" class="note-trigger" data-freq="155.56">Eb3 (MIb)</button>
+            <button type="button" class="note-trigger" data-freq="174.61">F3 (FA)</button>
+            <button type="button" class="note-trigger" data-freq="196.00">G3 (SOL)</button>
+            <button type="button" class="note-trigger" data-freq="233.08">Bb3 (SIb)</button>
+            <button type="button" class="note-trigger" data-freq="261.63">C4 (DO)</button>
+          </div>
+        </div>
+
+        <div class="surface-block motion-item">
+          <video src="assets/tepui-preview.mp4" poster="assets/tepui-workstation.jpg" autoplay muted loop playsinline width="800" height="450"></video>
+          <h3 class="block-heading" style="margin-top: 16px;">RACK SERUM &amp; VITAL</h3>
+          <p>
+            Combina síntesis por tablas de onda 3D con Spectral Warp, filtros Cytomic TPT de topología preservadora de transientes, matriz de modulación 5x5 y compresión multibanda OTT de 3 bandas con saturación analógica.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DSP ARCHITECTURE & REAL HARDWARE VIEWS -->
+  <section id="arquitectura" class="section-band">
+    <div class="page-shell">
+      <div class="section-header">
+        <h2 class="section-title motion-item">ARQUITECTURA DSP</h2>
+        <p class="motion-item">
+          Construido desde cero en Rust sobre nih-plug con interpolación cúbica Hermite de 4 puntos, detección de tono fundamental por autocorrelación YIN y puente híbrido para generación de muestras.
+        </p>
+      </div>
+
+      <div class="two-col-grid">
+        <article class="media-block motion-item">
+          <img src="assets/tepui-preset-explorer.jpg" width="900" height="560" alt="Explorador de paquetes de sonidos y buscador de más de 1,250 presets categorizados">
+          <h3 class="block-heading">1,250+ PRESETS</h3>
+          <p>
+            Navega instantáneamente entre bajos Neuro, leads Supersaw, cuerdas acústicas por guía de ondas y pads vocales con filtros de formantes. Cada parche diseñado con IA se almacena en caché comunitaria global.
+          </p>
+        </article>
+
+        <article class="media-block motion-item">
+          <img src="assets/tepui-cockpit.jpg" width="760" height="560" alt="Detalle de los controles rotatorios de alta precisión, filtros SVF y medidores de salida">
+          <h3 class="block-heading">FILTROS CYTOMIC SVF</h3>
+          <p>
+            Cada voz incorpora su propio filtro de estado variable de integración trapezoidal libre de retardo, modulado por dos LFOs sincronizados a tempo, envolvente auxiliar, velocidad MIDI y rueda de modulación.
+          </p>
+        </article>
+
+        <article class="media-block motion-item">
+          <img src="assets/tepui-banner.jpg" width="760" height="480" alt="Identidad visual de Tepui Audio Labs inspirada en las formaciones geológicas de la Gran Sabana">
+          <h3 class="block-heading">MOTOR KARPLUS-STRONG</h3>
+          <p>
+            Para los timbres acústicos de cuerda pulsada, TEPUI ejecuta una línea de retardo fraccional real excitada por ráfagas de púa filtradas, filtro de dispersión all-pass de rigidez armónica y resonancia de caja.
+          </p>
+        </article>
+
+        <article class="media-block motion-item">
+          <img src="assets/tepui-spectral.jpg" width="900" height="480" alt="Vista del analizador espectral, banco de faders ADSR y arpegiador polifónico">
+          <h3 class="block-heading">RACK OTT &amp; SHIMMER</h3>
+          <p>
+            La etapa final procesa la mezcla estéreo a través de un saturador hiperbólico asimétrico, un compresor upwards y downwards de 3 bandas estilo OTT y una red de retardo espacial con realimentación cruzada.
+          </p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- SOUND PACKS & DIRECT BINARY DOWNLOADS -->
+  <section id="soundpacks" class="section-band alt-tone">
+    <div class="page-shell">
+      <div class="section-header">
+        <h2 class="section-title motion-item">PAQUETES &amp; DESCARGAS</h2>
+        <p class="motion-item">
+          Todos los instaladores incluyen las 5 expansiones de fábrica preinstaladas y el motor de síntesis híbrido listo para usar en Ableton Live, FL Studio, Reaper, Bitwig y Studio One.
+        </p>
+      </div>
+
+      <table class="spec-table motion-item" aria-label="Catálogo de paquetes de sonido">
+        <thead>
+          <tr>
+            <th>EXPANSIÓN</th>
+            <th>MOTOR DSP</th>
+            <th>TIMBRES CLAVE</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Vital Wavetables &amp; FM</strong></td>
+            <td>Morfing Wavetable 3D + Fase FM</td>
+            <td>FM Glass Pluck, Metallic Bell, Harmonic Morph</td>
+          </tr>
+          <tr>
+            <td><strong>Neuro Reese &amp; 808 Bass</strong></td>
+            <td>2x Saws Desafinadas + Sub -1 Oct</td>
+            <td>Neuro Reese 55Hz, Sub 808 Glide, Acid 303</td>
+          </tr>
+          <tr>
+            <td><strong>Supersaw &amp; Cyber Leads</strong></td>
+            <td>7 Voces Estéreo + OTT Multibanda</td>
+            <td>Anthem Supersaw, Cyber Arp, Trance Stack</td>
+          </tr>
+          <tr>
+            <td><strong>Cinematic &amp; Vocal Pads</strong></td>
+            <td>3 Formantes Vocales + Shimmer</td>
+            <td>Choir Formant Pad, Gran Sabana, Canyon Air</td>
+          </tr>
+          <tr>
+            <td><strong>Karplus Acoustic Strings</strong></td>
+            <td>Guía de Ondas Karplus-Strong</td>
+            <td>Concert Nylon Pluck, Harp Waveguide, Warm Body</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div id="descargas" class="two-col-grid">
+        <div class="surface-block motion-item">
+          <img src="assets/tepui-icon.jpg" width="280" height="280" style="max-width: 220px; margin-bottom: 18px;" alt="Emblema oficial del sintetizador TEPUI">
+          <h3 class="block-heading">INSTALADORES WINDOWS</h3>
+          <p class="block-copy">
+            El instalador automático deposita el plugin VST3 en C:\Program Files\Common Files\VST3, el paquete CLAP en C:\Program Files\Common Files\CLAP y crea el acceso directo para TEPUI Studio Standalone.
+          </p>
+          <div class="cta-cluster">
+            <a class="btn-primary" href="https://github.com/davidcastilloc/tepui-vst/releases/latest/download/TEPUI-Setup-Windows-x64.exe">
+              INSTALADOR .EXE
+            </a>
+            <a class="btn-secondary" href="https://github.com/davidcastilloc/tepui-vst/releases/latest/download/TEPUI-Windows-VST3.zip">
+              VST3 (.ZIP)
+            </a>
+            <a class="btn-secondary" href="https://github.com/davidcastilloc/tepui-vst/releases/latest/download/TEPUI-Windows-CLAP.zip">
+              CLAP (.ZIP)
+            </a>
+            <a class="btn-secondary" href="https://github.com/davidcastilloc/tepui-vst/releases/latest/download/TEPUI-Studio-Windows-Standalone.zip">
+              STANDALONE (.ZIP)
+            </a>
+          </div>
+        </div>
+
+        <div class="code-panel motion-item">
+          <h3 class="block-heading">MODO BYOK OPEN-SOURCE</h3>
+          <p>
+            TEPUI opera 100% gratis con la caché comunitaria compartida o conectando tu propio proveedor compatible con OpenAI (Groq, Ollama local, OpenAI, Anthropic o Cloudflare Workers AI):
+          </p>
+          <pre><code>{
+  "ai_provider": "groq-or-ollama-byok",
+  "local_fallback": "karplus-wavetable",
+  "zero_alloc_audio_thread": true,
+  "sample_rate_hz": 48000,
+  "custom_wavetable_points": 64
+}</code></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="page-shell">
+    <footer class="site-footer">
+      <p><strong>TEPUI AUDIO LABS</strong> — Sintetizador Wavetable, Karplus-Strong y Estación Modular en Rust.</p>
+      <a href="https://github.com/davidcastilloc/tepui-vst/releases/latest">Release v1.12.0 en GitHub</a>
+    </footer>
+  </div>
+
+  <script>
+    // 1. Scroll-Driven & Web-Animations Motion Layer (Transform & Opacity across 18+ distinct nodes)
+    (function initMotionLayer() {
+      function triggerEntranceAndScrollMotion() {
+        const targets = Array.from(document.querySelectorAll(
+          '.motion-item, .audition-btn, .note-trigger, .btn-primary, .btn-secondary'
+        ));
+        const vh = window.innerHeight || 800;
+        const scrollY = window.scrollY || window.pageYOffset || 0;
+
+        targets.forEach((el, idx) => {
+          const rect = el.getBoundingClientRect();
+          const centerOffset = (rect.top + rect.height * 0.5 - vh * 0.5) / vh;
+          const clamped = Math.max(-1, Math.min(1, centerOffset));
+          const shiftY = Math.round(clamped * 10 + Math.sin(scrollY * 0.015 + idx) * 2);
+          el.style.transform = 'translate3d(0, ' + shiftY + 'px, 0)';
+          el.style.opacity = '0.99';
+          if (el.animate && !el.dataset.waapiStarted) {
+            el.dataset.waapiStarted = '1';
+            el.animate(
+              [
+                { transform: 'translate3d(0, 8px, 0)', opacity: 0.88 },
+                { transform: 'translate3d(0, 0px, 0)', opacity: 1 }
+              ],
+              {
+                duration: 900 + (idx % 6) * 120,
+                easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+                fill: 'forwards'
+              }
+            );
+          }
+        });
+      }
+
+      window.addEventListener('DOMContentLoaded', () => {
+        setTimeout(triggerEntranceAndScrollMotion, 60);
+      });
+      window.addEventListener('load', () => {
+        setTimeout(triggerEntranceAndScrollMotion, 120);
+      });
+      window.addEventListener('scroll', triggerEntranceAndScrollMotion, { passive: true });
+      window.addEventListener('wheel', triggerEntranceAndScrollMotion, { passive: true });
+    })();
+
+    // 2. Interactive 64-Point Wavetable Draw Canvas & Real WebAudio Synth Audition Deck
+    (function initWebSynthAndDraw() {
+      const canvas = document.getElementById('web-wt-canvas');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      const statusEl = document.getElementById('audition-status');
+
+      const customCycle = new Float32Array(64);
+      for (let i = 0; i < 64; i++) {
+        const ph = i / 64;
+        customCycle[i] = Math.sin(ph * Math.PI * 2) * 0.65 + Math.sin(ph * Math.PI * 6) * 0.28;
+      }
+
+      let activeEngine = 'reese';
+      let isDrawing = false;
+      let lastIdx = -1;
+      let lastVal = 0;
+      let animTick = 0;
+
+      function renderCanvas() {
+        const w = canvas.width;
+        const h = canvas.height;
+        ctx.fillStyle = '#090d14';
+        ctx.fillRect(0, 0, w, h);
+
+        ctx.strokeStyle = '#1b2434';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, h * 0.5);
+        ctx.lineTo(w, h * 0.5);
+        for (let g = 1; g < 8; g++) {
+          const gx = (w / 8) * g;
+          ctx.moveTo(gx, 0);
+          ctx.lineTo(gx, h);
+        }
+        ctx.stroke();
+
+        for (let s = 3; s >= 1; s--) {
+          const ox = s * 10;
+          const oy = -s * 8;
+          ctx.strokeStyle = s === 1 ? '#1e4e68' : '#132f42';
+          ctx.lineWidth = 1.4;
+          ctx.beginPath();
+          for (let i = 0; i < 64; i++) {
+            const x = (i / 63) * (w - 40) + 10 + ox;
+            const v = customCycle[i] * Math.cos(s * 0.25 + animTick * 0.02);
+            const y = h * 0.52 - v * (h * 0.34) + oy;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          }
+          ctx.stroke();
+        }
+
+        ctx.strokeStyle = '#00ebff';
+        ctx.lineWidth = 2.6;
+        ctx.beginPath();
+        for (let i = 0; i < 64; i++) {
+          const x = (i / 63) * (w - 24) + 12;
+          const y = h * 0.52 - customCycle[i] * (h * 0.38);
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+
+        animTick++;
+        requestAnimationFrame(renderCanvas);
+      }
+
+      function paintPoint(clientX, clientY) {
+        const rect = canvas.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return;
+        const nx = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+        const ny = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
+        const idx = Math.max(0, Math.min(63, Math.floor(nx * 64)));
+        const val = Math.max(-1, Math.min(1, (0.5 - ny) * 2.1));
+
+        if (lastIdx >= 0 && lastIdx !== idx) {
+          const step = idx > lastIdx ? 1 : -1;
+          const span = Math.abs(idx - lastIdx);
+          for (let k = 0; k <= span; k++) {
+            const i = lastIdx + k * step;
+            const t = k / span;
+            customCycle[i] = lastVal * (1 - t) + val * t;
+          }
+        } else {
+          customCycle[idx] = val;
+        }
+        lastIdx = idx;
+        lastVal = val;
+      }
+
+      canvas.addEventListener('pointerdown', (e) => {
+        isDrawing = true;
+        lastIdx = -1;
+        activeEngine = 'custom';
+        document.querySelectorAll('.audition-btn').forEach((b) => {
+          b.classList.toggle('active', b.dataset.engine === 'custom');
+        });
+        if (statusEl) {
+          statusEl.textContent = 'Motor activo: Tabla de ondas personalizada de 64 puntos.';
+        }
+        paintPoint(e.clientX, e.clientY);
+      });
+
+      window.addEventListener('pointermove', (e) => {
+        if (isDrawing) paintPoint(e.clientX, e.clientY);
+      });
+
+      window.addEventListener('pointerup', () => {
+        isDrawing = false;
+        lastIdx = -1;
+      });
+
+      renderCanvas();
+
+      let audioCtx = null;
+      function ensureAudio() {
+        if (!audioCtx) {
+          const AC = window.AudioContext || window.webkitAudioContext;
+          if (AC) audioCtx = new AC();
+        }
+        if (audioCtx && audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+        return audioCtx;
+      }
+
+      function playSynthNote(freq) {
+        const ac = ensureAudio();
+        if (!ac) return;
+        const now = ac.currentTime;
+
+        if (activeEngine === 'karplus') {
+          const sr = ac.sampleRate;
+          const dur = 1.6;
+          const len = Math.floor(sr * dur);
+          const buf = ac.createBuffer(1, len, sr);
+          const data = buf.getChannelData(0);
+          const delayLen = Math.max(8, Math.floor(sr / freq));
+          const ring = new Float32Array(delayLen);
+          for (let i = 0; i < delayLen; i++) {
+            ring[i] = (Math.random() * 2 - 1) * Math.sin((i / delayLen) * Math.PI);
+          }
+          let ptr = 0;
+          let prev = 0;
+          for (let n = 0; n < len; n++) {
+            const cur = ring[ptr];
+            const avg = (cur * 0.52 + prev * 0.48) * 0.994;
+            prev = cur;
+            ring[ptr] = avg;
+            ptr = (ptr + 1) % delayLen;
+            data[n] = cur * 0.65;
+          }
+          const src = ac.createBufferSource();
+          src.buffer = buf;
+          src.connect(ac.destination);
+          src.start(now);
+          return;
+        }
+
+        if (activeEngine === 'custom') {
+          const sr = ac.sampleRate;
+          const dur = 0.85;
+          const len = Math.floor(sr * dur);
+          const buf = ac.createBuffer(1, len, sr);
+          const data = buf.getChannelData(0);
+          let phase = 0;
+          const inc = freq / sr;
+          for (let n = 0; n < len; n++) {
+            const pos = phase * 64;
+            const i0 = Math.floor(pos) & 63;
+            const i1 = (i0 + 1) & 63;
+            const frac = pos - Math.floor(pos);
+            const raw = customCycle[i0] * (1 - frac) + customCycle[i1] * frac;
+            const env = n < 400 ? (n / 400) : Math.exp(-(n / sr) * 3.2);
+            data[n] = raw * env * 0.48;
+            phase = (phase + inc) % 1.0;
+          }
+          const src = ac.createBufferSource();
+          src.buffer = buf;
+          src.connect(ac.destination);
+          src.start(now);
+          return;
+        }
+
+        const master = ac.createGain();
+        const filter = ac.createBiquadFilter();
+        filter.type = 'lowpass';
+
+        if (activeEngine === 'reese') {
+          filter.frequency.setValueAtTime(180, now);
+          filter.frequency.exponentialRampToValueAtTime(920, now + 0.35);
+          filter.Q.value = 4.5;
+          [-14, 0, 14].forEach((det, idx) => {
+            const osc = ac.createOscillator();
+            osc.type = idx === 1 ? 'triangle' : 'sawtooth';
+            osc.frequency.value = freq * 0.5;
+            osc.detune.value = det;
+            osc.connect(filter);
+            osc.start(now);
+            osc.stop(now + 0.9);
+          });
+        } else if (activeEngine === 'supersaw') {
+          filter.frequency.setValueAtTime(6200, now);
+          filter.Q.value = 1.8;
+          [-28, -16, -7, 0, 7, 16, 28].forEach((det) => {
+            const osc = ac.createOscillator();
+            osc.type = 'sawtooth';
+            osc.frequency.value = freq;
+            osc.detune.value = det;
+            osc.connect(filter);
+            osc.start(now);
+            osc.stop(now + 0.85);
+          });
+        } else {
+          filter.frequency.setValueAtTime(2600, now);
+          filter.frequency.exponentialRampToValueAtTime(220, now + 0.26);
+          filter.Q.value = 14.0;
+          const osc = ac.createOscillator();
+          osc.type = 'sawtooth';
+          osc.frequency.value = freq * 0.5;
+          osc.connect(filter);
+          osc.start(now);
+          osc.stop(now + 0.55);
+        }
+
+        master.gain.setValueAtTime(0.001, now);
+        master.gain.linearRampToValueAtTime(0.28, now + 0.015);
+        master.gain.exponentialRampToValueAtTime(0.001, now + 0.85);
+        filter.connect(master);
+        master.connect(ac.destination);
+      }
+
+      document.querySelectorAll('.audition-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          activeEngine = btn.dataset.engine;
+          document.querySelectorAll('.audition-btn').forEach((b) => b.classList.toggle('active', b === btn));
+          if (statusEl) {
+            statusEl.textContent = 'Motor activo: ' + btn.textContent + '. Reproduciendo muestra.';
+          }
+          playSynthNote(130.81);
+        });
+      });
+
+      document.querySelectorAll('.note-trigger').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const f = parseFloat(btn.dataset.freq || '130.81');
+          playSynthNote(f);
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

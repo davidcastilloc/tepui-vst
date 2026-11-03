@@ -66,6 +66,7 @@ pub struct AiSamplerPlugin {
     web_gui_tx: Sender<web_editor::WebGuiEvent>,
     web_gui_rx: Receiver<web_editor::WebGuiEvent>,
     last_daw: LastDawParams,
+    last_custom_wt_rev: u32,
     mono_scratch_buffer: Vec<f32>,
 }
 
@@ -121,6 +122,7 @@ impl Default for AiSamplerPlugin {
             web_gui_tx,
             web_gui_rx,
             last_daw,
+            last_custom_wt_rev: 0,
             mono_scratch_buffer: vec![0.0; 4096],
         }
     }
@@ -474,6 +476,16 @@ impl Plugin for AiSamplerPlugin {
             self.live_params.get_lfo_shape(),
             self.live_params.get_macros(),
         );
+        if self.live_params.is_custom_wavetable_active() {
+            let rev = self.live_params.get_custom_wavetable_revision();
+            if rev != self.last_custom_wt_rev || !self.voice_manager.is_custom_wavetable_active() {
+                self.last_custom_wt_rev = rev;
+                let cycle = self.live_params.get_custom_wavetable_cycle();
+                self.voice_manager.set_custom_wavetable_cycle(&cycle);
+            }
+        } else if self.voice_manager.is_custom_wavetable_active() {
+            self.voice_manager.clear_custom_wavetable_cycle();
+        }
 
         let host_bpm = context
             .transport()
@@ -1617,5 +1629,17 @@ mod tests {
                 .wrapping_add(plugin.fx_rack.vital_fx_frames()),
         );
         assert!(plugin.live_params.get_vital_serum_dsp_frames() >= 512);
+
+        // Verificar también el nuevo Custom Freehand Wavetable Draw (v1.12.0)
+        plugin
+            .live_params
+            .set_custom_wavetable(&[0.0, 0.5, 1.0, -0.5, -1.0]);
+        assert!(plugin.live_params.is_custom_wavetable_active());
+        assert_eq!(plugin.live_params.get_custom_wavetable_draws(), 1);
+        let cycle = plugin.live_params.get_custom_wavetable_cycle();
+        plugin.voice_manager.set_custom_wavetable_cycle(&cycle);
+        assert!(plugin.voice_manager.is_custom_wavetable_active());
+        plugin.live_params.clear_custom_wavetable();
+        assert!(!plugin.live_params.is_custom_wavetable_active());
     }
 }
