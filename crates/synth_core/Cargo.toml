@@ -1,6 +1,6 @@
 [package]
 name = "synth_core"
-version = "1.14.1"
+version = "1.14.2"
 edition = "2021"
 license = "MIT"
 authors = ["Gran Sabana Sonic Lab <contact@gransabana.audio>"]

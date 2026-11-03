@@ -2,6 +2,16 @@
 
 Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
 
+## [1.14.2](https://github.com/davidcastilloc/tepui-vst/compare/v1.14.1...v1.14.2) (2026-11-03)
+
+### Correcciones de Errores (Bug Fixes)
+
+* **ci:** agregar libjack-jackd2-dev en Linux y control de concurrencia en CI ([e20c136](https://github.com/davidcastilloc/tepui-vst/commit/e20c1368ae6dc5f8dcd934fea3fd3aa255d9b496))
+
+# Changelog
+
+Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
+
 ## [1.14.1](https://github.com/davidcastilloc/tepui-vst/compare/v1.14.0...v1.14.1) (2026-11-03)
 
 ### Correcciones de Errores (Bug Fixes)
