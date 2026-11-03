@@ -2,6 +2,20 @@
 
 Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
 
+## [1.13.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.12.0...v1.13.0) (2026-11-03)
+
+### Nuevas Funcionalidades (Features)
+
+* **synth:** enrutador midi usb hot-plug, resintesis wav-to-wt y soporte multiplataforma ([c72e5a8](https://github.com/davidcastilloc/tepui-vst/commit/c72e5a855e463107b9c73ff6e638cf25252e0dd8))
+
+### Documentación
+
+* **site:** enlazar activos exactos de release v1.12.0 en descargas directas ([a80fb59](https://github.com/davidcastilloc/tepui-vst/commit/a80fb597fd6e8342fb925d2d44bfbf97281c3c30))
+
+# Changelog
+
+Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
+
 ## [1.12.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.11.0...v1.12.0) (2026-11-03)
 
 ### Nuevas Funcionalidades (Features)
