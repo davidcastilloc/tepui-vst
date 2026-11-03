@@ -82,6 +82,7 @@ jobs:
           cargo build --release -p plugin_vst --bins
           cargo run --package xtask -- bundle plugin_vst --release
           cp README.md LICENSE CHANGELOG.md target/bundled/
+          cp target/release/tepui_studio target/bundled/
           cd target/bundled
           zip -r TEPUI-macOS-Universal.zip TEPUI.vst3 TEPUI.clap tepui_studio README.md LICENSE CHANGELOG.md
 
@@ -114,8 +115,24 @@ jobs:
             libxdo-dev \
             libsoup-3.0-dev \
             libjavascriptcoregtk-4.1-dev \
+            libgl1-mesa-dev \
             libx11-dev \
+            libx11-xcb-dev \
             libxcb1-dev \
+            libxcursor-dev \
+            libxext-dev \
+            libxfixes-dev \
+            libxft-dev \
+            libxi-dev \
+            libxinerama-dev \
+            libxmu-dev \
+            libxrandr-dev \
+            libxrender-dev \
+            libxpresent-dev \
+            libxss-dev \
+            libxt-dev \
+            libxtst-dev \
+            libxxf86vm-dev \
             pkg-config
 
       - name: Install Rust stable toolchain
@@ -131,6 +148,7 @@ jobs:
           cargo build --release -p plugin_vst --bins
           cargo run --package xtask -- bundle plugin_vst --release
           cp README.md LICENSE CHANGELOG.md target/bundled/
+          cp target/release/tepui_studio target/bundled/
           cd target/bundled
           tar -czf TEPUI-Linux-x64.tar.gz TEPUI.vst3 TEPUI.clap tepui_studio README.md LICENSE CHANGELOG.md
 
