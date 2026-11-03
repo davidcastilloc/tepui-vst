@@ -172,6 +172,10 @@ struct OddMetrics {
     mod_wheel: f32,
     sustain_pedal: bool,
     wav_zone_drops: u32,
+    ai_presets_synthesized: u32,
+    piano_roll_auto_trims: u32,
+    last_detected_pitch_hz: f32,
+    last_trimmed_samples: u32,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -724,6 +728,10 @@ pub fn build_init_state_json(
         mod_wheel: live_params.get_mod_wheel(),
         sustain_pedal: live_params.get_sustain_pedal(),
         wav_zone_drops: live_params.get_wav_zone_drops(),
+        ai_presets_synthesized: ai_worker.ai_presets_synthesized(),
+        piano_roll_auto_trims: ai_worker.piano_roll_auto_trims(),
+        last_detected_pitch_hz: ai_worker.last_detected_pitch_hz(),
+        last_trimmed_samples: ai_worker.last_trimmed_samples(),
     };
     let preset_store = load_persisted_preset_store();
 
@@ -895,6 +903,10 @@ pub fn build_telemetry_json(
             mod_wheel: live_params.get_mod_wheel(),
             sustain_pedal: live_params.get_sustain_pedal(),
             wav_zone_drops: live_params.get_wav_zone_drops(),
+            ai_presets_synthesized: ai_worker.ai_presets_synthesized(),
+            piano_roll_auto_trims: ai_worker.piano_roll_auto_trims(),
+            last_detected_pitch_hz: ai_worker.last_detected_pitch_hz(),
+            last_trimmed_samples: ai_worker.last_trimmed_samples(),
         },
     };
     serde_json::to_string(&msg).unwrap_or_else(|_| "{}".to_string())
@@ -1643,16 +1655,16 @@ fn handle_native_ipc_message(
         return;
     }
 
-    // 5. Prefix paths
-    if let Some(prompt) = trimmed.strip_prefix("gen:") {
+    // 5. Prefix paths (AI Synthesizer Patch Architect + Sample Generation)
+    if let Some(prompt) = trimmed
+        .strip_prefix("gen:")
+        .or_else(|| trimmed.strip_prefix("generate:"))
+        .or_else(|| trimmed.strip_prefix("g,"))
+    {
+        let clean_prompt = prompt.trim();
+        apply_ai_synthesized_patch_to_live_params(clean_prompt, live_params);
         let sr = f32::from_bits(sample_rate.load(Ordering::Relaxed));
-        ai_worker.request_generation(prompt.trim().to_string(), sr, None);
-        return;
-    }
-
-    if let Some(prompt) = trimmed.strip_prefix("generate:") {
-        let sr = f32::from_bits(sample_rate.load(Ordering::Relaxed));
-        ai_worker.request_generation(prompt.trim().to_string(), sr, None);
+        ai_worker.request_generation(clean_prompt.to_string(), sr, None);
         return;
     }
 
@@ -1690,8 +1702,10 @@ fn handle_native_ipc_message(
                 }
                 "generate" => {
                     if let Some(prompt) = msg.prompt {
+                        let clean_prompt = prompt.trim().to_string();
+                        apply_ai_synthesized_patch_to_live_params(&clean_prompt, live_params);
                         let sr = f32::from_bits(sample_rate.load(Ordering::Relaxed));
-                        ai_worker.request_generation(prompt, sr, None);
+                        ai_worker.request_generation(clean_prompt, sr, None);
                     }
                 }
                 "panic" | "all_notes_off" => {
@@ -1701,6 +1715,26 @@ fn handle_native_ipc_message(
             }
         }
     }
+}
+
+pub fn apply_ai_synthesized_patch_to_live_params(prompt: &str, live_params: &LiveParamStore) {
+    let (spec, _backend) = ai_bridge::design_patch_spec_from_prompt(prompt);
+    live_params.set_attack(spec.attack.clamp(0.001, 5.0));
+    live_params.set_decay(spec.decay.clamp(0.001, 5.0));
+    live_params.set_sustain(spec.sustain.clamp(0.0, 1.0));
+    live_params.set_release(spec.release.clamp(0.001, 10.0));
+    live_params.set_cutoff(spec.cutoff.clamp(20.0, 20000.0));
+    live_params.set_resonance(spec.resonance.clamp(0.1, 10.0));
+    live_params.set_filter_mode(i32::from(spec.filter_mode.clamp(0, 3)));
+    live_params.set_lfo_rate(spec.lfo_rate.clamp(0.1, 20.0));
+    live_params.set_lfo_depth(spec.lfo_depth.clamp(0.0, 1.0));
+    live_params.set_lfo_target(i32::from(spec.lfo_target.clamp(0, 3)));
+    live_params.set_arp_mode(i32::from(spec.arp_mode.clamp(0, 4)));
+    live_params.set_space_mix(spec.space_mix.clamp(0.0, 1.0));
+    live_params.set_mod_matrix_mask(spec.mod_matrix_mask);
+    live_params.set_root_note((spec.root_note as i32).clamp(0, 127));
+    live_params.bump_ui_preset_loads();
+    live_params.bump_revision();
 }
 
 pub fn parse_resize_ipc(body: &str) -> Option<(u32, u32)> {
@@ -2631,5 +2665,22 @@ mod tests {
         assert!(telem_odd_json.contains(r#""mod_matrix_active_routes":2"#));
         assert!(telem_odd_json.contains(r#""velocity_events":1"#));
         assert!(telem_odd_json.contains(r#""sustain_pedal":true"#));
+        assert!(telem_odd_json.contains(r#""ai_presets_synthesized":"#));
+        assert!(telem_odd_json.contains(r#""piano_roll_auto_trims":"#));
+        assert!(telem_odd_json.contains(r#""last_detected_pitch_hz":"#));
+
+        // 8. Probar arquitecto IA de Presets + Samples (gen:<prompt>) auto-poblando LiveParamStore
+        handle_native_ipc_message(
+            "gen:Bright Joropo Arpa Llanera Pluck E4",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        assert_eq!(live_params.get_root_note(), 64);
+        assert_eq!(live_params.get_arp_mode(), synth_core::ArpMode::Joropo);
+        assert!(live_params.get_cutoff() > 8000.0);
     }
 }

@@ -14,6 +14,9 @@ use synth_core::{
     base64_decode, base64_encode, decode_wav, encode_wav_f32, SampleBuffer, SharedSampleBuffer,
 };
 
+use crate::cloudflare::{
+    design_patch_spec_from_prompt, try_fetch_cloudflare_ai_gateway_wav, AiSynthesizerPatchSpec,
+};
 use crate::fallback_synth::generate_grand_piano_c4;
 use crate::npu_synth::{generate_sample_with_cache, npu_cache_hits, npu_cache_misses};
 
@@ -50,6 +53,11 @@ pub struct AiWorker {
     last_backend: Arc<ArcSwap<String>>,
     last_generation_duration_us: Arc<AtomicU32>,
     generation_count: Arc<AtomicU32>,
+    last_patch_spec: Arc<ArcSwap<Option<AiSynthesizerPatchSpec>>>,
+    ai_presets_synthesized: Arc<AtomicU32>,
+    piano_roll_auto_trims: Arc<AtomicU32>,
+    last_detected_pitch_hz: Arc<AtomicU32>,
+    last_trimmed_samples: Arc<AtomicU32>,
 }
 
 impl AiWorker {
@@ -74,6 +82,12 @@ impl AiWorker {
         let last_backend = Arc::new(ArcSwap::from_pointee("Physical-Modal-Piano".to_string()));
         let last_generation_duration_us = Arc::new(AtomicU32::new(0));
         let generation_count = Arc::new(AtomicU32::new(1));
+        let (initial_spec, _) = design_patch_spec_from_prompt("Concert Grand Piano C4");
+        let last_patch_spec = Arc::new(ArcSwap::from_pointee(Some(initial_spec)));
+        let ai_presets_synthesized = Arc::new(AtomicU32::new(1));
+        let piano_roll_auto_trims = Arc::new(AtomicU32::new(0));
+        let last_detected_pitch_hz = Arc::new(AtomicU32::new(261.63_f32.to_bits()));
+        let last_trimmed_samples = Arc::new(AtomicU32::new(0));
 
         let current_sample_clone = current_sample.clone();
         let is_busy_clone = is_busy.clone();
@@ -83,6 +97,11 @@ impl AiWorker {
         let backend_clone = last_backend.clone();
         let dur_clone = last_generation_duration_us.clone();
         let count_clone = generation_count.clone();
+        let spec_clone = last_patch_spec.clone();
+        let presets_synth_clone = ai_presets_synthesized.clone();
+        let auto_trims_clone = piano_roll_auto_trims.clone();
+        let pitch_hz_clone = last_detected_pitch_hz.clone();
+        let trimmed_smp_clone = last_trimmed_samples.clone();
 
         let handle = thread::Builder::new()
             .name("ai-sample-worker".to_string())
@@ -97,6 +116,11 @@ impl AiWorker {
                     backend_clone,
                     dur_clone,
                     count_clone,
+                    spec_clone,
+                    presets_synth_clone,
+                    auto_trims_clone,
+                    pitch_hz_clone,
+                    trimmed_smp_clone,
                 );
             })
             .expect("Failed to spawn ai-sample-worker thread");
@@ -116,6 +140,11 @@ impl AiWorker {
             last_backend,
             last_generation_duration_us,
             generation_count,
+            last_patch_spec,
+            ai_presets_synthesized,
+            piano_roll_auto_trims,
+            last_detected_pitch_hz,
+            last_trimmed_samples,
         }
     }
 
@@ -243,8 +272,8 @@ impl AiWorker {
         });
     }
 
-    /// Decodifica un archivo WAV en memoria y lo publica de forma atómica tanto para la UI
-    /// como para el hilo de audio en tiempo real (0 bloqueos), almacenando su Base64 para persistencia DAW.
+    /// Decodifica un archivo WAV en memoria, lo calibra para Piano Roll (`Auto-Onset Trim` + `Auto-Pitch YIN`)
+    /// y lo publica de forma atómica tanto para la UI como para el hilo de audio en tiempo real (0 bloqueos).
     pub fn load_wav_bytes(
         &self,
         bytes: &[u8],
@@ -258,6 +287,17 @@ impl AiWorker {
                 buffer.name = trimmed.to_string();
             }
         }
+        let prep = buffer.prepare_for_piano_roll();
+        if prep.trimmed_leading_samples > 0 || prep.is_pitched {
+            self.piano_roll_auto_trims.fetch_add(1, Ordering::Relaxed);
+        }
+        self.last_trimmed_samples
+            .store(prep.trimmed_leading_samples as u32, Ordering::Relaxed);
+        if prep.detected_f0_hz > 0.0 {
+            self.last_detected_pitch_hz
+                .store(prep.detected_f0_hz.to_bits(), Ordering::Relaxed);
+        }
+
         let shared = Arc::new(buffer);
         self.current_sample.store(shared.clone());
         self.active_prompt.store(Arc::new(shared.name.clone()));
@@ -356,6 +396,31 @@ impl AiWorker {
         npu_cache_misses()
     }
 
+    /// Retorna la última especificación de preset + receta espectral generada por IA (lock-free).
+    pub fn last_patch_spec(&self) -> Option<AiSynthesizerPatchSpec> {
+        (**self.last_patch_spec.load()).clone()
+    }
+
+    /// Retorna el total acumulado de presets sintetizados por el arquitecto IA (ODD).
+    pub fn ai_presets_synthesized(&self) -> u32 {
+        self.ai_presets_synthesized.load(Ordering::Relaxed)
+    }
+
+    /// Retorna el total acumulado de calibraciones `Piano-Roll Ready` (Auto-Onset Trim + Auto-Pitch YIN) (ODD).
+    pub fn piano_roll_auto_trims(&self) -> u32 {
+        self.piano_roll_auto_trims.load(Ordering::Relaxed)
+    }
+
+    /// Retorna la última frecuencia fundamental `f0` detectada en Hz (ODD).
+    pub fn last_detected_pitch_hz(&self) -> f32 {
+        f32::from_bits(self.last_detected_pitch_hz.load(Ordering::Relaxed))
+    }
+
+    /// Retorna la cantidad de muestras de silencio inicial recortadas en el último sample (ODD).
+    pub fn last_trimmed_samples(&self) -> u32 {
+        self.last_trimmed_samples.load(Ordering::Relaxed)
+    }
+
     fn try_load_from_endpoint(endpoint: &str, prompt: &str) -> Option<SampleBuffer> {
         let clean = endpoint
             .trim()
@@ -366,6 +431,7 @@ impl AiWorker {
             if let Ok(bytes) = std::fs::read(path) {
                 if let Ok(mut buf) = decode_wav(&bytes) {
                     buf.name = format!("AI Endpoint ({})", prompt.trim());
+                    let _ = buf.prepare_for_piano_roll();
                     return Some(buf);
                 }
             }
@@ -384,25 +450,55 @@ impl AiWorker {
         last_backend: Arc<ArcSwap<String>>,
         last_generation_duration_us: Arc<AtomicU32>,
         generation_count: Arc<AtomicU32>,
+        last_patch_spec: Arc<ArcSwap<Option<AiSynthesizerPatchSpec>>>,
+        ai_presets_synthesized: Arc<AtomicU32>,
+        piano_roll_auto_trims: Arc<AtomicU32>,
+        last_detected_pitch_hz: Arc<AtomicU32>,
+        last_trimmed_samples: Arc<AtomicU32>,
     ) {
         while let Ok(req) = rx.recv() {
             is_busy.store(true, Ordering::SeqCst);
             let t0 = Instant::now();
 
+            // 1. Diseñar el Preset del sintetizador + Receta de parciales modales (Cloudflare Workers AI / NPU)
+            let (patch_spec, _spec_backend) = design_patch_spec_from_prompt(&req.prompt);
+            last_patch_spec.store(Arc::new(Some(patch_spec.clone())));
+            ai_presets_synthesized.fetch_add(1, Ordering::Relaxed);
+
             let effective_endpoint = req
                 .endpoint_url
                 .or_else(|| std::env::var("TEPUI_AI_ENDPOINT").ok());
 
-            let (new_buffer, backend_str) = if let Some(buf) = effective_endpoint
+            let (mut new_buffer, backend_str, is_external) = if let Some(buf) = effective_endpoint
                 .as_deref()
                 .and_then(|ep| Self::try_load_from_endpoint(ep, &req.prompt))
             {
-                (buf, "AI-Endpoint-WAV")
+                (buf, "AI-Endpoint-WAV", true)
+            } else if let Some(gw_buf) =
+                try_fetch_cloudflare_ai_gateway_wav(&req.prompt, patch_spec.root_note)
+            {
+                (gw_buf, "Cloudflare-AIGateway-WAV", true)
             } else {
                 let (buf, b_str, _is_hit) =
                     generate_sample_with_cache(&req.prompt, req.sample_rate);
-                (buf, b_str)
+                (buf, b_str, false)
             };
+
+            let orig_root = new_buffer.root_note;
+            let prep = new_buffer.prepare_for_piano_roll();
+            if !is_external {
+                // Conservar la nota raíz exacta del modelo físico/espectral local
+                new_buffer.root_note = orig_root;
+                new_buffer.tune_cents = 0.0;
+            }
+            piano_roll_auto_trims.fetch_add(1, Ordering::Relaxed);
+            last_trimmed_samples.store(prep.trimmed_leading_samples as u32, Ordering::Relaxed);
+            let reported_f0 = if prep.detected_f0_hz > 0.0 {
+                prep.detected_f0_hz
+            } else {
+                440.0 * 2.0_f32.powf((new_buffer.root_note as f32 - 69.0) / 12.0)
+            };
+            last_detected_pitch_hz.store(reported_f0.to_bits(), Ordering::Relaxed);
 
             let elapsed_us = t0.elapsed().as_micros().min(u32::MAX as u128) as u32;
             last_generation_duration_us.store(elapsed_us.max(1), Ordering::Relaxed);

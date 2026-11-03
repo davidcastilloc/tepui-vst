@@ -5,10 +5,16 @@
     clippy::approx_constant
 )]
 
+pub mod cloudflare;
 pub mod fallback_synth;
 pub mod npu_synth;
 pub mod worker;
 
+pub use cloudflare::{
+    build_cloudflare_workers_ai_preset_request, design_patch_spec_from_prompt,
+    format_piano_roll_oneshot_prompt, synthesize_sample_from_patch_spec, AiSynthesizerPatchSpec,
+    ModalPartialSpec, DEFAULT_CF_PRESET_MODEL, DEFAULT_CF_SAMPLE_DIFFUSION_MODEL,
+};
 pub use fallback_synth::{
     generate_grand_piano_c4, generate_sample_from_prompt, generate_sample_from_prompt_with_backend,
 };
@@ -220,5 +226,31 @@ mod tests {
         assert!(backend2 == "NPU-RAM-Cache" || backend2 == "NPU-Disk-Cache");
         assert_eq!(buf1.len(), buf2.len());
         assert!(npu_cache_hits() > hits_before);
+    }
+
+    #[test]
+    fn test_cloudflare_patch_spec_and_piano_roll_oneshot_synthesis() {
+        let prompt = "Bright Joropo Arpa Llanera Pluck E4";
+        let (spec, _backend) = design_patch_spec_from_prompt(prompt);
+        assert_eq!(spec.root_note, 64); // E4 = 64
+        assert_eq!(spec.arp_mode, 3); // Joropo 6/8
+        assert!(spec.attack < 0.02, "Pluck should have fast attack");
+        assert!(spec.cutoff > 5000.0, "Bright arpa should have open filter");
+        assert_eq!(spec.partials.len(), 10);
+
+        let cf_payload = build_cloudflare_workers_ai_preset_request(prompt);
+        assert_eq!(
+            cf_payload["response_format"]["type"],
+            serde_json::json!("json_schema")
+        );
+
+        let oneshot_prompt = format_piano_roll_oneshot_prompt(prompt, spec.root_note);
+        assert!(oneshot_prompt.contains("TrackType: Instrument"));
+        assert!(oneshot_prompt.contains("Single isolated note E4"));
+
+        let (synth_buf, prep_report) = synthesize_sample_from_patch_spec(&spec, 48000.0);
+        assert!(!synth_buf.is_empty());
+        assert!(prep_report.is_pitched);
+        assert_eq!(prep_report.detected_root_note, 64);
     }
 }

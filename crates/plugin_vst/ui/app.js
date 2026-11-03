@@ -244,7 +244,11 @@ function refreshFooterOddText() {
     ? odd.last_velocity
     : (state.lastPlayedVelocity || state.currentVelocity || 0.95);
   const velPct = Math.round(Math.max(0.01, Math.min(1.0, liveVel)) * 100);
-  footerText.innerText = `ODD // BACKEND: ${backend} • SYNTH: ${durUs}µs (#${genCnt}) • CACHE: ${cacheHits}H/${cacheMiss}M • VEL: ${velPct}% • LFO: ${lfoMod}% • ROUTES: ${routes} • PRESETS: ${presets} • FAVS: ${favs} • MATRIX: ${matrix} • RESIZE: ${resizes} • DSP BLK: ${blk} • LIM: ${lim}`;
+  const pitchHz = typeof odd.last_detected_pitch_hz === 'number' && odd.last_detected_pitch_hz > 10.0
+    ? odd.last_detected_pitch_hz.toFixed(1)
+    : (440.0 * Math.pow(2.0, ((state.params.root_note || 60) - 69) / 12.0)).toFixed(1);
+  const aiPresets = odd.ai_presets_synthesized !== undefined ? odd.ai_presets_synthesized : genCnt;
+  footerText.innerText = `ODD // BACKEND: ${backend} • SYNTH: ${durUs}µs (#${genCnt}) • AI-PATCH: #${aiPresets} • PITCH: ${pitchHz}Hz • CACHE: ${cacheHits}H/${cacheMiss}M • VEL: ${velPct}% • LFO: ${lfoMod}% • ROUTES: ${routes} • PRESETS: ${presets} • FAVS: ${favs} • MATRIX: ${matrix} • RESIZE: ${resizes} • DSP BLK: ${blk} • LIM: ${lim}`;
 }
 
 function syncExpressionWheelsUI() {
@@ -378,6 +382,13 @@ function pollAiGeneration() {
           if (data.waveform && data.waveform.length > 0) {
             state.waveform = data.waveform;
           }
+          if (state.params.mod_matrix_mask !== undefined && state.params.mod_matrix_mask > 0) {
+            syncMatrixPinsFromMask(state.params.mod_matrix_mask);
+          }
+          updateAllKnobsUI();
+          updateFilterModeUI(state.params.filter_mode);
+          updateLfoTargetUI(state.params.lfo_target || 0);
+          updateArpModeUI(state.params.arp_mode || 0);
           if (data.sample_info) updateTelemetry(data.sample_info);
           if (data.region && !state.isDraggingRegion) updateRegionDisplay(data.region);
           if (data.odd_metrics) updateOddMetricsDisplay(data.odd_metrics);
@@ -476,6 +487,9 @@ function startTelemetryLoop() {
         if (!state.isDraggingKnob && !state.isDraggingRegion) {
           if (data.params) Object.assign(state.params, data.params);
           if (data.normalized) Object.assign(state.normalized, data.normalized);
+          if (state.params.mod_matrix_mask !== undefined && state.params.mod_matrix_mask > 0) {
+            syncMatrixPinsFromMask(state.params.mod_matrix_mask);
+          }
           updateAllKnobsUI();
           updateFilterModeUI(state.params.filter_mode);
           updateLfoTargetUI(state.params.lfo_target || 0);

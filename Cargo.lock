@@ -32,6 +32,8 @@ version = "1.5.0"
 dependencies = [
  "arc-swap",
  "crossbeam-channel",
+ "serde",
+ "serde_json",
  "synth_core",
 ]
 

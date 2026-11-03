@@ -19,7 +19,7 @@ pub mod voice_manager;
 pub mod wav;
 
 pub use arp::{ArpMode, ArpStepEvent, TepuiArpeggiator};
-pub use buffer::{SampleBuffer, SharedSampleBuffer};
+pub use buffer::{PianoRollPrepReport, SampleBuffer, SharedSampleBuffer};
 pub use envelope::{AdsrEnvelope, AdsrStage};
 pub use filter::{FilterMode, StateVariableFilter};
 pub use fx::StereoFxRack;
@@ -587,5 +587,45 @@ mod tests {
         // A 120 BPM (beat = 500 ms), Merengue 5/8 usa 2/5 y 3/5 de pulso (200 ms y 300 ms)
         assert!((ml - 200.0).abs() < 1.0);
         assert!((mr - 300.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn test_piano_roll_auto_onset_trim_and_yin_pitch_detection() {
+        let sr = 48000.0;
+        let silence_samples = 1200usize; // 25 ms de silencio inicial típico de modelos IA
+        let tone_samples = 8000usize;
+        let mut mono = vec![0.0f32; silence_samples + tone_samples];
+
+        // Generar una nota A3 = 220.0 Hz (MIDI 57) con segundo y tercer armónico
+        for i in 0..tone_samples {
+            let t = i as f32 / sr;
+            let f0 = 220.0f32;
+            let wave = 0.70 * (2.0 * std::f32::consts::PI * f0 * t).sin()
+                + 0.20 * (2.0 * std::f32::consts::PI * (f0 * 2.0) * t).sin()
+                + 0.10 * (2.0 * std::f32::consts::PI * (f0 * 3.0) * t).sin();
+            mono[silence_samples + i] = wave;
+        }
+
+        // Inicialmente etiquetado erróneamente como C4 (60) con silencio inicial
+        let mut buf = SampleBuffer::from_mono(mono, sr, 60);
+        let report = buf.prepare_for_piano_roll();
+
+        assert!(
+            report.trimmed_leading_samples >= 1180 && report.trimmed_leading_samples <= 1205,
+            "Se esperaba recortar ~1200 muestras de silencio inicial, obtuvo {}",
+            report.trimmed_leading_samples
+        );
+        assert!(report.is_pitched);
+        assert_eq!(
+            report.detected_root_note, 57,
+            "220 Hz debe mapear a A3 (MIDI 57)"
+        );
+        assert_eq!(buf.root_note, 57);
+        assert!(
+            (report.detected_f0_hz - 220.0).abs() < 1.5,
+            "f0 detectada = {} Hz",
+            report.detected_f0_hz
+        );
+        assert!(report.confidence > 0.80);
     }
 }

@@ -161,6 +161,228 @@ impl SampleBuffer {
             0.0
         }
     }
+
+    /// Detecta el índice de la primera muestra donde comienza el ataque útil del sonido
+    /// superando `threshold_db` (por ejemplo `-42.0` dBFS), conservando un margen de pre-roll
+    /// de hasta 8 muestras para no amputar el transitorio inicial.
+    pub fn detect_onset_sample(&self, threshold_db: f32) -> usize {
+        let total = self.raw_len();
+        if total == 0 {
+            return 0;
+        }
+        let linear_thresh = 10.0_f32.powf(threshold_db / 20.0).clamp(1e-5, 0.5);
+        for i in 0..total {
+            let l = self.left.get(i).copied().unwrap_or(0.0).abs();
+            let r = self.right.get(i).copied().unwrap_or(0.0).abs();
+            if l.max(r) >= linear_thresh {
+                return i.saturating_sub(8);
+            }
+        }
+        0
+    }
+
+    /// Detecta la frecuencia fundamental (`f0_hz`), la nota raíz MIDI más cercana (`root_note`)
+    /// y la desviación en cents (`detune_cents`) junto con la confianza (`0.0..=1.0`)
+    /// empleando el estimador YIN (Cumulative Mean Normalized Difference Function) con interpolación parabólica.
+    pub fn detect_fundamental_pitch_hz(&self) -> Option<(f32, u8, f32, f32)> {
+        let total = self.raw_len();
+        if total < 512 || self.sample_rate < 8000.0 {
+            return None;
+        }
+
+        let onset = self.detect_onset_sample(-40.0);
+        // Saltar los primeros ~15 ms de transitorio percusivo si hay suficiente cola armónica
+        let skip = ((self.sample_rate * 0.015) as usize).min(total.saturating_sub(256) / 4);
+        let analysis_start = (onset + skip).min(total.saturating_sub(256));
+        let avail = total.saturating_sub(analysis_start);
+        if avail < 256 {
+            return None;
+        }
+
+        // Rango de búsqueda: 45 Hz (F#1) .. 1400 Hz (F6)
+        let tau_min = ((self.sample_rate / 1400.0).floor() as usize).max(4);
+        let tau_max = ((self.sample_rate / 45.0).ceil() as usize)
+            .min(avail / 2)
+            .max(tau_min + 2);
+        let win_len = (avail - tau_max).clamp(128, 1024);
+
+        // Verificar que la ventana tenga energía suficiente
+        let mut energy = 0.0f32;
+        for i in 0..win_len {
+            let idx = analysis_start + i;
+            let mono = 0.5 * (self.left[idx] + self.right[idx]);
+            energy += mono * mono;
+        }
+        if (energy / win_len as f32).sqrt() < 1e-4 {
+            return None;
+        }
+
+        // Función de diferencia d(tau) y CMNDF d'(tau) de YIN
+        let mut cmndf = vec![1.0f32; tau_max + 1];
+        let mut running_sum = 0.0f32;
+
+        for (tau, cmndf_slot) in cmndf.iter_mut().enumerate().take(tau_max + 1).skip(1) {
+            let mut diff = 0.0f32;
+            for i in 0..win_len {
+                let idx = analysis_start + i;
+                let s0 = 0.5 * (self.left[idx] + self.right[idx]);
+                let s1 = 0.5 * (self.left[idx + tau] + self.right[idx + tau]);
+                let delta = s0 - s1;
+                diff += delta * delta;
+            }
+            running_sum += diff;
+            if running_sum > 1e-12 {
+                *cmndf_slot = diff * (tau as f32) / running_sum;
+            } else {
+                *cmndf_slot = 1.0;
+            }
+        }
+
+        // Buscar el primer valle local debajo del umbral YIN (0.22), o el mínimo global
+        let yin_thresh = 0.22f32;
+        let mut best_tau = 0usize;
+        for tau in tau_min..tau_max {
+            if cmndf[tau] < yin_thresh {
+                let mut t = tau;
+                while t + 1 < tau_max && cmndf[t + 1] < cmndf[t] {
+                    t += 1;
+                }
+                best_tau = t;
+                break;
+            }
+        }
+
+        if best_tau == 0 {
+            let mut min_val = f32::MAX;
+            for (tau, &val) in cmndf.iter().enumerate().take(tau_max).skip(tau_min) {
+                if val < min_val {
+                    min_val = val;
+                    best_tau = tau;
+                }
+            }
+        }
+
+        if best_tau < tau_min || best_tau >= tau_max {
+            return None;
+        }
+
+        let confidence = (1.0 - cmndf[best_tau]).clamp(0.0, 1.0);
+        if confidence < 0.55 {
+            return None;
+        }
+
+        // Interpolación parabólica alrededor de best_tau para precisión sub-muestra
+        let y0 = cmndf[best_tau - 1];
+        let y1 = cmndf[best_tau];
+        let y2 = cmndf[best_tau + 1];
+        let denom = 2.0 * (2.0 * y1 - y0 - y2);
+        let frac = if denom.abs() > 1e-9 {
+            ((y0 - y2) / denom).clamp(-0.5, 0.5)
+        } else {
+            0.0
+        };
+        let refined_tau = (best_tau as f32 + frac).max(1.0);
+        let f0_hz = self.sample_rate / refined_tau;
+        if !(32.0..=2100.0).contains(&f0_hz) {
+            return None;
+        }
+
+        let exact_midi = 69.0 + 12.0 * (f0_hz / 440.0).log2();
+        let nearest_midi = exact_midi.round().clamp(12.0, 108.0) as u8;
+        let detune_cents = (exact_midi - nearest_midi as f32) * 100.0;
+
+        Some((f0_hz, nearest_midi, detune_cents, confidence))
+    }
+
+    /// Prepara un sample (generado por IA o importado) para ejecución cromática inmediata en un Piano Roll:
+    /// 1. Recorta físicamente el silencio inicial (`Auto-Onset Trim` a `-42 dBFS`) con micro-fade de 16 muestras.
+    /// 2. Detecta la frecuencia fundamental real `f0_hz` (YIN) y calibra `root_note` + `tune_cents` para afinación exacta.
+    pub fn prepare_for_piano_roll(&mut self) -> PianoRollPrepReport {
+        let orig_len = self.raw_len();
+        if orig_len < 64 {
+            return PianoRollPrepReport::default();
+        }
+
+        // 1. Auto-Onset Trim: eliminar silencio al inicio para respuesta en 0 ms en el Piano Roll
+        let onset = self.detect_onset_sample(-42.0);
+        let mut trimmed_samples = 0usize;
+        if onset > 0 && orig_len.saturating_sub(onset) >= 64 {
+            let new_len = orig_len - onset;
+            let mut new_left = Vec::with_capacity(new_len + 2);
+            let mut new_right = Vec::with_capacity(new_len + 2);
+            new_left.extend_from_slice(&self.left[onset..orig_len]);
+            new_right.extend_from_slice(&self.right[onset..orig_len]);
+
+            // Micro-fade-in de 16 muestras para evitar clicks al inicio
+            let fade_len = new_len.min(16);
+            for i in 0..fade_len {
+                let g = i as f32 / fade_len as f32;
+                new_left[i] *= g;
+                new_right[i] *= g;
+            }
+
+            // Sentinel padding de 2 muestras para Hermite 4-point
+            new_left.extend_from_slice(&[0.0, 0.0]);
+            new_right.extend_from_slice(&[0.0, 0.0]);
+
+            self.left = new_left;
+            self.right = new_right;
+            self.start_sample = 0;
+            self.end_sample = new_len;
+            self.loop_start = self
+                .loop_start
+                .saturating_sub(onset)
+                .min(new_len.saturating_sub(1));
+            self.loop_end = self
+                .loop_end
+                .saturating_sub(onset)
+                .clamp(self.loop_start + 1, new_len);
+            trimmed_samples = onset;
+        }
+
+        // 2. Detección automática de Pitch Fundamental (YIN) y calibración de root_note + tune_cents
+        if let Some((f0_hz, midi_note, detune_cents, confidence)) =
+            self.detect_fundamental_pitch_hz()
+        {
+            self.root_note = midi_note;
+            // Compensar desviación fraccionaria en cents para que al tocar en el Piano Roll suene 100% en A4=440Hz
+            self.tune_cents = (-detune_cents).clamp(-50.0, 50.0);
+            PianoRollPrepReport {
+                trimmed_leading_samples: trimmed_samples,
+                detected_f0_hz: f0_hz,
+                detected_root_note: midi_note,
+                fine_tune_cents: self.tune_cents,
+                confidence,
+                is_pitched: true,
+            }
+        } else {
+            PianoRollPrepReport {
+                trimmed_leading_samples: trimmed_samples,
+                detected_f0_hz: 0.0,
+                detected_root_note: self.root_note,
+                fine_tune_cents: self.tune_cents,
+                confidence: 0.0,
+                is_pitched: false,
+            }
+        }
+    }
+}
+
+/// Reporte de calibración DSP `Piano-Roll Ready` (Auto-Onset Trim + Auto-Pitch YIN).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PianoRollPrepReport {
+    /// Cantidad de muestras de silencio inicial recortadas para ataque en 0 ms
+    pub trimmed_leading_samples: usize,
+    /// Frecuencia fundamental detectada en Hz (`0.0` si es percusión no tonal)
+    pub detected_f0_hz: f32,
+    /// Nota raíz MIDI detectada y asignada al sample
+    pub detected_root_note: u8,
+    /// Corrección fina aplicada en cents (`-50..+50`)
+    pub fine_tune_cents: f32,
+    /// Confianza de periodicidad armónica YIN (`0.0..=1.0`)
+    pub confidence: f32,
+    /// Indica si el sample tiene altura tonal definida para seguimiento cromático
+    pub is_pitched: bool,
 }
 
 /// Referencia compartida atómicamente al sample activo.
