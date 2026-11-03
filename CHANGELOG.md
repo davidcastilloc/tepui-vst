@@ -2,6 +2,16 @@
 
 Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
 
+## [1.5.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.4.0...v1.5.0) (2026-11-03)
+
+### Nuevas Funcionalidades (Features)
+
+* **dsp:** integrar velocity polifonica, ruedas pitch/mod, loop crossfade, delay ritmico e instalador Windows ([fc0d688](https://github.com/davidcastilloc/tepui-vst/commit/fc0d688991c7707df48e4b3082a0073180535045))
+
+# Changelog
+
+Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
+
 ## [1.4.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.3.0...v1.4.0) (2026-11-02)
 
 ### Nuevas Funcionalidades (Features)
