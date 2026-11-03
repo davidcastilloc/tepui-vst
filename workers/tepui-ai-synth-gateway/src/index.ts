@@ -57,27 +57,12 @@ export interface AiSynthesizerPatchSpec {
   partials: ModalPartialSpec[];
 }
 
-interface LicenseRecord {
-  key: string;
-  plan: string;
-  credits_remaining: number;
-  total_used: number;
-  updated_at: string;
-}
-
 const MODEL_ID = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 
 // Escudo Anti-Factura: 9,500 Neurons/día máximo (por debajo de los 10,000 Neurons/día gratuitos de Cloudflare = $0.00 riesgo)
 const MAX_DAILY_FREE_POOL_NEURONS = 9500;
 const ESTIMATED_NEURONS_PER_GEN = 85;
-const FREE_DAILY_CREDITS_PER_DEVICE = 15;
-
-// Claves Pro pre-autorizadas para activación inmediata en KV
-const BUILTIN_PRO_LICENSES: Record<string, { plan: string; initialCredits: number }> = {
-  "TEPUI-PRO-FOUNDER-2026": { plan: "PRO FOUNDER (1,000 CR)", initialCredits: 1000 },
-  "TEPUI-PRO-PACK-500": { plan: "CLOUD PACK (500 CR)", initialCredits: 500 },
-  "TEPUI-STUDIO-VIP": { plan: "STUDIO VIP (2,500 CR)", initialCredits: 2500 }
-};
+const FREE_DAILY_CREDITS_PER_IP = 20;
 
 function clamp(v: number, lo: number, hi: number): number {
   if (!Number.isFinite(v)) return lo;
@@ -231,10 +216,9 @@ async function addDailyNeuronsUsed(env: Env, delta: number): Promise<number> {
   return next;
 }
 
-async function resolveLicenseOrDeviceQuota(
+async function resolveCommunityIpQuota(
   env: Env,
-  licenseKey: string,
-  deviceId: string,
+  ipHash: string,
   byokAccount: string,
   byokToken: string
 ): Promise<{
@@ -243,102 +227,48 @@ async function resolveLicenseOrDeviceQuota(
   creditsRemaining: number;
   errorCode?: string;
   errorMessage?: string;
-  licenseRecord?: LicenseRecord;
 }> {
   if (byokAccount && byokToken) {
     return {
       allowed: true,
-      tier: "BYOK (USER API)",
+      tier: "CLOUDFLARE BYOK",
       creditsRemaining: 999999
     };
   }
 
-  const cleanLicense = licenseKey.trim().toUpperCase();
-  if (cleanLicense.length >= 8) {
-    const kvKey = `license:${cleanLicense}`;
-    let record = await env.TEPUI_KV.get<LicenseRecord>(kvKey, "json");
-    if (!record && BUILTIN_PRO_LICENSES[cleanLicense]) {
-      const preset = BUILTIN_PRO_LICENSES[cleanLicense];
-      record = {
-        key: cleanLicense,
-        plan: preset.plan,
-        credits_remaining: preset.initialCredits,
-        total_used: 0,
-        updated_at: new Date().toISOString()
-      };
-      await env.TEPUI_KV.put(kvKey, JSON.stringify(record));
-    }
-    if (!record) {
-      return {
-        allowed: false,
-        tier: "INVALID LICENSE",
-        creditsRemaining: 0,
-        errorCode: "INVALID_LICENSE_KEY",
-        errorMessage: "La clave de licencia ingresada no existe o expiró."
-      };
-    }
-    if (record.credits_remaining <= 0) {
-      return {
-        allowed: false,
-        tier: record.plan,
-        creditsRemaining: 0,
-        errorCode: "CREDITS_EXHAUSTED",
-        errorMessage: "Tus créditos Cloud IA se agotaron. Recarga tu licencia o usa BYOK / NPU Local."
-      };
-    }
-    return {
-      allowed: true,
-      tier: record.plan,
-      creditsRemaining: record.credits_remaining,
-      licenseRecord: record
-    };
-  }
-
-  // Free Tier por Dispositivo (15 generaciones Cloud/día)
+  // Cuota Comunitaria Open Source protegida por IP real de Cloudflare (CF-Connecting-IP hash SHA-256)
   const dateStr = utcDateKey();
-  const quotaKey = `quota:${dateStr}:${deviceId}`;
+  const quotaKey = `quota:ip:${dateStr}:${ipHash}`;
   const usedRaw = await env.TEPUI_KV.get(quotaKey, "text");
   const usedToday = usedRaw ? parseInt(usedRaw, 10) || 0 : 0;
-  const remaining = Math.max(0, FREE_DAILY_CREDITS_PER_DEVICE - usedToday);
+  const remaining = Math.max(0, FREE_DAILY_CREDITS_PER_IP - usedToday);
   if (remaining <= 0) {
     return {
       allowed: false,
-      tier: "FREE TIER (0/15)",
+      tier: "COMMUNITY KV (0/20)",
       creditsRemaining: 0,
       errorCode: "FREE_QUOTA_EXCEEDED",
       errorMessage:
-        "Alcanzaste las 15 generaciones Cloud IA gratuitas de hoy. Activa una Licencia Pro, usa BYOK o continúa con el motor NPU Local ilimitado."
+        "Alcanzaste las 20 generaciones nuevas del Pool Comunitario hoy (los presets en Caché KV siguen siendo ilimitados). Configura Ollama Local, Gemini, Groq, OpenAI o usa el motor NPU Local."
     };
   }
   return {
     allowed: true,
-    tier: "FREE TIER",
+    tier: "COMMUNITY KV",
     creditsRemaining: remaining
   };
 }
 
-async function consumeOneCredit(
+async function consumeOneIpCredit(
   env: Env,
-  deviceId: string,
-  licenseRecord?: LicenseRecord
+  ipHash: string
 ): Promise<number> {
-  if (licenseRecord) {
-    licenseRecord.credits_remaining = Math.max(0, licenseRecord.credits_remaining - 1);
-    licenseRecord.total_used = (licenseRecord.total_used || 0) + 1;
-    licenseRecord.updated_at = new Date().toISOString();
-    await env.TEPUI_KV.put(
-      `license:${licenseRecord.key}`,
-      JSON.stringify(licenseRecord)
-    );
-    return licenseRecord.credits_remaining;
-  }
-
   const dateStr = utcDateKey();
-  const quotaKey = `quota:${dateStr}:${deviceId}`;
+  const quotaKey = `quota:ip:${dateStr}:${ipHash}`;
   const usedRaw = await env.TEPUI_KV.get(quotaKey, "text");
   const usedToday = (usedRaw ? parseInt(usedRaw, 10) || 0 : 0) + 1;
   await env.TEPUI_KV.put(quotaKey, String(usedToday), { expirationTtl: 60 * 60 * 36 });
-  return Math.max(0, FREE_DAILY_CREDITS_PER_DEVICE - usedToday);
+  return Math.max(0, FREE_DAILY_CREDITS_PER_IP - usedToday);
 }
 
 const CORS_HEADERS: Record<string, string> = {
@@ -356,11 +286,9 @@ export default {
 
     const url = new URL(request.url);
     const startMs = Date.now();
-    const clientIp = request.headers.get("CF-Connecting-IP") || "anon-ip";
-    const deviceId = (request.headers.get("X-Tepui-Device-Id") || clientIp)
-      .trim()
-      .slice(0, 64);
-    const licenseKey = (request.headers.get("X-Tepui-License-Key") || "").trim();
+    // IP real del socket TCP verificada por Cloudflare Edge (inmune a spoofing de headers en Open Source)
+    const clientIp = request.headers.get("CF-Connecting-IP") || "127.0.0.1";
+    const ipHash = (await sha256Hex(`tepui-edge-ip-v1:${clientIp}`)).slice(0, 24);
     const byokAccount = (request.headers.get("X-Tepui-Byok-Account") || "").trim();
     const byokToken = (request.headers.get("X-Tepui-Byok-Token") || "").trim();
 
@@ -371,6 +299,7 @@ export default {
           JSON.stringify({
             ok: true,
             service: "tepui-ai-synth-gateway",
+            mode: "OPEN-SOURCE-COMMUNITY-EDGE",
             model: MODEL_ID,
             engine: "CLOUDFLARE-WORKERS-AI",
             kv_cache: true,
@@ -385,10 +314,9 @@ export default {
       }
 
       if (url.pathname === "/v1/quota" || url.pathname === "/v1/license/verify") {
-        const quota = await resolveLicenseOrDeviceQuota(
+        const quota = await resolveCommunityIpQuota(
           env,
-          licenseKey,
-          deviceId,
+          ipHash,
           byokAccount,
           byokToken
         );
@@ -401,7 +329,7 @@ export default {
             daily_neurons_used: dailyNeurons,
             max_daily_neurons: MAX_DAILY_FREE_POOL_NEURONS,
             error_code: quota.errorCode ?? null,
-            message: quota.errorMessage ?? "Cuenta activa y protegida con Escudo Anti-Costos KV."
+            message: quota.errorMessage ?? "Pool Comunitario Open Source activo (Caché KV ilimitado + 9,500 Neurons/día gratis)."
           }),
           {
             status: 200,
@@ -417,10 +345,9 @@ export default {
         const promptHash = await sha256Hex(normalizedPrompt);
         const cacheKey = `cache:preset:v1:${promptHash}`;
 
-        const quota = await resolveLicenseOrDeviceQuota(
+        const quota = await resolveCommunityIpQuota(
           env,
-          licenseKey,
-          deviceId,
+          ipHash,
           byokAccount,
           byokToken
         );
@@ -520,13 +447,13 @@ export default {
           expirationTtl: 60 * 60 * 24 * 30
         });
 
-        // 6. Contabilizar Neurons y descontar 1 crédito (si no es BYOK)
+        // 6. Contabilizar Neurons y descontar 1 crédito por IP (si no es BYOK)
         const updatedDailyNeurons = isByok
           ? currentDailyNeurons
           : await addDailyNeuronsUsed(env, ESTIMATED_NEURONS_PER_GEN);
         const updatedCredits = isByok
           ? 999999
-          : await consumeOneCredit(env, deviceId, quota.licenseRecord);
+          : await consumeOneIpCredit(env, ipHash);
 
         const elapsedMs = Date.now() - startMs;
         console.log(

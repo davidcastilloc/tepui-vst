@@ -223,36 +223,44 @@ function updateRegionDisplay(regionObj) {
 
 function syncCloudCreditsBadgeUI(oddObj) {
   const odd = oddObj || state.oddMetrics || {};
-  const tier = String(odd.cloud_tier || 'FREE TIER (15/DAY)').toUpperCase();
-  const cr = odd.cloud_credits_remaining !== undefined ? odd.cloud_credits_remaining : 15;
+  const tier = String(odd.cloud_tier || 'COMMUNITY KV').toUpperCase();
+  const cr = odd.cloud_credits_remaining !== undefined ? odd.cloud_credits_remaining : 20;
   const dailyNeurons = odd.cloud_daily_neurons || 0;
-  const isProOrByok = tier.includes('PRO') || tier.includes('BYOK') || tier.includes('VIP');
-  const isLocalOnly = tier.includes('LOCAL');
+  const isCustomProvider = tier.includes('OLLAMA') || tier.includes('GEMINI') || tier.includes('GROQ') || tier.includes('OPENAI') || tier.includes('BYOK');
+  const isLocalOnly = tier.includes('LOCAL NPU');
 
   const btnCredits = document.getElementById('btn-cloud-credits');
   const txtCredits = document.getElementById('cloud-credits-text');
   if (btnCredits && txtCredits) {
-    btnCredits.classList.toggle('tier-pro', isProOrByok);
-    if (tier.includes('BYOK')) {
-      txtCredits.innerText = 'CLOUD: BYOK ∞';
+    btnCredits.classList.toggle('tier-pro', isCustomProvider);
+    if (tier.includes('OLLAMA')) {
+      txtCredits.innerText = 'AI: OLLAMA LOCAL';
+    } else if (tier.includes('GEMINI')) {
+      txtCredits.innerText = 'AI: GEMINI';
+    } else if (tier.includes('GROQ')) {
+      txtCredits.innerText = 'AI: GROQ LPU';
+    } else if (tier.includes('OPENAI')) {
+      txtCredits.innerText = 'AI: OPENAI';
     } else if (isLocalOnly) {
-      txtCredits.innerText = 'NPU LOCAL ($0)';
-    } else if (isProOrByok) {
-      txtCredits.innerText = `PRO: ${cr} CR`;
+      txtCredits.innerText = 'AI: NPU LOCAL';
     } else {
-      txtCredits.innerText = `CLOUD: ${cr} CR`;
+      txtCredits.innerText = `AI: KV (${cr} CR)`;
     }
   }
 
   const modalPill = document.getElementById('cloud-modal-tier-badge');
   if (modalPill) {
-    modalPill.classList.toggle('tier-pro', isProOrByok);
-    modalPill.innerText = isLocalOnly ? 'LOCAL NPU • $0 CLOUD' : `${tier.split('(')[0].trim()} • ${cr} CR`;
+    modalPill.classList.toggle('tier-pro', isCustomProvider);
+    if (isCustomProvider || isLocalOnly) {
+      modalPill.innerText = tier;
+    } else {
+      modalPill.innerText = `COMMUNITY KV • ${cr} CR`;
+    }
   }
 
   const quotaSum = document.getElementById('cloud-quota-summary');
   if (quotaSum) {
-    quotaSum.innerText = `Pool Gratuito Protegido: ${dailyNeurons} / 9,500 Neurons hoy ($0.00 facturación garantizada)`;
+    quotaSum.innerText = `Pool Comunitario KV: ${dailyNeurons} / 9,500 Neurons hoy (Caché KV global = 0 Neurons en hits)`;
   }
 }
 
@@ -2664,14 +2672,16 @@ function initAudioSettingsModal() {
       const data = await resp.json();
       const cfg = data.config || {};
       const quota = data.quota || {};
-      const licInput = document.getElementById('input-cloud-license');
-      const modeSel = document.getElementById('select-cloud-mode');
-      const byokAcc = document.getElementById('input-byok-account');
-      const byokTok = document.getElementById('input-byok-token');
-      if (licInput) licInput.value = cfg.license_key || '';
-      if (modeSel) modeSel.value = cfg.local_npu_only ? 'local_only' : 'cloud';
-      if (byokAcc) byokAcc.value = cfg.byok_account_id || '';
-      if (byokTok) byokTok.value = cfg.byok_api_token || '';
+      const provSel = document.getElementById('select-ai-provider');
+      const modelInp = document.getElementById('input-ai-model');
+      const keyInp = document.getElementById('input-ai-api-key');
+      const endpInp = document.getElementById('input-ai-endpoint');
+      if (provSel) {
+        provSel.value = cfg.local_npu_only ? 'local_npu' : (cfg.ai_provider || 'community_edge');
+      }
+      if (modelInp) modelInp.value = cfg.model_name || '';
+      if (keyInp) keyInp.value = cfg.api_key || '';
+      if (endpInp) endpInp.value = cfg.custom_endpoint || '';
       if (state.oddMetrics && quota.tier) {
         state.oddMetrics.cloud_tier = quota.tier;
         state.oddMetrics.cloud_credits_remaining = quota.credits_remaining;
@@ -2679,25 +2689,30 @@ function initAudioSettingsModal() {
       }
       refreshFooterOddText();
     } catch (e) {
-      console.warn('[TEPUI CLOUD LICENSE FETCH]', e);
+      console.warn('[TEPUI AI PROVIDER FETCH]', e);
     }
   }
 
   const btnVerifyCloud = document.getElementById('btn-verify-cloud-license');
   if (btnVerifyCloud) {
     btnVerifyCloud.addEventListener('click', async () => {
-      const licInput = document.getElementById('input-cloud-license');
-      const modeSel = document.getElementById('select-cloud-mode');
-      const byokAcc = document.getElementById('input-byok-account');
-      const byokTok = document.getElementById('input-byok-token');
+      const provSel = document.getElementById('select-ai-provider');
+      const modelInp = document.getElementById('input-ai-model');
+      const keyInp = document.getElementById('input-ai-api-key');
+      const endpInp = document.getElementById('input-ai-endpoint');
+      const selectedProv = provSel && provSel.value ? provSel.value : 'community_edge';
       const payload = {
-        license_key: licInput && licInput.value.trim() ? licInput.value.trim() : '',
+        ai_provider: selectedProv,
+        api_key: keyInp && keyInp.value.trim() ? keyInp.value.trim() : '',
+        custom_endpoint: endpInp && endpInp.value.trim() ? endpInp.value.trim() : '',
+        model_name: modelInp && modelInp.value.trim() ? modelInp.value.trim() : '',
+        license_key: '',
         device_id: '',
-        byok_account_id: byokAcc && byokAcc.value.trim() ? byokAcc.value.trim() : '',
-        byok_api_token: byokTok && byokTok.value.trim() ? byokTok.value.trim() : '',
-        local_npu_only: !!(modeSel && modeSel.value === 'local_only')
+        byok_account_id: '',
+        byok_api_token: '',
+        local_npu_only: selectedProv === 'local_npu'
       };
-      showStatus('Verificando licencia y sincronizando con Cloudflare Edge KV...');
+      showStatus('Guardando proveedor de IA Open Source...');
       sendIpc('save_cloud_license:' + JSON.stringify(payload));
       try {
         const resp = await fetch('/api/save-cloud-license', {
@@ -2713,14 +2728,14 @@ function initAudioSettingsModal() {
             state.oddMetrics.cloud_credits_remaining = res.quota.credits_remaining;
             state.oddMetrics.cloud_daily_neurons = res.quota.daily_neurons_used || res.quota.daily_neurons || 0;
             refreshFooterOddText();
-            showStatus(`[OK] Cloud AI activo: ${res.quota.tier} • ${res.quota.credits_remaining} créditos disponibles (Riesgo facturación: $0.00)`);
+            showStatus(`[OK] Proveedor IA activo: ${res.quota.tier} (${res.quota.message || 'Listo para sintetizar'})`);
             return;
           }
         }
       } catch (e) {
-        console.warn('[TEPUI SAVE CLOUD LICENSE]', e);
+        console.warn('[TEPUI SAVE AI PROVIDER]', e);
       }
-      showStatus('[OK] Configuración de Cloud AI y Licencia guardada localmente.');
+      showStatus('[OK] Proveedor de IA guardado exitosamente.');
     });
   }
 

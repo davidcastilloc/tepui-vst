@@ -67,6 +67,7 @@ flowchart LR
 | **Rack Espacial Master (`StereoFxRack`)** | Chorus Estéreo Analógico en Cuadratura + Ping-Pong Cross-Delay con filtro de amortiguación + **Reverberación Algorítmica "Cañón del Tepui"** (4 filtros Comb en paralelo + 2 difusores All-Pass en serie por canal). |
 | **Keyzones Multi-Muestra y `.tepui`** | División del teclado en 3 registros (`LOW C0–B2`, `MID C3–B4`, `HIGH C5–G8`) con persistencia completa en archivos `.tepui` (JSON + WAV IEEE Float 32-bit Base64) y en la sesión del proyecto DAW. |
 | **Grabadora Master en Vivo** | Captura `LIVE REC -> WAV` post-FX con buffers estéreo prealocados (`try_lock` no bloqueante en el hilo de audio) y exportación directa a WAV IEEE Float de 32 bits. |
+| **Hub Open-Source Multi-Proveedor IA** | Síntesis de patches y muestras modales `Piano-Roll Ready` (Auto-Onset Trim + Auto-Pitch YIN) compatible con **Community Edge KV Cache**, **Ollama Local (`127.0.0.1:11434`)**, **Google Gemini API**, **Groq Cloud LPU**, **OpenAI / OpenRouter** y **100% Local Intel NPU + DSP Físico**. |
 
 ---
 

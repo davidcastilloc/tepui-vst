@@ -39,13 +39,29 @@ fn default_device_id() -> String {
     format!("tepui-dev-{:012x}", hash & 0xffff_ffff_ffff)
 }
 
-/// Configuración persistente de Monetización Cloud IA, Licencia Pro, BYOK y Escudo Anti-Costos.
+fn default_ai_provider() -> String {
+    "community_edge".to_string()
+}
+
+/// Configuración persistente del Hub Open-Source Multi-Proveedor de IA (`Community KV`, `Ollama Local`, `Gemini`, `Groq`, `OpenAI`, `Local NPU`).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CloudLicenseConfig {
-    /// Clave de licencia Pro (`TEPUI-PRO-...`)
+    /// Proveedor activo: `"community_edge"`, `"ollama_local"`, `"gemini"`, `"groq"`, `"openai_compatible"`, `"local_npu"`
+    #[serde(default = "default_ai_provider")]
+    pub ai_provider: String,
+    /// API Key del usuario para Gemini, Groq, OpenAI u OpenRouter
+    #[serde(default)]
+    pub api_key: String,
+    /// Endpoint personalizado (ej. `http://127.0.0.1:11434` para Ollama o URL compatible con OpenAI)
+    #[serde(default)]
+    pub custom_endpoint: String,
+    /// Nombre del modelo (ej. `llama3.2`, `gemini-2.5-flash`, `llama-3.3-70b-versatile`, `gpt-4o-mini`)
+    #[serde(default)]
+    pub model_name: String,
+    /// Campo legado opcional
     #[serde(default)]
     pub license_key: String,
-    /// Identificador único anónimo del dispositivo para las 15 generaciones gratuitas diarias
+    /// Identificador único anónimo del dispositivo
     #[serde(default = "default_device_id")]
     pub device_id: String,
     /// Account ID propio de Cloudflare del usuario (modo BYOK 0 costo para nosotros)
@@ -62,6 +78,10 @@ pub struct CloudLicenseConfig {
 impl Default for CloudLicenseConfig {
     fn default() -> Self {
         Self {
+            ai_provider: default_ai_provider(),
+            api_key: String::new(),
+            custom_endpoint: String::new(),
+            model_name: String::new(),
             license_key: String::new(),
             device_id: default_device_id(),
             byok_account_id: String::new(),
@@ -71,7 +91,7 @@ impl Default for CloudLicenseConfig {
     }
 }
 
-/// Reporte en vivo de cuota, créditos, caché KV y consumo de Neurons devuelto por el Worker Edge.
+/// Reporte en vivo de proveedor IA, cuota comunitaria, caché KV y consumo de Neurons.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CloudEdgeQuotaReport {
     pub tier: String,
@@ -86,13 +106,13 @@ pub struct CloudEdgeQuotaReport {
 impl Default for CloudEdgeQuotaReport {
     fn default() -> Self {
         Self {
-            tier: "FREE TIER".to_string(),
-            credits_remaining: 15,
+            tier: "COMMUNITY KV".to_string(),
+            credits_remaining: 20,
             daily_neurons_used: 0,
             max_daily_neurons: MAX_DAILY_FREE_POOL_NEURONS,
             cached: false,
             budget_guard_tripped: false,
-            message: "Escudo Anti-Costos KV activo (Tope gratuito: 9,500 Neurons/día)".to_string(),
+            message: "Pool Comunitario Open Source activo (Caché KV ilimitado + 9,500 Neurons/día gratis)".to_string(),
         }
     }
 }
@@ -285,17 +305,365 @@ pub fn build_cloudflare_workers_ai_preset_request(prompt: &str) -> serde_json::V
     })
 }
 
-/// Consulta el estado de cuota/licencia en el Worker Edge (`/v1/quota`).
+const OPEN_SOURCE_SYNTH_SYSTEM_PROMPT: &str = "You are TEPUI Gran Sabana Sonic Lab's open-source synthesizer patch & modal-spectral sample architect. Given a musical description, return ONLY a compact raw JSON object (no markdown fences) for a playable polyphonic Piano Roll instrument with these exact keys: {\"name\":string,\"attack\":float(0.001..2.0),\"decay\":float(0.05..3.0),\"sustain\":float(0..1),\"release\":float(0.05..4.0),\"cutoff\":float(120..20000),\"resonance\":float(0.5..6.0),\"filter_mode\":int(0=LP,1=HP,2=BP),\"lfo_rate\":float(0.2..16),\"lfo_depth\":float(0..0.9),\"lfo_target\":int(0=Cutoff,1=Pitch,2=Amp),\"arp_mode\":int(0=Off,1=Up,2=Down,3=Joropo 6/8,4=Merengue 5/8),\"space_mix\":float(0..0.8),\"mod_matrix_mask\":int(0..33554431),\"root_note\":int(24..96),\"fm_index\":float(0..4),\"fm_ratio\":float(0.5..8),\"partials\":[{\"ratio\":float,\"amplitude\":float,\"decay_rate\":float,\"detune_cents\":float,\"pan\":float}]} (8 partials).";
+
+fn parse_patch_spec_from_llm_text(raw_text: &str, prompt: &str) -> Option<AiSynthesizerPatchSpec> {
+    let start = raw_text.find('{')?;
+    let end = raw_text.rfind('}')?;
+    if end <= start {
+        return None;
+    }
+    let json_slice = &raw_text[start..=end];
+    let val: serde_json::Value = serde_json::from_str(json_slice).ok()?;
+    let partials_val = val.get("partials").and_then(|v| v.as_array());
+    let mut partials = Vec::new();
+    if let Some(arr) = partials_val {
+        for (i, item) in arr.iter().take(12).enumerate() {
+            partials.push(ModalPartialSpec {
+                ratio: item
+                    .get("ratio")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or((i + 1) as f64) as f32,
+                amplitude: item
+                    .get("amplitude")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(1.0 / (i + 1) as f64) as f32,
+                decay_rate: item
+                    .get("decay_rate")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(1.2 + i as f64 * 0.45) as f32,
+                detune_cents: item
+                    .get("detune_cents")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0) as f32,
+                pan: item.get("pan").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
+            });
+        }
+    }
+    let mut spec = AiSynthesizerPatchSpec {
+        name: val
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or(prompt)
+            .to_string(),
+        attack: val.get("attack").and_then(|v| v.as_f64()).unwrap_or(0.015) as f32,
+        decay: val.get("decay").and_then(|v| v.as_f64()).unwrap_or(0.35) as f32,
+        sustain: val.get("sustain").and_then(|v| v.as_f64()).unwrap_or(0.70) as f32,
+        release: val.get("release").and_then(|v| v.as_f64()).unwrap_or(0.40) as f32,
+        cutoff: val.get("cutoff").and_then(|v| v.as_f64()).unwrap_or(9500.0) as f32,
+        resonance: val
+            .get("resonance")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(1.15) as f32,
+        filter_mode: val.get("filter_mode").and_then(|v| v.as_u64()).unwrap_or(0) as u8,
+        lfo_rate: val.get("lfo_rate").and_then(|v| v.as_f64()).unwrap_or(3.8) as f32,
+        lfo_depth: val
+            .get("lfo_depth")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.18) as f32,
+        lfo_target: val.get("lfo_target").and_then(|v| v.as_u64()).unwrap_or(0) as u8,
+        arp_mode: val.get("arp_mode").and_then(|v| v.as_u64()).unwrap_or(0) as u8,
+        space_mix: val
+            .get("space_mix")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.24) as f32,
+        mod_matrix_mask: val
+            .get("mod_matrix_mask")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(2178) as u32,
+        root_note: val.get("root_note").and_then(|v| v.as_u64()).unwrap_or(60) as u8,
+        fm_index: val.get("fm_index").and_then(|v| v.as_f64()).unwrap_or(0.6) as f32,
+        fm_ratio: val.get("fm_ratio").and_then(|v| v.as_f64()).unwrap_or(2.0) as f32,
+        partials,
+    };
+    sanitize_patch_spec(&mut spec);
+    Some(spec)
+}
+
+fn try_fetch_external_provider_patch(
+    prompt: &str,
+    cfg: &CloudLicenseConfig,
+) -> Option<(AiSynthesizerPatchSpec, CloudEdgeQuotaReport)> {
+    let provider = cfg.ai_provider.trim().to_lowercase();
+    match provider.as_str() {
+        "ollama_local" => {
+            let base = if cfg.custom_endpoint.trim().is_empty() {
+                "http://127.0.0.1:11434"
+            } else {
+                cfg.custom_endpoint.trim().trim_end_matches('/')
+            };
+            let endpoint = if base.ends_with("/api/chat") {
+                base.to_string()
+            } else {
+                format!("{}/api/chat", base)
+            };
+            let model = if cfg.model_name.trim().is_empty() {
+                "llama3.2"
+            } else {
+                cfg.model_name.trim()
+            };
+            let body = serde_json::json!({
+                "model": model,
+                "stream": false,
+                "format": "json",
+                "messages": [
+                    { "role": "system", "content": OPEN_SOURCE_SYNTH_SYSTEM_PROMPT },
+                    { "role": "user", "content": prompt.trim() }
+                ]
+            })
+            .to_string();
+            let mut cmd = Command::new("curl");
+            configure_silent_command(&mut cmd);
+            let output = cmd
+                .args([
+                    "-sS",
+                    "--max-time",
+                    "20",
+                    "-X",
+                    "POST",
+                    &endpoint,
+                    "-H",
+                    "Content-Type: application/json",
+                    "-d",
+                    &body,
+                ])
+                .output()
+                .ok()?;
+            if !output.status.success() {
+                return None;
+            }
+            let resp_json: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
+            let content = resp_json
+                .get("message")
+                .and_then(|m| m.get("content"))
+                .and_then(|c| c.as_str())?;
+            let spec = parse_patch_spec_from_llm_text(content, prompt)?;
+            Some((
+                spec,
+                CloudEdgeQuotaReport {
+                    tier: format!("OLLAMA LOCAL ({})", model),
+                    credits_remaining: 999999,
+                    daily_neurons_used: 0,
+                    max_daily_neurons: MAX_DAILY_FREE_POOL_NEURONS,
+                    cached: false,
+                    budget_guard_tripped: false,
+                    message: format!("Sintetizado localmente con Ollama ({})", model),
+                },
+            ))
+        }
+        "gemini" => {
+            let api_key = cfg.api_key.trim();
+            if api_key.is_empty() {
+                return None;
+            }
+            let model = if cfg.model_name.trim().is_empty() {
+                "gemini-2.5-flash"
+            } else {
+                cfg.model_name.trim()
+            };
+            let endpoint = format!(
+                "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+                model, api_key
+            );
+            let body = serde_json::json!({
+                "systemInstruction": {
+                    "parts": [{ "text": OPEN_SOURCE_SYNTH_SYSTEM_PROMPT }]
+                },
+                "contents": [{
+                    "parts": [{ "text": prompt.trim() }]
+                }],
+                "generationConfig": {
+                    "responseMimeType": "application/json",
+                    "temperature": 0.2
+                }
+            })
+            .to_string();
+            let mut cmd = Command::new("curl");
+            configure_silent_command(&mut cmd);
+            let output = cmd
+                .args([
+                    "-sS",
+                    "--max-time",
+                    "15",
+                    "-X",
+                    "POST",
+                    &endpoint,
+                    "-H",
+                    "Content-Type: application/json",
+                    "-d",
+                    &body,
+                ])
+                .output()
+                .ok()?;
+            if !output.status.success() {
+                return None;
+            }
+            let resp_json: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
+            let content = resp_json
+                .get("candidates")
+                .and_then(|c| c.get(0))
+                .and_then(|c| c.get("content"))
+                .and_then(|c| c.get("parts"))
+                .and_then(|p| p.get(0))
+                .and_then(|p| p.get("text"))
+                .and_then(|t| t.as_str())?;
+            let spec = parse_patch_spec_from_llm_text(content, prompt)?;
+            Some((
+                spec,
+                CloudEdgeQuotaReport {
+                    tier: format!("GEMINI ({})", model),
+                    credits_remaining: 999999,
+                    daily_neurons_used: 0,
+                    max_daily_neurons: MAX_DAILY_FREE_POOL_NEURONS,
+                    cached: false,
+                    budget_guard_tripped: false,
+                    message: format!("Conectado a Google Gemini API ({})", model),
+                },
+            ))
+        }
+        "groq" | "openai_compatible" => {
+            let api_key = cfg.api_key.trim();
+            if api_key.is_empty() {
+                return None;
+            }
+            let is_groq = provider == "groq";
+            let endpoint = if !cfg.custom_endpoint.trim().is_empty() {
+                cfg.custom_endpoint.trim().to_string()
+            } else if is_groq {
+                "https://api.groq.com/openai/v1/chat/completions".to_string()
+            } else {
+                "https://api.openai.com/v1/chat/completions".to_string()
+            };
+            let model = if !cfg.model_name.trim().is_empty() {
+                cfg.model_name.trim()
+            } else if is_groq {
+                "llama-3.3-70b-versatile"
+            } else {
+                "gpt-4o-mini"
+            };
+            let body = serde_json::json!({
+                "model": model,
+                "temperature": 0.2,
+                "response_format": { "type": "json_object" },
+                "messages": [
+                    { "role": "system", "content": OPEN_SOURCE_SYNTH_SYSTEM_PROMPT },
+                    { "role": "user", "content": prompt.trim() }
+                ]
+            })
+            .to_string();
+            let mut cmd = Command::new("curl");
+            configure_silent_command(&mut cmd);
+            let output = cmd
+                .args([
+                    "-sS",
+                    "--max-time",
+                    "15",
+                    "-X",
+                    "POST",
+                    &endpoint,
+                    "-H",
+                    &format!("Authorization: Bearer {}", api_key),
+                    "-H",
+                    "Content-Type: application/json",
+                    "-d",
+                    &body,
+                ])
+                .output()
+                .ok()?;
+            if !output.status.success() {
+                return None;
+            }
+            let resp_json: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
+            let content = resp_json
+                .get("choices")
+                .and_then(|c| c.get(0))
+                .and_then(|c| c.get("message"))
+                .and_then(|m| m.get("content"))
+                .and_then(|t| t.as_str())?;
+            let spec = parse_patch_spec_from_llm_text(content, prompt)?;
+            let tier_label = if is_groq {
+                format!("GROQ LPU ({})", model)
+            } else {
+                format!("OPENAI ({})", model)
+            };
+            Some((
+                spec,
+                CloudEdgeQuotaReport {
+                    tier: tier_label,
+                    credits_remaining: 999999,
+                    daily_neurons_used: 0,
+                    max_daily_neurons: MAX_DAILY_FREE_POOL_NEURONS,
+                    cached: false,
+                    budget_guard_tripped: false,
+                    message: format!("Conectado a {} ({})", provider.to_uppercase(), model),
+                },
+            ))
+        }
+        _ => None,
+    }
+}
+
+/// Consulta el estado del proveedor IA seleccionado o del Pool Comunitario en el Worker Edge (`/v1/quota`).
 pub fn verify_cloud_license_quota(cfg: &CloudLicenseConfig) -> CloudEdgeQuotaReport {
-    if cfg.local_npu_only {
+    let provider = cfg.ai_provider.trim().to_lowercase();
+    if cfg.local_npu_only || provider == "local_npu" {
         return CloudEdgeQuotaReport {
-            tier: "LOCAL NPU ONLY ($0)".to_string(),
+            tier: "LOCAL NPU ($0)".to_string(),
             credits_remaining: 0,
             daily_neurons_used: 0,
             max_daily_neurons: MAX_DAILY_FREE_POOL_NEURONS,
             cached: false,
             budget_guard_tripped: false,
-            message: "Modo 100% Local NPU activo (0 consumo en nube).".to_string(),
+            message: "Modo 100% Local Intel NPU + DSP Físico activo (0 red).".to_string(),
+        };
+    }
+    if provider == "ollama_local" {
+        let model = if cfg.model_name.trim().is_empty() {
+            "llama3.2"
+        } else {
+            cfg.model_name.trim()
+        };
+        return CloudEdgeQuotaReport {
+            tier: format!("OLLAMA ({})", model),
+            credits_remaining: 999999,
+            daily_neurons_used: 0,
+            max_daily_neurons: MAX_DAILY_FREE_POOL_NEURONS,
+            cached: false,
+            budget_guard_tripped: false,
+            message: format!("Proveedor Local Ollama activo ({})", model),
+        };
+    }
+    if provider == "gemini" {
+        return CloudEdgeQuotaReport {
+            tier: "GEMINI AI".to_string(),
+            credits_remaining: 999999,
+            daily_neurons_used: 0,
+            max_daily_neurons: MAX_DAILY_FREE_POOL_NEURONS,
+            cached: false,
+            budget_guard_tripped: false,
+            message: "Proveedor Google Gemini API configurado.".to_string(),
+        };
+    }
+    if provider == "groq" {
+        return CloudEdgeQuotaReport {
+            tier: "GROQ LPU".to_string(),
+            credits_remaining: 999999,
+            daily_neurons_used: 0,
+            max_daily_neurons: MAX_DAILY_FREE_POOL_NEURONS,
+            cached: false,
+            budget_guard_tripped: false,
+            message: "Proveedor Groq Cloud LPU (~150ms) configurado.".to_string(),
+        };
+    }
+    if provider == "openai_compatible" {
+        return CloudEdgeQuotaReport {
+            tier: "OPENAI API".to_string(),
+            credits_remaining: 999999,
+            daily_neurons_used: 0,
+            max_daily_neurons: MAX_DAILY_FREE_POOL_NEURONS,
+            cached: false,
+            budget_guard_tripped: false,
+            message: "Proveedor OpenAI / OpenRouter compatible configurado.".to_string(),
         };
     }
 
@@ -380,11 +748,12 @@ pub fn try_fetch_cloudflare_edge_worker_patch_with_report(
     }
 
     let cfg = load_cloud_license_config();
-    if cfg.local_npu_only {
+    let provider = cfg.ai_provider.trim().to_lowercase();
+    if cfg.local_npu_only || provider == "local_npu" {
         return (
             None,
             Some(CloudEdgeQuotaReport {
-                tier: "LOCAL NPU ONLY ($0)".to_string(),
+                tier: "LOCAL NPU ($0)".to_string(),
                 credits_remaining: 0,
                 daily_neurons_used: 0,
                 max_daily_neurons: MAX_DAILY_FREE_POOL_NEURONS,
@@ -393,6 +762,16 @@ pub fn try_fetch_cloudflare_edge_worker_patch_with_report(
                 message: "Modo 100% Local NPU activo.".to_string(),
             }),
         );
+    }
+
+    if matches!(
+        provider.as_str(),
+        "ollama_local" | "gemini" | "groq" | "openai_compatible"
+    ) {
+        if let Some((spec, report)) = try_fetch_external_provider_patch(prompt, &cfg) {
+            return (Some(spec), Some(report));
+        }
+        return (None, None);
     }
 
     let base_url = std::env::var("TEPUI_CF_EDGE_WORKER_URL")

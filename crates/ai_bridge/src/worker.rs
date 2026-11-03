@@ -97,8 +97,8 @@ impl AiWorker {
         let piano_roll_auto_trims = Arc::new(AtomicU32::new(0));
         let last_detected_pitch_hz = Arc::new(AtomicU32::new(261.63_f32.to_bits()));
         let last_trimmed_samples = Arc::new(AtomicU32::new(0));
-        let cloud_tier = Arc::new(ArcSwap::from_pointee("FREE TIER".to_string()));
-        let cloud_credits_remaining = Arc::new(AtomicU32::new(15));
+        let cloud_tier = Arc::new(ArcSwap::from_pointee("COMMUNITY KV".to_string()));
+        let cloud_credits_remaining = Arc::new(AtomicU32::new(20));
         let cloud_kv_cache_hits = Arc::new(AtomicU32::new(0));
         let cloud_daily_neurons = Arc::new(AtomicU32::new(0));
         let cloud_budget_guard_trips = Arc::new(AtomicU32::new(0));
