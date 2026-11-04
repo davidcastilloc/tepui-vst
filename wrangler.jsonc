@@ -9,5 +9,11 @@
   "assets": {
     "directory": "site",
     "binding": "ASSETS"
-  }
+  },
+  "kv_namespaces": [
+    {
+      "binding": "TEPUI_CREDITS_KV",
+      "id": "ee612ebbc37e43ea9ae6f79077cc32c2"
+    }
+  ]
 }
