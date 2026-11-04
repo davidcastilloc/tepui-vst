@@ -13,11 +13,12 @@ pub mod worker;
 pub use cloudflare::{
     build_cloudflare_workers_ai_preset_request, charge_cloud_credits_for_wav_sample,
     compute_hmac_sha256_hex, design_patch_spec_from_prompt, design_patch_spec_with_cloudflare_live,
-    format_piano_roll_oneshot_prompt, load_cloud_license_config, process_checkout_webhook_payload,
-    redeem_cloud_license_code, save_cloud_license_config, synthesize_sample_from_patch_spec,
-    try_fetch_cloudflare_ai_gateway_wav, try_fetch_cloudflare_ai_gateway_wav_with_billing,
-    try_fetch_cloudflare_edge_worker_patch, try_fetch_cloudflare_edge_worker_patch_with_report,
-    verify_checkout_webhook_hmac_sha256, verify_cloud_license_quota, AiSynthesizerPatchSpec,
+    format_piano_roll_oneshot_prompt, generate_signed_voucher_code, load_cloud_license_config,
+    process_checkout_webhook_payload, redeem_cloud_license_code, save_cloud_license_config,
+    synthesize_sample_from_patch_spec, try_fetch_cloudflare_ai_gateway_wav,
+    try_fetch_cloudflare_ai_gateway_wav_with_billing, try_fetch_cloudflare_edge_worker_patch,
+    try_fetch_cloudflare_edge_worker_patch_with_report, verify_checkout_webhook_hmac_sha256,
+    verify_cloud_license_quota, verify_signed_voucher_code, AiSynthesizerPatchSpec,
     CloudEdgeQuotaReport, CloudLicenseConfig, ModalPartialSpec, DEFAULT_CF_AI_GATEWAY_WAV_URL,
     DEFAULT_CF_EDGE_WORKER_URL, DEFAULT_CF_PRESET_MODEL, DEFAULT_CF_SAMPLE_DIFFUSION_MODEL,
     MAX_DAILY_FREE_POOL_NEURONS, PRESET_GENERATION_CREDIT_COST, WAV_SAMPLE_GENERATION_CREDIT_COST,
@@ -419,5 +420,75 @@ mod tests {
         let after_topup = charge_cloud_credits_for_wav_sample(&mut cfg)
             .expect("Tras recargar +100 CR debe permitir generar Sample WAV (-5 CR)");
         assert_eq!(after_topup.credits_remaining, 95);
+    }
+
+    #[test]
+    fn test_checkout_webhook_anti_fraud_and_tamper_protection() {
+        std::env::set_var("TEPUI_OFFLINE_ONLY", "1");
+        let secret = "whsec_tepui_bank_grade_secret_2026";
+        let mut cfg = CloudLicenseConfig::default();
+
+        // 1. Fail-Closed si el secreto no está configurado o es débil (< 16 chars)
+        let p_valid = br#"{"event_id":"evt_sec_1001","credits":500,"payment_status":"paid"}"#;
+        let sig_short = compute_hmac_sha256_hex(p_valid, b"short");
+        let err_short = process_checkout_webhook_payload(p_valid, &sig_short, "short", &mut cfg)
+            .expect_err("Secreto corto o vacío debe fallar en modo Fail-Closed");
+        assert!(err_short.contains("HTTP 503"));
+
+        // 2. Rechazo de pagos no liquidados (`paid: false` o `payment_status: "unpaid"`)
+        let p_unpaid = br#"{"event_id":"evt_sec_1002","credits":500,"payment_status":"unpaid"}"#;
+        let sig_unpaid = compute_hmac_sha256_hex(p_unpaid, secret.as_bytes());
+        let err_unpaid = process_checkout_webhook_payload(p_unpaid, &sig_unpaid, secret, &mut cfg)
+            .expect_err("Orden no pagada jamás debe acreditar tokens");
+        assert!(err_unpaid.contains("HTTP 402"));
+        assert_eq!(cfg.redeemed_credits, 0);
+
+        // 3. Rechazo de montos arbitrarios inyectados (`credits: 99999`)
+        let p_forged_amt =
+            br#"{"event_id":"evt_sec_1003","credits":99999,"payment_status":"paid"}"#;
+        let sig_forged_amt = compute_hmac_sha256_hex(p_forged_amt, secret.as_bytes());
+        let err_amt =
+            process_checkout_webhook_payload(p_forged_amt, &sig_forged_amt, secret, &mut cfg)
+                .expect_err("Monto fuera de [100, 500, 1000] debe ser rechazado");
+        assert!(err_amt.contains("HTTP 400"));
+        assert_eq!(cfg.redeemed_credits, 0);
+
+        // 4. Rechazo de ataque de Replay con timestamp expirado (`Stripe-Signature: t=...,v1=...`)
+        let expired_ts = 1_700_000_000i64;
+        let mut stripe_signed_buf = format!("{}.", expired_ts).into_bytes();
+        stripe_signed_buf.extend_from_slice(p_valid);
+        let stripe_v1 = compute_hmac_sha256_hex(&stripe_signed_buf, secret.as_bytes());
+        let stripe_header = format!("t={},v1={}", expired_ts, stripe_v1);
+        let err_replay =
+            process_checkout_webhook_payload(p_valid, &stripe_header, secret, &mut cfg).expect_err(
+                "Webhook con timestamp antiguo (>300s) debe rechazarse por anti-replay",
+            );
+        assert!(err_replay.contains("WEBHOOK_TIMESTAMP_EXPIRED"));
+
+        // 5. Rechazo de fuerza bruta por prefijo (`TEPUI-1000-HACKED99`) y aceptación de voucher firmado con HMAC
+        let brute_err = redeem_cloud_license_code("TEPUI-1000-HACKED99", &mut cfg)
+            .expect_err("Códigos inventados por prefijo deben rechazarse con HTTP 403");
+        assert!(brute_err.contains("HTTP 403"));
+        assert_eq!(cfg.redeemed_credits, 0);
+
+        std::env::set_var("TEPUI_WEBHOOK_SECRET", secret);
+        let signed_voucher = generate_signed_voucher_code(1000, "evt_paid_777", secret)
+            .expect("Debe generar voucher firmado");
+        let ok_voucher = redeem_cloud_license_code(&signed_voucher, &mut cfg)
+            .expect("Voucher con firma HMAC válida debe acreditarse");
+        assert_eq!(ok_voucher.tier, "PRO CLOUD");
+        assert_eq!(cfg.redeemed_credits, 1000);
+
+        // 6. Protección anti-tampering del archivo local `cloud_license_config.json` (`integrity_mac`)
+        assert!(cfg.verify_and_sanitize_integrity());
+        cfg.redeemed_credits = 500_000; // Intento de edición manual sin actualizar `integrity_mac`
+        assert!(
+            !cfg.verify_and_sanitize_integrity(),
+            "Debe detectar manipulación manual de créditos en el JSON"
+        );
+        assert_eq!(
+            cfg.redeemed_credits, 0,
+            "Al detectar adulteración debe revocar los créditos falsos a 0"
+        );
     }
 }

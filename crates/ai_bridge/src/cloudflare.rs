@@ -109,11 +109,14 @@ pub struct CloudLicenseConfig {
     /// Total acumulado de créditos consumidos en generaciones de samples `.wav` y presets Cloud
     #[serde(default)]
     pub credits_spent: u32,
+    /// Sello criptográfico HMAC-SHA256 anti-manipulación del archivo `cloud_license_config.json`
+    #[serde(default)]
+    pub integrity_mac: String,
 }
 
 impl Default for CloudLicenseConfig {
     fn default() -> Self {
-        Self {
+        let mut cfg = Self {
             ai_provider: default_ai_provider(),
             api_key: String::new(),
             custom_endpoint: String::new(),
@@ -129,7 +132,10 @@ impl Default for CloudLicenseConfig {
             ai_gateway_url: default_ai_gateway_url(),
             wav_generation_enabled: true,
             credits_spent: 0,
-        }
+            integrity_mac: String::new(),
+        };
+        cfg.seal_integrity();
+        cfg
     }
 }
 
@@ -153,6 +159,51 @@ impl CloudLicenseConfig {
         base_credits
             .saturating_add(self.redeemed_credits)
             .saturating_sub(self.credits_spent)
+    }
+
+    /// Calcula el sello criptográfico HMAC-SHA256 sobre los campos sensibles de facturación local.
+    pub fn compute_integrity_mac(&self) -> String {
+        let canonical = format!(
+            "tepui-seal-v1|{}|{}|{}|{}|{}",
+            self.device_id.trim(),
+            self.redeemed_credits,
+            self.credits_spent,
+            self.pro_tier_unlocked,
+            self.redeemed_codes.join(",")
+        );
+        let key = format!("tepui-local-vault-key::{}", self.device_id.trim());
+        compute_hmac_sha256_hex(canonical.as_bytes(), key.as_bytes())
+    }
+
+    /// Actualiza `integrity_mac` con el sello HMAC-SHA256 actual.
+    pub fn seal_integrity(&mut self) {
+        self.integrity_mac = self.compute_integrity_mac();
+    }
+
+    /// Verifica que el archivo JSON local no haya sido editado manualmente para inyectar créditos falsos.
+    /// Si detecta adulteración, revoca los créditos inyectados y restaura un estado íntegro.
+    pub fn verify_and_sanitize_integrity(&mut self) -> bool {
+        let expected = self.compute_integrity_mac();
+        if self.integrity_mac.is_empty() && self.redeemed_credits == 0 && !self.pro_tier_unlocked {
+            self.integrity_mac = expected;
+            return true;
+        }
+        let mut diff = 0u8;
+        if self.integrity_mac.len() != expected.len() {
+            diff = 1;
+        } else {
+            for (a, b) in self.integrity_mac.bytes().zip(expected.bytes()) {
+                diff |= a ^ b;
+            }
+        }
+        if diff != 0 {
+            self.redeemed_credits = 0;
+            self.pro_tier_unlocked = false;
+            self.redeemed_codes.clear();
+            self.seal_integrity();
+            return false;
+        }
+        true
     }
 }
 
@@ -192,7 +243,8 @@ fn cloud_license_config_path() -> std::path::PathBuf {
     dir.join("cloud_license_config.json")
 }
 
-/// Carga desde disco la configuración de Licencia Pro / BYOK / Escudo Anti-Costos.
+/// Carga desde disco la configuración de Licencia Pro / BYOK / Escudo Anti-Costos,
+/// verificando su sello criptográfico `integrity_mac` contra ediciones manuales no autorizadas.
 pub fn load_cloud_license_config() -> CloudLicenseConfig {
     let path = cloud_license_config_path();
     if let Ok(bytes) = std::fs::read(&path) {
@@ -200,16 +252,19 @@ pub fn load_cloud_license_config() -> CloudLicenseConfig {
             if cfg.device_id.trim().is_empty() {
                 cfg.device_id = default_device_id();
             }
+            cfg.verify_and_sanitize_integrity();
             return cfg;
         }
     }
     CloudLicenseConfig::default()
 }
 
-/// Guarda en disco la configuración de Licencia Pro / BYOK / Escudo Anti-Costos.
+/// Guarda en disco la configuración de Licencia Pro / BYOK / Escudo Anti-Costos sellando su `integrity_mac`.
 pub fn save_cloud_license_config(cfg: &CloudLicenseConfig) -> Result<(), String> {
     let path = cloud_license_config_path();
-    let json = serde_json::to_vec_pretty(cfg).map_err(|e| e.to_string())?;
+    let mut sealed = cfg.clone();
+    sealed.seal_integrity();
+    let json = serde_json::to_vec_pretty(&sealed).map_err(|e| e.to_string())?;
     std::fs::write(&path, json).map_err(|e| e.to_string())
 }
 
@@ -969,19 +1024,157 @@ pub fn verify_checkout_webhook_hmac_sha256(
     diff == 0
 }
 
-/// Procesa un webhook de checkout (`POST /api/webhooks/checkout`) verificando su firma HMAC-SHA256
-/// y aplicando acreditación idempotente de créditos Cloud.
+/// Genera un voucher criptográfico de 1 solo uso firmado con HMAC-SHA256:
+/// Formato: `TEPUI-<100|500|1000>-<NONCE8>-<MAC8>`
+pub fn generate_signed_voucher_code(credits: u32, event_id: &str, secret: &str) -> Option<String> {
+    if !matches!(credits, 100 | 500 | 1000)
+        || secret.trim().len() < 16
+        || event_id.trim().is_empty()
+    {
+        return None;
+    }
+    let nonce_hash = compute_hmac_sha256_hex(
+        format!("nonce:{}", event_id.trim()).as_bytes(),
+        secret.trim().as_bytes(),
+    );
+    let nonce = nonce_hash[..8].to_uppercase();
+    let core = format!("TEPUI-{}-{}", credits, nonce);
+    let full_mac = compute_hmac_sha256_hex(
+        format!("voucher:{}", core).as_bytes(),
+        secret.trim().as_bytes(),
+    );
+    let mac8 = full_mac[..8].to_uppercase();
+    Some(format!("{}-{}", core, mac8))
+}
+
+/// Verifica en tiempo constante si un código tiene el formato criptográfico firmado `TEPUI-<100|500|1000>-<NONCE8>-<MAC8>`.
+pub fn verify_signed_voucher_code(code: &str, secret: &str) -> Option<u32> {
+    if secret.trim().len() < 16 {
+        return None;
+    }
+    let clean = code.trim().to_uppercase();
+    let parts: Vec<&str> = clean.split('-').collect();
+    if parts.len() != 4 || parts[0] != "TEPUI" {
+        return None;
+    }
+    let credits: u32 = parts[1].parse().ok()?;
+    if !matches!(credits, 100 | 500 | 1000) {
+        return None;
+    }
+    let nonce = parts[2];
+    let mac8 = parts[3];
+    if nonce.len() < 6 || mac8.len() != 8 {
+        return None;
+    }
+    let core = format!("TEPUI-{}-{}", credits, nonce);
+    let full_mac = compute_hmac_sha256_hex(
+        format!("voucher:{}", core).as_bytes(),
+        secret.trim().as_bytes(),
+    );
+    let expected_mac8 = full_mac[..8].to_uppercase();
+    let mut diff = 0u8;
+    for (a, b) in mac8.bytes().zip(expected_mac8.bytes()) {
+        diff |= a ^ b;
+    }
+    if diff == 0 {
+        Some(credits)
+    } else {
+        None
+    }
+}
+
+/// Procesa un webhook de checkout (`POST /api/webhooks/checkout`) verificando:
+/// 1. Modo Fail-Closed si `secret` no está configurado (`< 16` caracteres).
+/// 2. Firma HMAC-SHA256 en tiempo constante (`Stripe-Signature: t=...,v1=...` o `sha256=...`).
+/// 3. Ventana temporal anti-replay (`±300s`) cuando el evento incluye timestamp.
+/// 4. Estado de pago liquidado (`paid` / `succeeded` / `completed`).
+/// 5. Paquete de créditos estrictamente dentro de la whitelist oficial `[100, 500, 1000]`.
+/// 6. Idempotencia por `event_id` y sellado `integrity_mac`.
 pub fn process_checkout_webhook_payload(
     payload_bytes: &[u8],
     signature_hex: &str,
     secret: &str,
     cfg: &mut CloudLicenseConfig,
 ) -> Result<CloudEdgeQuotaReport, String> {
-    if !verify_checkout_webhook_hmac_sha256(payload_bytes, signature_hex, secret.as_bytes()) {
+    let clean_secret = secret.trim();
+    if clean_secret.len() < 16 {
+        return Err(
+            "HTTP 503: WEBHOOK_SECRET_NOT_CONFIGURED (secreto de webhook ausente o inseguro)."
+                .to_string(),
+        );
+    }
+
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+
+    // Soportar formato oficial Stripe (`t=1730000000,v1=abcdef...`) o HMAC directo (`sha256=...`)
+    let sig_trimmed = signature_hex.trim();
+    if sig_trimmed.contains("v1=") {
+        let mut ts_val: Option<i64> = None;
+        let mut v1_sig = String::new();
+        for part in sig_trimmed.split(',') {
+            let p = part.trim();
+            if let Some(t_str) = p.strip_prefix("t=") {
+                ts_val = t_str.parse::<i64>().ok();
+            } else if let Some(s_str) = p.strip_prefix("v1=") {
+                v1_sig = s_str.trim().to_string();
+            }
+        }
+        let ts = ts_val.ok_or_else(|| {
+            "HTTP 401: MISSING_TIMESTAMP en encabezado Stripe-Signature.".to_string()
+        })?;
+        if now_secs > 0 && (now_secs - ts).abs() > 300 {
+            return Err(
+                "HTTP 401: WEBHOOK_TIMESTAMP_EXPIRED (fuera de ventana anti-replay de ±300s)."
+                    .to_string(),
+            );
+        }
+        let mut signed_buf = format!("{}.", ts).into_bytes();
+        signed_buf.extend_from_slice(payload_bytes);
+        if !verify_checkout_webhook_hmac_sha256(&signed_buf, &v1_sig, clean_secret.as_bytes()) {
+            return Err("HTTP 401: Firma Stripe-Signature HMAC-SHA256 inválida.".to_string());
+        }
+    } else if !verify_checkout_webhook_hmac_sha256(
+        payload_bytes,
+        sig_trimmed,
+        clean_secret.as_bytes(),
+    ) {
         return Err("HTTP 401: Firma HMAC-SHA256 de webhook inválida o ausente.".to_string());
     }
+
     let json: serde_json::Value = serde_json::from_slice(payload_bytes)
         .map_err(|e| format!("HTTP 400: Payload JSON inválido: {}", e))?;
+
+    // Validar ventana temporal si el JSON trae `timestamp`
+    if let Some(ts) = json.get("timestamp").and_then(|v| v.as_i64()) {
+        if now_secs > 0 && (now_secs - ts).abs() > 300 {
+            return Err(
+                "HTTP 401: WEBHOOK_TIMESTAMP_EXPIRED (timestamp del payload fuera de ±300s)."
+                    .to_string(),
+            );
+        }
+    }
+
+    // Validar que el pago esté efectivamente liquidado (`paid`)
+    if json.get("paid").and_then(|v| v.as_bool()) == Some(false) {
+        return Err("HTTP 402: PAYMENT_NOT_SETTLED (orden marcada como paid=false).".to_string());
+    }
+    if let Some(status_str) = json
+        .get("payment_status")
+        .or_else(|| json.get("status"))
+        .and_then(|v| v.as_str())
+    {
+        let st = status_str.trim().to_lowercase();
+        if !matches!(st.as_str(), "paid" | "succeeded" | "completed" | "settled") {
+            return Err(format!(
+                "HTTP 402: PAYMENT_NOT_SETTLED (estado '{}' no liquidado).",
+                status_str
+            ));
+        }
+    }
+
     let event_id = json
         .get("event_id")
         .or_else(|| json.get("id"))
@@ -989,8 +1182,8 @@ pub fn process_checkout_webhook_payload(
         .unwrap_or("")
         .trim()
         .to_uppercase();
-    if event_id.is_empty() {
-        return Err("HTTP 400: Falta event_id en el webhook de checkout.".to_string());
+    if event_id.len() < 6 {
+        return Err("HTTP 400: Falta event_id válido en el webhook de checkout.".to_string());
     }
 
     if cfg.redeemed_codes.iter().any(|c| c == &event_id) {
@@ -1003,11 +1196,33 @@ pub fn process_checkout_webhook_payload(
         return Ok(report);
     }
 
-    let credits = json
-        .get("credits")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(500)
-        .clamp(1, 100_000) as u32;
+    // Validar paquete de créditos contra la lista blanca estricta [100, 500, 1000]
+    let credits = if let Some(raw_credits) = json.get("credits").and_then(|v| v.as_u64()) {
+        match raw_credits {
+            100 | 500 | 1000 => raw_credits as u32,
+            _ => {
+                return Err(format!(
+                    "HTTP 400: INVALID_CREDIT_PACK_AMOUNT ({}). Solo se permiten paquetes oficiales [100, 500, 1000].",
+                    raw_credits
+                ))
+            }
+        }
+    } else if let Some(sku) = json.get("sku").and_then(|v| v.as_str()) {
+        match sku.trim().to_lowercase().as_str() {
+            "tepui_starter_100" | "100_pack" => 100,
+            "tepui_studio_500" | "500_pack" => 500,
+            "tepui_pro_1000" | "1000_pack" => 1000,
+            _ => {
+                return Err(format!(
+                    "HTTP 400: INVALID_CREDIT_PACK_SKU ('{}' no reconocido).",
+                    sku
+                ))
+            }
+        }
+    } else {
+        500
+    };
+
     if let Some(license_code) = json.get("license_code").and_then(|v| v.as_str()) {
         if !license_code.trim().is_empty() {
             cfg.license_key = license_code.trim().to_uppercase();
@@ -1016,6 +1231,7 @@ pub fn process_checkout_webhook_payload(
     cfg.redeemed_credits = cfg.redeemed_credits.saturating_add(credits);
     cfg.pro_tier_unlocked = true;
     cfg.redeemed_codes.push(event_id.clone());
+    cfg.seal_integrity();
 
     let mut report = verify_cloud_license_quota(cfg);
     report.tier = "PRO CLOUD".to_string();
@@ -1026,16 +1242,17 @@ pub fn process_checkout_webhook_payload(
     Ok(report)
 }
 
-/// Canjea de forma idempotente un código de licencia o recarga Cloud (`TEPUI-PRO-*`, `TEPUI-VIP-*`, `TEPUI-100-*`, `TEPUI-500-*`, `TEPUI-1000-*`)
-/// contra el Edge Worker (`/v1/credits/redeem`) o el validador criptográfico local.
+/// Canjea de forma idempotente un código de licencia o recarga Cloud contra el Edge Worker
+/// (`/api/credits/redeem`) o mediante verificación criptográfica HMAC-SHA256.
+/// Rechaza cualquier intento de fuerza bruta o invención de códigos por prefijo.
 pub fn redeem_cloud_license_code(
     code: &str,
     cfg: &mut CloudLicenseConfig,
 ) -> Result<CloudEdgeQuotaReport, String> {
     let normalized = code.trim().to_uppercase();
-    if normalized.len() < 8 {
+    if normalized.len() < 12 {
         return Err(
-            "Código inválido: debe tener al menos 8 caracteres (ej. TEPUI-PRO-2026).".to_string(),
+            "Código inválido: debe tener al menos 12 caracteres (ej. TEPUI-PRO-2026).".to_string(),
         );
     }
     if cfg.redeemed_codes.iter().any(|c| c == &normalized) {
@@ -1050,11 +1267,13 @@ pub fn redeem_cloud_license_code(
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false)
     {
-        let base_url = std::env::var("TEPUI_CF_EDGE_WORKER_URL")
-            .ok()
-            .filter(|s| !s.trim().is_empty())
-            .unwrap_or_else(|| DEFAULT_CF_EDGE_WORKER_URL.to_string());
-        let endpoint = format!("{}/v1/credits/redeem", base_url.trim_end_matches('/'));
+        let gateway_base = cfg
+            .effective_ai_gateway_url()
+            .trim_end_matches("/v1/sample-wav")
+            .trim_end_matches("/api/ai/sample-wav")
+            .trim_end_matches('/')
+            .to_string();
+        let endpoint = format!("{}/api/credits/redeem", gateway_base);
         let body = serde_json::json!({
             "code": normalized,
             "device_id": cfg.device_id.trim(),
@@ -1078,48 +1297,50 @@ pub fn redeem_cloud_license_code(
             &body,
         ]);
         if let Ok(output) = cmd.output() {
-            if output.status.success() {
-                if let Ok(resp_json) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
-                    if resp_json.get("ok").and_then(|v| v.as_bool()) == Some(true) {
-                        let added = resp_json
-                            .get("credits_added")
-                            .and_then(|v| v.as_u64())
-                            .unwrap_or(500) as u32;
-                        cfg.redeemed_credits = cfg.redeemed_credits.saturating_add(added);
-                        cfg.pro_tier_unlocked = true;
-                        cfg.license_key = normalized.clone();
-                        cfg.redeemed_codes.push(normalized.clone());
-                        let mut report = verify_cloud_license_quota(cfg);
-                        report.tier = "PRO CLOUD".to_string();
-                        report.message = format!(
-                            "Código '{}' canjeado en Cloudflare Edge (+{} créditos).",
-                            normalized, added
-                        );
-                        return Ok(report);
-                    }
+            if let Ok(resp_json) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+                if resp_json.get("ok").and_then(|v| v.as_bool()) == Some(true) {
+                    let added = resp_json
+                        .get("credits_added")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(500) as u32;
+                    cfg.redeemed_credits = cfg.redeemed_credits.saturating_add(added);
+                    cfg.pro_tier_unlocked = true;
+                    cfg.license_key = normalized.clone();
+                    cfg.redeemed_codes.push(normalized.clone());
+                    cfg.seal_integrity();
+                    let mut report = verify_cloud_license_quota(cfg);
+                    report.tier = "PRO CLOUD".to_string();
+                    report.message = format!(
+                        "Código '{}' canjeado en Cloudflare Edge (+{} créditos).",
+                        normalized, added
+                    );
+                    return Ok(report);
+                } else if let Some(err_msg) = resp_json.get("error").and_then(|v| v.as_str()) {
+                    return Err(err_msg.to_string());
                 }
             }
         }
     }
 
-    // 2. Validación de vouchers firmados de TEPUI (TEPUI-PRO-*, TEPUI-VIP-*, TEPUI-100-*, TEPUI-500-*, TEPUI-1000-*)
-    let credits_to_add =
-        if normalized.starts_with("TEPUI-VIP-") || normalized.starts_with("TEPUI-1000-") {
-            Some(1000u32)
-        } else if normalized.starts_with("TEPUI-PRO-") || normalized.starts_with("TEPUI-500-") {
-            Some(500u32)
-        } else if normalized.starts_with("TEPUI-100-") || normalized.starts_with("TEPUI-PLUS-") {
-            Some(100u32)
-        } else {
-            None
-        };
+    // 2. Verificar si es un voucher firmado criptográficamente con HMAC-SHA256 (`TEPUI-<PACK>-<NONCE8>-<MAC8>`)
+    let signing_secret = std::env::var("TEPUI_WEBHOOK_SECRET").unwrap_or_default();
+    let signed_credits = verify_signed_voucher_code(&normalized, &signing_secret);
 
-    match credits_to_add {
-        Some(added) if normalized.len() >= 12 => {
+    // 3. Lista cerrada estricta de códigos de demostración/test (jamás acepta comodines `starts_with`)
+    let closed_demo_credits = match normalized.as_str() {
+        "TEPUI-100-PACK" | "TEPUI-100-MONETIZE-TEST" => Some(100u32),
+        "TEPUI-500-STUDIO" | "TEPUI-PRO-2026-GOLD" => Some(500u32),
+        "TEPUI-PRO-2026" => Some(1000u32),
+        _ => None,
+    };
+
+    match signed_credits.or(closed_demo_credits) {
+        Some(added) => {
             cfg.redeemed_credits = cfg.redeemed_credits.saturating_add(added);
             cfg.pro_tier_unlocked = true;
             cfg.license_key = normalized.clone();
             cfg.redeemed_codes.push(normalized.clone());
+            cfg.seal_integrity();
             let mut report = verify_cloud_license_quota(cfg);
             report.tier = "PRO CLOUD".to_string();
             report.message = format!(
@@ -1128,8 +1349,8 @@ pub fn redeem_cloud_license_code(
             );
             Ok(report)
         }
-        _ => Err(format!(
-            "Código '{}' no reconocido. Usa un código válido (ej. TEPUI-PRO-XXXX).",
+        None => Err(format!(
+            "HTTP 403: INVALID_OR_FORGED_VOUCHER — Código '{}' inválido o sin firma criptográfica de compra.",
             normalized
         )),
     }
@@ -1358,6 +1579,7 @@ pub fn charge_cloud_credits_for_wav_sample(
     cfg.credits_spent = cfg
         .credits_spent
         .saturating_add(WAV_SAMPLE_GENERATION_CREDIT_COST);
+    cfg.seal_integrity();
     let remaining = cfg.available_credits(20);
     let tier = if cfg.pro_tier_unlocked || cfg.redeemed_credits > 0 {
         "PRO CLOUD".to_string()

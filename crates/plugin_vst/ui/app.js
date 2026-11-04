@@ -3016,6 +3016,9 @@ function initAudioSettingsModal() {
       const data = await resp.json();
       const cfg = data.config || {};
       const quota = data.quota || {};
+      if (cfg.device_id) {
+        state.deviceId = cfg.device_id;
+      }
       const provSel = document.getElementById('select-ai-provider');
       const modelInp = document.getElementById('input-ai-model');
       const keyInp = document.getElementById('input-ai-api-key');
@@ -3091,6 +3094,18 @@ function initAudioSettingsModal() {
         sendIpc('save_cloud_license:' + JSON.stringify(payload));
       }
       showStatus('[OK] Proveedor de IA guardado exitosamente.');
+    });
+  }
+
+  const btnBuyCloud = document.getElementById('btn-buy-cloud-credits');
+  if (btnBuyCloud) {
+    btnBuyCloud.addEventListener('click', () => {
+      const devId = encodeURIComponent(state.deviceId || 'global');
+      const checkoutUrl = `https://tepui-vst.pc911itservices.workers.dev/?client_reference_id=${devId}#pricing`;
+      window.open(checkoutUrl, '_blank', 'noopener,noreferrer');
+      showStatus(
+        `[OK] Abriendo Checkout seguro vinculado a tu equipo (${state.deviceId || 'global'}). Al completarse el pago, el webhook HMAC-SHA256 acreditará tus tokens automáticamente.`
+      );
     });
   }
 
