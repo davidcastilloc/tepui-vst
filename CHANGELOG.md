@@ -2,6 +2,16 @@
 
 Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
 
+## [1.15.1](https://github.com/davidcastilloc/tepui-vst/compare/v1.15.0...v1.15.1) (2026-11-04)
+
+### Correcciones de Errores (Bug Fixes)
+
+* **ci:** usar runner macos-15-intel para evitar saturacion de cola arm64 en GitHub Actions ([6ad1783](https://github.com/davidcastilloc/tepui-vst/commit/6ad1783a410363cd45d64831cf355f3990d7504e))
+
+# Changelog
+
+Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
+
 ## [1.15.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.14.2...v1.15.0) (2026-11-04)
 
 ### Nuevas Funcionalidades (Features)

@@ -1,6 +1,6 @@
 [package]
 name = "ai_bridge"
-version = "1.15.0"
+version = "1.15.1"
 edition = "2021"
 license = "MIT"
 authors = ["Gran Sabana Sonic Lab <contact@gransabana.audio>"]
