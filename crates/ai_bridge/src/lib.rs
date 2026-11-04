@@ -11,14 +11,16 @@ pub mod npu_synth;
 pub mod worker;
 
 pub use cloudflare::{
-    build_cloudflare_workers_ai_preset_request, compute_hmac_sha256_hex,
-    design_patch_spec_from_prompt, design_patch_spec_with_cloudflare_live,
+    build_cloudflare_workers_ai_preset_request, charge_cloud_credits_for_wav_sample,
+    compute_hmac_sha256_hex, design_patch_spec_from_prompt, design_patch_spec_with_cloudflare_live,
     format_piano_roll_oneshot_prompt, load_cloud_license_config, process_checkout_webhook_payload,
     redeem_cloud_license_code, save_cloud_license_config, synthesize_sample_from_patch_spec,
+    try_fetch_cloudflare_ai_gateway_wav, try_fetch_cloudflare_ai_gateway_wav_with_billing,
     try_fetch_cloudflare_edge_worker_patch, try_fetch_cloudflare_edge_worker_patch_with_report,
     verify_checkout_webhook_hmac_sha256, verify_cloud_license_quota, AiSynthesizerPatchSpec,
-    CloudEdgeQuotaReport, CloudLicenseConfig, ModalPartialSpec, DEFAULT_CF_EDGE_WORKER_URL,
-    DEFAULT_CF_PRESET_MODEL, DEFAULT_CF_SAMPLE_DIFFUSION_MODEL, MAX_DAILY_FREE_POOL_NEURONS,
+    CloudEdgeQuotaReport, CloudLicenseConfig, ModalPartialSpec, DEFAULT_CF_AI_GATEWAY_WAV_URL,
+    DEFAULT_CF_EDGE_WORKER_URL, DEFAULT_CF_PRESET_MODEL, DEFAULT_CF_SAMPLE_DIFFUSION_MODEL,
+    MAX_DAILY_FREE_POOL_NEURONS, PRESET_GENERATION_CREDIT_COST, WAV_SAMPLE_GENERATION_CREDIT_COST,
 };
 pub use fallback_synth::{
     generate_grand_piano_c4, generate_sample_from_prompt, generate_sample_from_prompt_with_backend,
@@ -377,5 +379,45 @@ mod tests {
             .expect("Reenvío idempotente debe responder OK sin duplicar");
         assert!(wh_dup.cached);
         assert_eq!(cfg.redeemed_credits, 1500);
+    }
+
+    #[test]
+    fn test_ai_gateway_wav_url_default_and_credit_billing_monetization() {
+        std::env::set_var("TEPUI_OFFLINE_ONLY", "1");
+
+        // 1. Verificar que TEPUI_AI_GATEWAY_URL está preconfigurado por defecto
+        let mut cfg = CloudLicenseConfig::default();
+        assert!(cfg.wav_generation_enabled);
+        assert_eq!(cfg.ai_gateway_url, DEFAULT_CF_AI_GATEWAY_WAV_URL);
+        assert_eq!(
+            cfg.effective_ai_gateway_url(),
+            DEFAULT_CF_AI_GATEWAY_WAV_URL
+        );
+        assert_eq!(cfg.available_credits(20), 20);
+
+        // 2. Cobrar 5 créditos por cada generación de Sample WAV (4 generaciones = 20 créditos)
+        for expected_remaining in [15u32, 10, 5, 0] {
+            let rep = charge_cloud_credits_for_wav_sample(&mut cfg)
+                .expect("Debe permitir generar WAV mientras haya >= 5 créditos");
+            assert_eq!(rep.credits_remaining, expected_remaining);
+            assert!(!rep.budget_guard_tripped);
+        }
+        assert_eq!(cfg.credits_spent, 20);
+        assert_eq!(cfg.available_credits(20), 0);
+
+        // 3. Con 0 créditos, la 5ta generación de Sample WAV debe bloquearse hasta recargar
+        let blocked = charge_cloud_credits_for_wav_sample(&mut cfg)
+            .expect_err("Sin créditos suficientes debe bloquearse el cobro WAV");
+        assert!(blocked.budget_guard_tripped);
+        assert_eq!(blocked.credits_remaining, 0);
+
+        // 4. Al canjear un código de recarga (+100 CR), se desbloquea nuevamente la generación WAV
+        let redeemed = redeem_cloud_license_code("TEPUI-100-MONETIZE-TEST", &mut cfg)
+            .expect("Canje de código de 100 créditos debe funcionar");
+        assert_eq!(redeemed.credits_remaining, 100);
+
+        let after_topup = charge_cloud_credits_for_wav_sample(&mut cfg)
+            .expect("Tras recargar +100 CR debe permitir generar Sample WAV (-5 CR)");
+        assert_eq!(after_topup.credits_remaining, 95);
     }
 }

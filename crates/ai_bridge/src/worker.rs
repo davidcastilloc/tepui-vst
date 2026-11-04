@@ -16,8 +16,8 @@ use synth_core::{
 
 use crate::cloudflare::{
     design_patch_spec_from_prompt, design_patch_spec_with_cloudflare_live,
-    synthesize_sample_from_patch_spec, try_fetch_cloudflare_ai_gateway_wav, AiSynthesizerPatchSpec,
-    CloudEdgeQuotaReport,
+    load_cloud_license_config, synthesize_sample_from_patch_spec,
+    try_fetch_cloudflare_ai_gateway_wav_with_billing, AiSynthesizerPatchSpec, CloudEdgeQuotaReport,
 };
 use crate::fallback_synth::generate_grand_piano_c4;
 use crate::npu_synth::{generate_sample_with_cache, npu_cache_hits, npu_cache_misses};
@@ -97,8 +97,15 @@ impl AiWorker {
         let piano_roll_auto_trims = Arc::new(AtomicU32::new(0));
         let last_detected_pitch_hz = Arc::new(AtomicU32::new(261.63_f32.to_bits()));
         let last_trimmed_samples = Arc::new(AtomicU32::new(0));
-        let cloud_tier = Arc::new(ArcSwap::from_pointee("COMMUNITY KV".to_string()));
-        let cloud_credits_remaining = Arc::new(AtomicU32::new(20));
+        let init_cfg = load_cloud_license_config();
+        let init_tier = if init_cfg.pro_tier_unlocked || init_cfg.redeemed_credits > 0 {
+            "PRO CLOUD".to_string()
+        } else {
+            "COMMUNITY KV".to_string()
+        };
+        let init_credits = init_cfg.available_credits(20);
+        let cloud_tier = Arc::new(ArcSwap::from_pointee(init_tier));
+        let cloud_credits_remaining = Arc::new(AtomicU32::new(init_credits));
         let cloud_kv_cache_hits = Arc::new(AtomicU32::new(0));
         let cloud_daily_neurons = Arc::new(AtomicU32::new(0));
         let cloud_budget_guard_trips = Arc::new(AtomicU32::new(0));
@@ -570,14 +577,38 @@ impl AiWorker {
                 .endpoint_url
                 .or_else(|| std::env::var("TEPUI_AI_ENDPOINT").ok());
 
+            let gateway_wav_opt = if cfg!(test) {
+                None
+            } else {
+                match try_fetch_cloudflare_ai_gateway_wav_with_billing(
+                    &req.prompt,
+                    patch_spec.root_note,
+                ) {
+                    Ok((gw_buf, wav_rep)) => {
+                        cloud_tier.store(Arc::new(wav_rep.tier));
+                        cloud_credits_remaining.store(wav_rep.credits_remaining, Ordering::Relaxed);
+                        cloud_daily_neurons.store(wav_rep.daily_neurons_used, Ordering::Relaxed);
+                        Some(gw_buf)
+                    }
+                    Err(Some(exhausted_rep)) => {
+                        cloud_tier.store(Arc::new(exhausted_rep.tier));
+                        cloud_credits_remaining
+                            .store(exhausted_rep.credits_remaining, Ordering::Relaxed);
+                        if exhausted_rep.budget_guard_tripped {
+                            cloud_budget_guard_trips.fetch_add(1, Ordering::Relaxed);
+                        }
+                        None
+                    }
+                    Err(None) => None,
+                }
+            };
+
             let (mut new_buffer, backend_str, is_external) = if let Some(buf) = effective_endpoint
                 .as_deref()
                 .and_then(|ep| Self::try_load_from_endpoint(ep, &req.prompt))
             {
                 (buf, "AI-Endpoint-WAV", true)
-            } else if let Some(gw_buf) =
-                try_fetch_cloudflare_ai_gateway_wav(&req.prompt, patch_spec.root_note)
-            {
+            } else if let Some(gw_buf) = gateway_wav_opt {
                 (gw_buf, "Cloudflare-AIGateway-WAV", true)
             } else if crate::fallback_synth::is_dedicated_dsp_preset(&req.prompt) {
                 let (buf, b_str, _is_hit) =

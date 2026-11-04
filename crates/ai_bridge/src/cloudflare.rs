@@ -21,6 +21,16 @@ pub const DEFAULT_CF_SAMPLE_DIFFUSION_MODEL: &str = "stability-ai/stable-audio-o
 pub const DEFAULT_CF_EDGE_WORKER_URL: &str =
     "https://tepui-ai-synth-gateway.pc911itservices.workers.dev";
 
+/// Endpoint predeterminado de Cloudflare AI Gateway / Edge Worker para generación de samples `.wav` (`TEPUI_AI_GATEWAY_URL`).
+pub const DEFAULT_CF_AI_GATEWAY_WAV_URL: &str =
+    "https://tepui-vst.pc911itservices.workers.dev/v1/sample-wav";
+
+/// Costo en créditos Cloud por cada generación de Sample `.WAV` one-shot vía `TEPUI_AI_GATEWAY_URL`.
+pub const WAV_SAMPLE_GENERATION_CREDIT_COST: u32 = 5;
+
+/// Costo en créditos Cloud por cada generación de Preset estructurado IA.
+pub const PRESET_GENERATION_CREDIT_COST: u32 = 1;
+
 /// Tope diario de seguridad en Cloudflare Workers AI (por debajo de los 10,000 Neurons gratuitos/día = $0 riesgo).
 pub const MAX_DAILY_FREE_POOL_NEURONS: u32 = 9500;
 
@@ -41,6 +51,14 @@ fn default_device_id() -> String {
 
 fn default_ai_provider() -> String {
     "community_edge".to_string()
+}
+
+fn default_ai_gateway_url() -> String {
+    DEFAULT_CF_AI_GATEWAY_WAV_URL.to_string()
+}
+
+fn default_wav_generation_enabled() -> bool {
+    true
 }
 
 /// Configuración persistente del Hub Open-Source Multi-Proveedor de IA (`Community KV`, `Ollama Local`, `Gemini`, `Groq`, `OpenAI`, `Local NPU`).
@@ -82,6 +100,15 @@ pub struct CloudLicenseConfig {
     /// Indica si la cuenta desbloqueó el nivel Pro Cloud mediante código o compra verificada
     #[serde(default)]
     pub pro_tier_unlocked: bool,
+    /// URL configurada para `TEPUI_AI_GATEWAY_URL` (generación de samples `.wav` con cobro de créditos)
+    #[serde(default = "default_ai_gateway_url")]
+    pub ai_gateway_url: String,
+    /// Habilita la generación de samples `.wav` vía `TEPUI_AI_GATEWAY_URL` (5 créditos por sample WAV)
+    #[serde(default = "default_wav_generation_enabled")]
+    pub wav_generation_enabled: bool,
+    /// Total acumulado de créditos consumidos en generaciones de samples `.wav` y presets Cloud
+    #[serde(default)]
+    pub credits_spent: u32,
 }
 
 impl Default for CloudLicenseConfig {
@@ -99,7 +126,33 @@ impl Default for CloudLicenseConfig {
             redeemed_credits: 0,
             redeemed_codes: Vec::new(),
             pro_tier_unlocked: false,
+            ai_gateway_url: default_ai_gateway_url(),
+            wav_generation_enabled: true,
+            credits_spent: 0,
         }
+    }
+}
+
+impl CloudLicenseConfig {
+    /// Retorna la URL efectiva de `TEPUI_AI_GATEWAY_URL` priorizando la variable de entorno,
+    /// luego el campo configurado por el usuario y finalmente el endpoint oficial desplegado en Cloudflare.
+    pub fn effective_ai_gateway_url(&self) -> String {
+        if let Ok(env_url) = std::env::var("TEPUI_AI_GATEWAY_URL") {
+            if !env_url.trim().is_empty() {
+                return env_url.trim().to_string();
+            }
+        }
+        if !self.ai_gateway_url.trim().is_empty() {
+            return self.ai_gateway_url.trim().to_string();
+        }
+        DEFAULT_CF_AI_GATEWAY_WAV_URL.to_string()
+    }
+
+    /// Calcula el saldo neto de créditos disponibles (`base_credits + redeemed_credits - credits_spent`).
+    pub fn available_credits(&self, base_credits: u32) -> u32 {
+        base_credits
+            .saturating_add(self.redeemed_credits)
+            .saturating_sub(self.credits_spent)
     }
 }
 
@@ -733,7 +786,7 @@ pub fn verify_cloud_license_quota(cfg: &CloudLicenseConfig) -> CloudEdgeQuotaRep
                 };
                 return CloudEdgeQuotaReport {
                     tier,
-                    credits_remaining: base_credits.saturating_add(cfg.redeemed_credits),
+                    credits_remaining: cfg.available_credits(base_credits),
                     daily_neurons_used: resp_json
                         .get("daily_neurons_used")
                         .and_then(|v| v.as_u64())
@@ -756,14 +809,18 @@ pub fn verify_cloud_license_quota(cfg: &CloudLicenseConfig) -> CloudEdgeQuotaRep
     }
 
     let mut fallback = CloudEdgeQuotaReport::default();
+    fallback.credits_remaining = cfg.available_credits(fallback.credits_remaining);
     if cfg.pro_tier_unlocked || cfg.redeemed_credits > 0 {
         fallback.tier = "PRO CLOUD".to_string();
-        fallback.credits_remaining = fallback
-            .credits_remaining
-            .saturating_add(cfg.redeemed_credits);
         fallback.message = format!(
-            "Licencia Pro Cloud activa (+{} créditos acreditados).",
-            cfg.redeemed_credits
+            "Licencia Pro Cloud activa ({} créditos disponibles • {} consumidos).",
+            fallback.credits_remaining, cfg.credits_spent
+        );
+    } else if fallback.credits_remaining < WAV_SAMPLE_GENERATION_CREDIT_COST {
+        fallback.budget_guard_tripped = true;
+        fallback.message = format!(
+            "Saldo bajo ({} CR): recarga créditos en AI: KV para generar nuevos Samples WAV IA ({} CR/WAV).",
+            fallback.credits_remaining, WAV_SAMPLE_GENERATION_CREDIT_COST
         );
     }
     fallback
@@ -1276,18 +1333,97 @@ fn try_fetch_cloudflare_workers_ai_patch(prompt: &str) -> Option<AiSynthesizerPa
     Some(spec)
 }
 
-/// Intenta generar y descargar un sample `.wav` one-shot desde Cloudflare AI Gateway
-/// (`stability-ai/stable-audio-open-1.0` / `declare-lab/tangoflux`) cuando `TEPUI_AI_GATEWAY_URL` está configurado.
-pub fn try_fetch_cloudflare_ai_gateway_wav(prompt: &str, root_note: u8) -> Option<SampleBuffer> {
-    let gateway_url = std::env::var("TEPUI_AI_GATEWAY_URL").ok()?;
+/// Verifica y descuenta `WAV_SAMPLE_GENERATION_CREDIT_COST` (5 créditos) del saldo del usuario
+/// antes o después de generar un sample `.wav` vía `TEPUI_AI_GATEWAY_URL`.
+/// Si el saldo es insuficiente (`< 5 CR`), retorna `Err(CloudEdgeQuotaReport)` con `budget_guard_tripped = true`.
+pub fn charge_cloud_credits_for_wav_sample(
+    cfg: &mut CloudLicenseConfig,
+) -> Result<CloudEdgeQuotaReport, CloudEdgeQuotaReport> {
+    let available = cfg.available_credits(20);
+    if available < WAV_SAMPLE_GENERATION_CREDIT_COST {
+        return Err(CloudEdgeQuotaReport {
+            tier: "SIN CRÉDITOS (0 CR)".to_string(),
+            credits_remaining: available,
+            daily_neurons_used: cfg.credits_spent.saturating_mul(24),
+            max_daily_neurons: MAX_DAILY_FREE_POOL_NEURONS,
+            cached: false,
+            budget_guard_tripped: true,
+            message: format!(
+                "Saldo insuficiente ({} CR) para generar Sample WAV IA (costo: {} CR). Recarga o canjea un código en AI: KV.",
+                available, WAV_SAMPLE_GENERATION_CREDIT_COST
+            ),
+        });
+    }
+
+    cfg.credits_spent = cfg
+        .credits_spent
+        .saturating_add(WAV_SAMPLE_GENERATION_CREDIT_COST);
+    let remaining = cfg.available_credits(20);
+    let tier = if cfg.pro_tier_unlocked || cfg.redeemed_credits > 0 {
+        "PRO CLOUD".to_string()
+    } else {
+        "COMMUNITY KV".to_string()
+    };
+
+    Ok(CloudEdgeQuotaReport {
+        tier,
+        credits_remaining: remaining,
+        daily_neurons_used: cfg.credits_spent.saturating_mul(24),
+        max_daily_neurons: MAX_DAILY_FREE_POOL_NEURONS,
+        cached: false,
+        budget_guard_tripped: false,
+        message: format!(
+            "Sample WAV generado vía TEPUI_AI_GATEWAY_URL (-{} CR • Restan {} CR).",
+            WAV_SAMPLE_GENERATION_CREDIT_COST, remaining
+        ),
+    })
+}
+
+/// Genera y descarga un sample `.wav` one-shot desde `TEPUI_AI_GATEWAY_URL`
+/// (`https://tepui-vst.pc911itservices.workers.dev/v1/sample-wav` por defecto) cobrando `5 créditos` del saldo del usuario.
+pub fn try_fetch_cloudflare_ai_gateway_wav_with_billing(
+    prompt: &str,
+    root_note: u8,
+) -> Result<(SampleBuffer, CloudEdgeQuotaReport), Option<CloudEdgeQuotaReport>> {
+    if std::env::var("TEPUI_OFFLINE_ONLY")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+    {
+        return Err(None);
+    }
+
+    let mut cfg = load_cloud_license_config();
+    if cfg.local_npu_only || !cfg.wav_generation_enabled {
+        return Err(None);
+    }
+
+    let available = cfg.available_credits(20);
+    if available < WAV_SAMPLE_GENERATION_CREDIT_COST {
+        return Err(Some(CloudEdgeQuotaReport {
+            tier: "SIN CRÉDITOS (0 CR)".to_string(),
+            credits_remaining: available,
+            daily_neurons_used: cfg.credits_spent.saturating_mul(24),
+            max_daily_neurons: MAX_DAILY_FREE_POOL_NEURONS,
+            cached: false,
+            budget_guard_tripped: true,
+            message: format!(
+                "Saldo insuficiente ({} CR) para generar Sample WAV IA (costo: {} CR). Recarga en AI: KV.",
+                available, WAV_SAMPLE_GENERATION_CREDIT_COST
+            ),
+        }));
+    }
+
+    let gateway_url = cfg.effective_ai_gateway_url();
     if gateway_url.trim().is_empty() {
-        return None;
+        return Err(None);
     }
     let token = std::env::var("TEPUI_CF_API_TOKEN").unwrap_or_default();
     let conditioned_prompt = format_piano_roll_oneshot_prompt(prompt, root_note);
     let payload = serde_json::json!({
         "model": DEFAULT_CF_SAMPLE_DIFFUSION_MODEL,
         "prompt": conditioned_prompt,
+        "root_note": root_note,
+        "device_id": cfg.device_id.trim(),
         "seconds_total": 3.5,
         "steps": 28
     })
@@ -1306,7 +1442,15 @@ pub fn try_fetch_cloudflare_ai_gateway_wav(prompt: &str, root_note: u8) -> Optio
         "Content-Type: application/json",
         "-H",
         "cf-aig-cache-ttl: 86400",
+        "-H",
+        &format!("X-Tepui-Device-Id: {}", cfg.device_id.trim()),
     ]);
+    if !cfg.license_key.trim().is_empty() {
+        cmd.args([
+            "-H",
+            &format!("X-Tepui-License-Key: {}", cfg.license_key.trim()),
+        ]);
+    }
     if !token.trim().is_empty() {
         cmd.args([
             "-H",
@@ -1315,15 +1459,26 @@ pub fn try_fetch_cloudflare_ai_gateway_wav(prompt: &str, root_note: u8) -> Optio
     }
     cmd.args(["-d", &payload]);
 
-    let output = cmd.output().ok()?;
+    let output = cmd.output().map_err(|_| None)?;
     if !output.status.success() || output.stdout.len() < 44 {
-        return None;
+        return Err(None);
     }
 
-    let mut buf = decode_wav(&output.stdout).ok()?;
+    let mut buf = decode_wav(&output.stdout).map_err(|_| None)?;
     buf.name = prompt.trim().chars().take(32).collect();
     let _ = buf.prepare_for_piano_roll();
-    Some(buf)
+
+    let report = charge_cloud_credits_for_wav_sample(&mut cfg).map_err(Some)?;
+    let _ = save_cloud_license_config(&cfg);
+    Ok((buf, report))
+}
+
+/// Intenta generar y descargar un sample `.wav` one-shot desde Cloudflare AI Gateway
+/// (`stability-ai/stable-audio-open-1.0` / `declare-lab/tangoflux`) usando `TEPUI_AI_GATEWAY_URL`.
+pub fn try_fetch_cloudflare_ai_gateway_wav(prompt: &str, root_note: u8) -> Option<SampleBuffer> {
+    try_fetch_cloudflare_ai_gateway_wav_with_billing(prompt, root_note)
+        .ok()
+        .map(|(buf, _)| buf)
 }
 
 fn sanitize_patch_spec(spec: &mut AiSynthesizerPatchSpec) {

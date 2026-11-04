@@ -246,7 +246,8 @@ function syncCloudCreditsBadgeUI(oddObj) {
   const tier = String(odd.cloud_tier || 'COMMUNITY KV').toUpperCase();
   const cr = odd.cloud_credits_remaining !== undefined ? odd.cloud_credits_remaining : 20;
   const dailyNeurons = odd.cloud_daily_neurons || 0;
-  const isCustomProvider = tier.includes('OLLAMA') || tier.includes('GEMINI') || tier.includes('GROQ') || tier.includes('OPENAI') || tier.includes('BYOK');
+  const isProTier = tier.includes('PRO');
+  const isCustomProvider = tier.includes('OLLAMA') || tier.includes('GEMINI') || tier.includes('GROQ') || tier.includes('OPENAI') || tier.includes('BYOK') || isProTier;
   const isLocalOnly = tier.includes('LOCAL NPU');
 
   const btnCredits = document.getElementById('btn-cloud-credits');
@@ -263,6 +264,10 @@ function syncCloudCreditsBadgeUI(oddObj) {
       txtCredits.innerText = 'AI: OPENAI';
     } else if (isLocalOnly) {
       txtCredits.innerText = 'AI: NPU LOCAL';
+    } else if (isProTier) {
+      txtCredits.innerText = `PRO CLOUD (${cr} CR)`;
+    } else if (cr < 5 || tier.includes('SIN CR')) {
+      txtCredits.innerText = `SIN CRÉDITOS (${cr} CR)`;
     } else {
       txtCredits.innerText = `AI: KV (${cr} CR)`;
     }
@@ -271,8 +276,12 @@ function syncCloudCreditsBadgeUI(oddObj) {
   const modalPill = document.getElementById('cloud-modal-tier-badge');
   if (modalPill) {
     modalPill.classList.toggle('tier-pro', isCustomProvider);
-    if (isCustomProvider || isLocalOnly) {
+    if (isProTier) {
+      modalPill.innerText = `PRO CLOUD • ${cr} CR`;
+    } else if (isCustomProvider || isLocalOnly) {
       modalPill.innerText = tier;
+    } else if (cr < 5 || tier.includes('SIN CR')) {
+      modalPill.innerText = `SIN CRÉDITOS • ${cr} CR`;
     } else {
       modalPill.innerText = `COMMUNITY KV • ${cr} CR`;
     }
@@ -280,7 +289,7 @@ function syncCloudCreditsBadgeUI(oddObj) {
 
   const quotaSum = document.getElementById('cloud-quota-summary');
   if (quotaSum) {
-    quotaSum.innerText = `Pool Comunitario KV: ${dailyNeurons} / 9,500 Neurons hoy (Caché KV global = 0 Neurons en hits)`;
+    quotaSum.innerText = `Pool Comunitario KV: ${dailyNeurons} / 9,500 Neurons hoy (Caché KV global = 0 Neurons en hits • Samples .WAV IA = 5 CR)`;
   }
 }
 
@@ -3016,7 +3025,12 @@ function initAudioSettingsModal() {
       }
       if (modelInp) modelInp.value = cfg.model_name || '';
       if (keyInp) keyInp.value = cfg.api_key || '';
-      if (endpInp) endpInp.value = cfg.custom_endpoint || '';
+      if (endpInp) {
+        endpInp.value =
+          cfg.ai_gateway_url ||
+          cfg.custom_endpoint ||
+          'https://tepui-vst.pc911itservices.workers.dev/v1/sample-wav';
+      }
       if (state.oddMetrics && quota.tier) {
         state.oddMetrics.cloud_tier = quota.tier;
         state.oddMetrics.cloud_credits_remaining = quota.credits_remaining;
@@ -3036,10 +3050,16 @@ function initAudioSettingsModal() {
       const keyInp = document.getElementById('input-ai-api-key');
       const endpInp = document.getElementById('input-ai-endpoint');
       const selectedProv = provSel && provSel.value ? provSel.value : 'community_edge';
+      const gwUrl =
+        endpInp && endpInp.value.trim()
+          ? endpInp.value.trim()
+          : 'https://tepui-vst.pc911itservices.workers.dev/v1/sample-wav';
       const payload = {
         ai_provider: selectedProv,
         api_key: keyInp && keyInp.value.trim() ? keyInp.value.trim() : '',
-        custom_endpoint: endpInp && endpInp.value.trim() ? endpInp.value.trim() : '',
+        custom_endpoint: gwUrl,
+        ai_gateway_url: gwUrl,
+        wav_generation_enabled: selectedProv !== 'local_npu',
         model_name: modelInp && modelInp.value.trim() ? modelInp.value.trim() : '',
         license_key: '',
         device_id: '',
@@ -3047,8 +3067,7 @@ function initAudioSettingsModal() {
         byok_api_token: '',
         local_npu_only: selectedProv === 'local_npu'
       };
-      showStatus('Guardando proveedor de IA Open Source...');
-      sendIpc('save_cloud_license:' + JSON.stringify(payload));
+      showStatus('Guardando proveedor de IA y TEPUI_AI_GATEWAY_URL...');
       try {
         const resp = await fetch('/api/save-cloud-license', {
           method: 'POST',
@@ -3069,6 +3088,7 @@ function initAudioSettingsModal() {
         }
       } catch (e) {
         console.warn('[TEPUI SAVE AI PROVIDER]', e);
+        sendIpc('save_cloud_license:' + JSON.stringify(payload));
       }
       showStatus('[OK] Proveedor de IA guardado exitosamente.');
     });
@@ -3084,29 +3104,27 @@ function initAudioSettingsModal() {
         return;
       }
       showStatus('Verificando y acreditando código en TEPUI_CREDITS_KV...');
-      sendIpc('redeem_cloud_code:' + code);
       try {
         const resp = await fetch('/api/redeem-cloud-code', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ code })
         });
-        if (resp.ok) {
-          const res = await resp.json();
-          if (res.ok) {
-            if (!state.oddMetrics) state.oddMetrics = {};
-            state.oddMetrics.cloud_credits_remaining = res.credits_remaining;
-            if (res.tier) state.oddMetrics.cloud_tier = res.tier;
-            refreshFooterOddText();
-            if (codeInp) codeInp.value = '';
-            showStatus(`[OK] +${res.added_credits || 100} créditos acreditados. Saldo actual: ${res.credits_remaining} CR.`);
-            return;
-          }
-          showStatus(res.error || 'Código inválido o ya utilizado.', true);
+        const res = await resp.json();
+        if (resp.ok && (res.ok || res.success)) {
+          if (!state.oddMetrics) state.oddMetrics = {};
+          state.oddMetrics.cloud_credits_remaining = res.credits_remaining;
+          if (res.tier) state.oddMetrics.cloud_tier = res.tier;
+          refreshFooterOddText();
+          if (codeInp) codeInp.value = '';
+          showStatus(`[OK] ${res.message || 'Código activado.'} Saldo actual: ${res.credits_remaining} CR.`);
           return;
         }
+        showStatus(res.error || 'Código inválido o ya utilizado.', true);
+        return;
       } catch (e) {
         console.warn('[TEPUI REDEEM CLOUD CODE]', e);
+        sendIpc('redeem_cloud_code:' + code);
       }
       showStatus('[OK] Solicitud de canje enviada al motor Cloud.');
     });

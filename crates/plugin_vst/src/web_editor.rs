@@ -680,18 +680,16 @@ impl Drop for WebEditorHandle {
 unsafe impl Send for WebEditorHandle {}
 
 fn load_asset_bytes(filename: &str, embedded: &'static [u8]) -> Cow<'static, [u8]> {
-    let candidates = [
-        format!(
-            "C:/Users/pc911/plugin_vst/crates/plugin_vst/ui/{}",
-            filename
-        ),
-        format!("crates/plugin_vst/ui/{}", filename),
-        format!("ui/{}", filename),
-    ];
-    for path in &candidates {
-        if std::path::Path::new(path).exists() {
-            if let Ok(bytes) = std::fs::read(path) {
-                return Cow::Owned(bytes);
+    if std::env::var("TEPUI_DEV_UI").is_ok() {
+        let candidates = [
+            format!("crates/plugin_vst/ui/{}", filename),
+            format!("ui/{}", filename),
+        ];
+        for path in &candidates {
+            if std::path::Path::new(path).exists() {
+                if let Ok(bytes) = std::fs::read(path) {
+                    return Cow::Owned(bytes);
+                }
             }
         }
     }
@@ -1495,8 +1493,21 @@ fn handle_native_ipc_message(
                 serde_json::from_str::<ai_bridge::CloudLicenseConfig>(&unescaped)
             });
         if let Ok(mut cfg) = parsed {
+            let existing = ai_bridge::load_cloud_license_config();
             if cfg.device_id.trim().is_empty() {
-                cfg.device_id = ai_bridge::load_cloud_license_config().device_id;
+                cfg.device_id = existing.device_id;
+            }
+            if cfg.redeemed_credits == 0 && existing.redeemed_credits > 0 {
+                cfg.redeemed_credits = existing.redeemed_credits;
+            }
+            if cfg.redeemed_codes.is_empty() && !existing.redeemed_codes.is_empty() {
+                cfg.redeemed_codes = existing.redeemed_codes;
+            }
+            if !cfg.pro_tier_unlocked && existing.pro_tier_unlocked {
+                cfg.pro_tier_unlocked = true;
+            }
+            if cfg.credits_spent == 0 && existing.credits_spent > 0 {
+                cfg.credits_spent = existing.credits_spent;
             }
             let _ = ai_bridge::save_cloud_license_config(&cfg);
             let quota = ai_bridge::verify_cloud_license_quota(&cfg);
@@ -2390,8 +2401,21 @@ impl Editor for WebViewEditor {
                             let body = req.body();
                             let resp_json = match serde_json::from_slice::<ai_bridge::CloudLicenseConfig>(body) {
                                 Ok(mut cfg) => {
+                                    let existing = ai_bridge::load_cloud_license_config();
                                     if cfg.device_id.trim().is_empty() {
-                                        cfg.device_id = ai_bridge::load_cloud_license_config().device_id;
+                                        cfg.device_id = existing.device_id;
+                                    }
+                                    if cfg.redeemed_credits == 0 && existing.redeemed_credits > 0 {
+                                        cfg.redeemed_credits = existing.redeemed_credits;
+                                    }
+                                    if cfg.redeemed_codes.is_empty() && !existing.redeemed_codes.is_empty() {
+                                        cfg.redeemed_codes = existing.redeemed_codes;
+                                    }
+                                    if !cfg.pro_tier_unlocked && existing.pro_tier_unlocked {
+                                        cfg.pro_tier_unlocked = true;
+                                    }
+                                    if cfg.credits_spent == 0 && existing.credits_spent > 0 {
+                                        cfg.credits_spent = existing.credits_spent;
                                     }
                                     match ai_bridge::save_cloud_license_config(&cfg) {
                                         Ok(_) => {
@@ -2438,7 +2462,10 @@ impl Editor for WebViewEditor {
                                     (
                                         StatusCode::OK,
                                         serde_json::json!({
+                                            "ok": true,
                                             "success": true,
+                                            "tier": quota.tier,
+                                            "credits_remaining": quota.credits_remaining,
                                             "message": quota.message,
                                             "config": cfg,
                                             "quota": quota,
@@ -2449,6 +2476,7 @@ impl Editor for WebViewEditor {
                                 Err(e) => (
                                     StatusCode::BAD_REQUEST,
                                     serde_json::json!({
+                                        "ok": false,
                                         "success": false,
                                         "error": e,
                                     })
