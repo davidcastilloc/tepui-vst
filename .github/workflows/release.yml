@@ -60,7 +60,7 @@ jobs:
   release-macos:
     name: Package & Upload macOS Release Bundle
     needs: semantic-release
-    runs-on: macos-latest
+    runs-on: macos-15-intel
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
     steps:
       - name: Checkout latest main
