@@ -2,6 +2,16 @@
 
 Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
 
+## [1.15.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.14.2...v1.15.0) (2026-11-04)
+
+### Nuevas Funcionalidades (Features)
+
+* **monetization:** configurar TEPUI_AI_GATEWAY_URL para generacion de samples WAV con cobro de 5 creditos ([5175d97](https://github.com/davidcastilloc/tepui-vst/commit/5175d97b70be75ad91d0b04c9c95e55a3eace62b))
+
+# Changelog
+
+Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
+
 ## [1.14.2](https://github.com/davidcastilloc/tepui-vst/compare/v1.14.1...v1.14.2) (2026-11-03)
 
 ### Correcciones de Errores (Bug Fixes)
