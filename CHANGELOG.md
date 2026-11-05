@@ -2,6 +2,16 @@
 
 Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
 
+## [1.16.1](https://github.com/davidcastilloc/tepui-vst/compare/v1.16.0...v1.16.1) (2026-11-05)
+
+### Correcciones de Errores (Bug Fixes)
+
+* **standalone:** eliminar inyeccion de --input-device en sintetizador de 0 canales para evitar fallo WASAPI y ocultar consola en Windows ([b2c9dad](https://github.com/davidcastilloc/tepui-vst/commit/b2c9dad3ab144f7cbbbde250849cacf8974aefa6))
+
+# Changelog
+
+Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
+
 ## [1.16.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.15.1...v1.16.0) (2026-11-05)
 
 ### Nuevas Funcionalidades (Features)
