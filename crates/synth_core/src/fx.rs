@@ -148,7 +148,9 @@ pub struct StereoFxRack {
 
     // Vital / Serum FX: Tube Drive Distortion + OTT Upward/Downward Multiband Compressor
     drive_amount: f32,
+    current_drive: f32,
     ott_amount: f32,
+    current_ott: f32,
     ott_env_l: f32,
     ott_env_r: f32,
     air_lp_l: f32,
@@ -203,7 +205,9 @@ impl StereoFxRack {
             ],
             reverb_tail_energy: 0.0,
             drive_amount: 0.0,
+            current_drive: 0.0,
             ott_amount: 0.0,
+            current_ott: 0.0,
             ott_env_l: 0.0,
             ott_env_r: 0.0,
             air_lp_l: 0.0,
@@ -350,16 +354,24 @@ impl StereoFxRack {
         if self.target_mix <= 0.0005
             && self.current_mix <= 0.0005
             && self.drive_amount <= 0.0005
+            && self.current_drive <= 0.0005
             && self.ott_amount <= 0.0005
+            && self.current_ott <= 0.0005
             && self.lp_state_l.abs() < 1.0e-6
             && self.lp_state_r.abs() < 1.0e-6
             && self.reverb_tail_energy < 1.0e-6
         {
             self.current_mix = 0.0;
+            self.current_drive = 0.0;
+            self.current_ott = 0.0;
             return;
         }
 
-        if self.drive_amount > 0.001 || self.ott_amount > 0.001 {
+        if self.drive_amount > 0.001
+            || self.current_drive > 0.001
+            || self.ott_amount > 0.001
+            || self.current_ott > 0.001
+        {
             self.vital_fx_frames = self.vital_fx_frames.wrapping_add(frames as u32);
         }
 
@@ -378,16 +390,18 @@ impl StereoFxRack {
         let rev_damp = 0.28_f32;
 
         for i in 0..frames {
-            // Suavizado por muestra del parámetro mix para evitar zipper noise
+            // Suavizado por muestra de mix, drive y ott para evitar zipper noise
             self.current_mix += (self.target_mix - self.current_mix) * 0.005;
+            self.current_drive += (self.drive_amount - self.current_drive) * 0.012;
+            self.current_ott += (self.ott_amount - self.current_ott) * 0.012;
             let mix = self.current_mix;
 
             let mut dry_l = flush_denormal(left[i]);
             let mut dry_r = flush_denormal(right[i]);
 
             // 0. Etapa Pre-FX Vital/Serum: Tube Drive Distortion + OTT Upward/Downward Multiband Dynamics
-            if self.drive_amount > 0.001 {
-                let d = self.drive_amount;
+            if self.current_drive > 0.001 {
+                let d = self.current_drive;
                 let pre = 1.0 + d * 4.2;
                 let norm = 1.0 / (1.0 + d * 0.75);
                 // Saturación asimétrica de válvula (agrega armónicos pares e impares)
@@ -395,8 +409,8 @@ impl StereoFxRack {
                 dry_r = ((dry_r * pre - d * 0.08).tanh() + (d * 0.08).tanh()) * norm;
             }
 
-            if self.ott_amount > 0.001 {
-                let ott = self.ott_amount;
+            if self.current_ott > 0.001 {
+                let ott = self.current_ott;
                 let abs_l = dry_l.abs();
                 let abs_r = dry_r.abs();
                 let coef = if abs_l > self.ott_env_l { 0.08 } else { 0.002 };

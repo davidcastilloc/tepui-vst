@@ -274,11 +274,11 @@ impl Voice {
                 loop_start as f64 + ((self.playback_pos - loop_end as f64) % loop_len);
         }
 
-        // Aplicar curva dinámica musical de velocidad del toque y envolvente de amplitud
+        // Aplicar curva dinámica musical exponencial de velocidad (rango dinámico > 30 dB entre ghost-notes y acentos)
         let vel_gain = if self.velocity <= 0.001 {
             0.0
         } else {
-            (0.06 + 0.94 * self.velocity.powf(1.25)).clamp(0.0, 1.0)
+            (0.015 + 0.985 * self.velocity.clamp(0.0, 1.0).powf(1.85)).clamp(0.0, 1.0)
         };
         let gain = env_gain * vel_gain;
         let mut sig_left = raw_left;

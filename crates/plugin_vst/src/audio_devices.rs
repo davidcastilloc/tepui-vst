@@ -277,6 +277,36 @@ pub fn save_config(config: &StandaloneAudioConfig) -> std::io::Result<()> {
     Ok(())
 }
 
+static CACHED_AUDIO_STATUS: OnceLock<Mutex<Option<AudioSystemStatus>>> = OnceLock::new();
+
+fn audio_status_cache() -> &'static Mutex<Option<AudioSystemStatus>> {
+    CACHED_AUDIO_STATUS.get_or_init(|| Mutex::new(None))
+}
+
+/// Retorna el estado de audio y MIDI usando caché en memoria para no bloquear el hilo GUI
+/// durante la carga inicial del HTML en WebView2; si no existe caché, la inicializa una sola vez.
+pub fn enumerate_audio_system_cached(active_config: &StandaloneAudioConfig) -> AudioSystemStatus {
+    if let Ok(guard) = audio_status_cache().lock() {
+        if let Some(ref cached) = *guard {
+            let mut copy = cached.clone();
+            copy.is_standalone = is_standalone();
+            copy.active_sample_rate = active_config.sample_rate;
+            copy.active_period_size = active_config.period_size;
+            if active_config.output_device.is_some() {
+                copy.active_output_device = active_config.output_device.clone();
+            }
+            if active_config.input_device.is_some() {
+                copy.active_input_device = active_config.input_device.clone();
+            }
+            if active_config.midi_input.is_some() {
+                copy.active_midi_input = active_config.midi_input.clone();
+            }
+            return copy;
+        }
+    }
+    enumerate_audio_system(active_config)
+}
+
 /// Enumera todos los dispositivos de audio y puertos MIDI disponibles en el sistema operativo.
 pub fn enumerate_audio_system(active_config: &StandaloneAudioConfig) -> AudioSystemStatus {
     let standalone = is_standalone();
@@ -366,7 +396,7 @@ pub fn enumerate_audio_system(active_config: &StandaloneAudioConfig) -> AudioSys
         .or_else(active_hardware_midi_port)
         .or_else(|| midi_inputs.first().cloned());
 
-    AudioSystemStatus {
+    let status = AudioSystemStatus {
         is_standalone: standalone,
         active_output_device: active_out,
         active_input_device: active_in,
@@ -376,7 +406,11 @@ pub fn enumerate_audio_system(active_config: &StandaloneAudioConfig) -> AudioSys
         output_devices,
         input_devices,
         midi_inputs,
+    };
+    if let Ok(mut guard) = audio_status_cache().lock() {
+        *guard = Some(status.clone());
     }
+    status
 }
 
 /// Reinicia la aplicación Standalone ejecutando un nuevo proceso con la nueva configuración

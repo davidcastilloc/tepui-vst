@@ -115,6 +115,8 @@ struct ParamValues {
     osc_b_level: f32,
     drive_amount: f32,
     ott_amount: f32,
+    filter_keytrack: f32,
+    arp_step_accents: [f32; 16],
     macros: [f32; 4],
 }
 
@@ -387,8 +389,10 @@ mod win32_pump {
     }
 
     thread_local! {
-        static ACTIVE_WEBVIEW_RESIZE: std::cell::RefCell<Option<ActiveResizeState>> = const { std::cell::RefCell::new(None) };
+        static ACTIVE_WEBVIEW_RESIZE: std::cell::RefCell<Vec<ActiveResizeState>> = const { std::cell::RefCell::new(Vec::new()) };
     }
+
+    static CACHED_GDI_ICONS: std::sync::OnceLock<(usize, usize)> = std::sync::OnceLock::new();
 
     extern "system" {
         pub fn SetTimer(
@@ -497,21 +501,26 @@ mod win32_pump {
 
     pub fn register_active_webview(state: ActiveResizeState) {
         ACTIVE_WEBVIEW_RESIZE.with(|cell| {
-            *cell.borrow_mut() = Some(state);
+            let mut list = cell.borrow_mut();
+            if let Some(existing) = list.iter_mut().find(|s| s.hwnd == state.hwnd) {
+                *existing = state;
+            } else {
+                list.push(state);
+            }
         });
     }
 
-    pub fn clear_active_webview() {
+    pub fn remove_active_webview(hwnd: HWND) {
         ACTIVE_WEBVIEW_RESIZE.with(|cell| {
-            *cell.borrow_mut() = None;
+            cell.borrow_mut().retain(|s| s.hwnd != hwnd);
         });
     }
 
     pub unsafe fn sync_webview_bounds() {
         ACTIVE_WEBVIEW_RESIZE.with(|cell| {
-            if let Some(state) = cell.borrow_mut().as_mut() {
+            for state in cell.borrow_mut().iter_mut() {
                 if state.track_hwnd.is_null() {
-                    return;
+                    continue;
                 }
                 let mut rect = RECT::default();
                 if GetClientRect(state.track_hwnd, &mut rect) != 0 {
@@ -547,9 +556,15 @@ mod win32_pump {
         });
     }
 
-    pub unsafe fn request_window_resize(new_w: u32, new_h: u32) {
+    pub unsafe fn request_window_resize(target_hwnd: HWND, new_w: u32, new_h: u32) {
         ACTIVE_WEBVIEW_RESIZE.with(|cell| {
-            if let Some(state) = cell.borrow_mut().as_mut() {
+            let mut list = cell.borrow_mut();
+            let opt_state = if !target_hwnd.is_null() {
+                list.iter_mut().find(|s| s.hwnd == target_hwnd)
+            } else {
+                list.last_mut()
+            };
+            if let Some(state) = opt_state {
                 let cw = new_w.clamp(640, 3840) as i32;
                 let ch = new_h.clamp(480, 2160) as i32;
                 state.last_w = cw;
@@ -607,25 +622,30 @@ mod win32_pump {
     }
 
     pub unsafe fn apply_window_icon(hwnd: HWND) {
-        let png_bytes = include_bytes!("../ui/tepui-icon.png");
-        let hicon_big = CreateIconFromResourceEx(
-            png_bytes.as_ptr(),
-            png_bytes.len() as DWORD,
-            1,
-            0x00030000,
-            64,
-            64,
-            0,
-        );
-        let hicon_small = CreateIconFromResourceEx(
-            png_bytes.as_ptr(),
-            png_bytes.len() as DWORD,
-            1,
-            0x00030000,
-            32,
-            32,
-            0,
-        );
+        let &(big_ptr, small_ptr) = CACHED_GDI_ICONS.get_or_init(|| {
+            let png_bytes = include_bytes!("../ui/tepui-icon.png");
+            let hicon_big = CreateIconFromResourceEx(
+                png_bytes.as_ptr(),
+                png_bytes.len() as DWORD,
+                1,
+                0x00030000,
+                64,
+                64,
+                0,
+            );
+            let hicon_small = CreateIconFromResourceEx(
+                png_bytes.as_ptr(),
+                png_bytes.len() as DWORD,
+                1,
+                0x00030000,
+                32,
+                32,
+                0,
+            );
+            (hicon_big as usize, hicon_small as usize)
+        });
+        let hicon_big = big_ptr as HICON;
+        let hicon_small = small_ptr as HICON;
         let root_hwnd = GetAncestor(hwnd, GA_ROOT);
         for target in [hwnd, root_hwnd] {
             if !target.is_null() {
@@ -662,6 +682,7 @@ mod win32_pump {
 
 struct WebEditorHandle {
     _webview: Rc<WebView>,
+    _web_context: wry::WebContext,
     #[cfg(windows)]
     parent_hwnd: win32_pump::HWND,
 }
@@ -670,7 +691,7 @@ impl Drop for WebEditorHandle {
     fn drop(&mut self) {
         #[cfg(windows)]
         unsafe {
-            win32_pump::clear_active_webview();
+            win32_pump::remove_active_webview(self.parent_hwnd);
             win32_pump::KillTimer(self.parent_hwnd, win32_pump::TIMER_ID);
         }
     }
@@ -821,6 +842,8 @@ pub fn build_init_state_json(
             osc_b_level: live_params.get_osc_b_level(),
             drive_amount: live_params.get_drive_amount(),
             ott_amount: live_params.get_ott_amount(),
+            filter_keytrack: live_params.get_filter_keytrack(),
+            arp_step_accents: live_params.get_arp_step_accents(),
             macros: live_params.get_macros(),
         },
         normalized: ParamNormalized {
@@ -909,6 +932,8 @@ pub fn build_telemetry_json(
             osc_b_level: live_params.get_osc_b_level(),
             drive_amount: live_params.get_drive_amount(),
             ott_amount: live_params.get_ott_amount(),
+            filter_keytrack: live_params.get_filter_keytrack(),
+            arp_step_accents: live_params.get_arp_step_accents(),
             macros: live_params.get_macros(),
         },
         normalized: ParamNormalized {
@@ -1050,7 +1075,7 @@ fn build_html_bundle(
 
     let init_json = build_init_state_json(params, live_params, ai_worker);
     let config = crate::audio_devices::load_config();
-    let audio_status = crate::audio_devices::enumerate_audio_system(&config);
+    let audio_status = crate::audio_devices::enumerate_audio_system_cached(&config);
     let audio_json = serde_json::to_string(&audio_status).unwrap_or_else(|_| "{}".to_string());
 
     let state_injection = format!(
@@ -1369,7 +1394,7 @@ pub fn set_param_from_client(
     }
 }
 
-fn handle_native_ipc_message(
+pub(crate) fn handle_native_ipc_message(
     body: &str,
     gui_midi_tx: &Sender<GuiMidiEvent>,
     params: &Arc<SamplerParams>,
@@ -1666,16 +1691,106 @@ fn handle_native_ipc_message(
         }
     }
 
-    // 4a-uv. Ultra-fast compact path: "uv,<1..8>" (Unison Voices)
+    // 4a-uv. Ultra-fast compact path: "uv,<1..8>" o "uni,<1..8>" (Unison Voices)
     let uv_rest = trimmed
         .strip_prefix("uv,")
-        .or_else(|| trimmed.strip_prefix("uv:"));
+        .or_else(|| trimmed.strip_prefix("uv:"))
+        .or_else(|| trimmed.strip_prefix("uni,"))
+        .or_else(|| trimmed.strip_prefix("uni:"));
     if let Some(rest) = uv_rest {
         if let Ok(v) = rest.trim().parse::<u8>() {
             live_params.set_unison_voices(v.clamp(1, 8));
+            live_params.bump_gui_param_sync();
             live_params.bump_revision();
             return;
         }
+    }
+
+    // 4a-kt. Ultra-fast compact path: "kt,<0..1>" (SVF Filter Keytrack)
+    let kt_rest = trimmed
+        .strip_prefix("kt,")
+        .or_else(|| trimmed.strip_prefix("kt:"));
+    if let Some(rest) = kt_rest {
+        if let Ok(v) = rest.trim().parse::<f32>() {
+            live_params.set_filter_keytrack(v.clamp(0.0, 1.0));
+            live_params.bump_gui_param_sync();
+            live_params.bump_revision();
+            return;
+        }
+    }
+
+    // 4a-arpsteps. Ultra-fast compact path: "arpsteps,v0,v1,...,v11" (Full 12-Bar OLED Arp Velocity Pattern Sync)
+    let arpsteps_rest = trimmed
+        .strip_prefix("arpsteps,")
+        .or_else(|| trimmed.strip_prefix("arpsteps:"));
+    if let Some(rest) = arpsteps_rest {
+        let mut parsed = [1.0_f32; 16];
+        let mut count = 0usize;
+        for part in rest.split(',') {
+            if count >= 16 {
+                break;
+            }
+            if let Ok(v) = part.trim().parse::<f32>() {
+                parsed[count] = v.clamp(0.05, 1.0);
+                count += 1;
+            }
+        }
+        if count > 0 {
+            live_params.set_arp_step_accents_slice(&parsed[..count]);
+            live_params.bump_gui_param_sync();
+            live_params.bump_revision();
+            return;
+        }
+    }
+
+    // 4a-arpstep. Ultra-fast compact path: "arpstep,<idx>,<accent>" (OLED Arp Step Velocity Sculpting)
+    let arpstep_rest = trimmed
+        .strip_prefix("arpstep,")
+        .or_else(|| trimmed.strip_prefix("arpstep:"));
+    if let Some(rest) = arpstep_rest {
+        let mut parts = rest.split(',');
+        if let (Some(s_idx), Some(s_acc)) = (parts.next(), parts.next()) {
+            if let (Ok(idx), Ok(acc)) = (s_idx.trim().parse::<usize>(), s_acc.trim().parse::<f32>())
+            {
+                live_params.set_arp_step_accent(idx.min(15), acc.clamp(0.05, 1.0));
+                live_params.bump_gui_param_sync();
+                live_params.bump_revision();
+                return;
+            }
+        }
+    }
+
+    // 4a-vel. Ultra-fast compact path: "vel,<0.05..1.0>" (Performance Velocity Buttons / Badge)
+    let vel_rest = trimmed
+        .strip_prefix("vel,")
+        .or_else(|| trimmed.strip_prefix("vel:"));
+    if let Some(rest) = vel_rest {
+        if let Ok(v) = rest.trim().parse::<f32>() {
+            let clamped = v.clamp(0.05, 1.0);
+            live_params.record_velocity_event(clamped);
+            live_params.bump_gui_param_sync();
+            live_params.bump_revision();
+            let _ = gui_midi_tx.try_send(GuiMidiEvent::SetVelocity(clamped));
+            return;
+        }
+    }
+
+    // 4a-wt3d. Ultra-fast compact path: "wt3d,<0|1>" (3D Wavetable Mode Toggle)
+    let wt3d_rest = trimmed
+        .strip_prefix("wt3d,")
+        .or_else(|| trimmed.strip_prefix("wt3d:"));
+    if let Some(rest) = wt3d_rest {
+        let on = rest.trim() == "1" || rest.trim().eq_ignore_ascii_case("true");
+        if on && live_params.get_wt_pos() < 0.01 && live_params.get_wt_warp() < 0.01 {
+            live_params.set_wt_pos(0.35);
+            live_params.set_wt_warp(0.25);
+        } else if !on {
+            live_params.set_wt_pos(0.0);
+            live_params.set_wt_warp(0.0);
+        }
+        live_params.bump_gui_param_sync();
+        live_params.bump_revision();
+        return;
     }
 
     // 4a-fmb. Ultra-fast compact path: "fmb,<0..1>" (OSC B + FM A<-B Cross-Modulation)
@@ -2072,6 +2187,118 @@ pub fn apply_patch_spec_to_live_params(
 pub fn apply_ai_synthesized_patch_to_live_params(prompt: &str, live_params: &LiveParamStore) {
     let (spec, _backend) = ai_bridge::design_patch_spec_from_prompt(prompt);
     apply_patch_spec_to_live_params(&spec, live_params, true);
+
+    // Síntesis Procedural Local de Parámetros Vital/Serum a partir de la semántica del prompt:
+    // Funciona con 0 créditos Cloud y 100% offline.
+    let lower = prompt.to_lowercase();
+    let is_bass = lower.contains("bass")
+        || lower.contains("bajo")
+        || lower.contains("808")
+        || lower.contains("sub")
+        || lower.contains("reese")
+        || lower.contains("furruco");
+    let is_pad = lower.contains("pad")
+        || lower.contains("ambient")
+        || lower.contains("etereo")
+        || lower.contains("etéreo")
+        || lower.contains("drone")
+        || lower.contains("choir")
+        || lower.contains("warm");
+    let is_acid = lower.contains("acid")
+        || lower.contains("303")
+        || lower.contains("agresiv")
+        || lower.contains("neuro")
+        || lower.contains("distort")
+        || lower.contains("cyberpunk");
+    let is_fm = lower.contains("fm")
+        || lower.contains("bell")
+        || lower.contains("campana")
+        || lower.contains("metal")
+        || lower.contains("glass")
+        || lower.contains("cristal");
+    let is_wide = lower.contains("supersaw")
+        || lower.contains("anthem")
+        || lower.contains("wide")
+        || lower.contains("brass")
+        || is_pad;
+
+    let wt_pos = if is_acid {
+        0.72
+    } else if is_fm {
+        0.58
+    } else if is_pad {
+        0.38
+    } else if is_bass {
+        0.24
+    } else {
+        0.30
+    };
+    let wt_warp = if is_acid {
+        0.54
+    } else if is_fm {
+        0.42
+    } else if is_bass {
+        0.28
+    } else {
+        0.16
+    };
+    let unison_voices = if is_wide {
+        7
+    } else if is_bass || is_acid {
+        3
+    } else {
+        2
+    };
+    let unison_detune = if is_wide {
+        0.46
+    } else if is_bass {
+        0.22
+    } else {
+        0.15
+    };
+    let sub_level = if is_bass {
+        0.72
+    } else if is_acid {
+        0.45
+    } else {
+        0.15
+    };
+    let fm_from_b = if is_fm {
+        0.48
+    } else if is_acid {
+        0.26
+    } else {
+        0.0
+    };
+    let drive_amount = if is_acid {
+        0.58
+    } else if is_bass {
+        0.34
+    } else {
+        0.10
+    };
+    let ott_amount = if is_acid || is_wide {
+        0.52
+    } else if is_bass {
+        0.38
+    } else {
+        0.18
+    };
+
+    live_params.set_wt_pos(wt_pos);
+    live_params.set_wt_warp(wt_warp);
+    live_params.set_unison_voices(unison_voices);
+    live_params.set_unison_detune(unison_detune);
+    live_params.set_sub_level(sub_level);
+    live_params.set_fm_from_b(fm_from_b);
+    live_params.set_osc_b_level(if fm_from_b > 0.001 {
+        (fm_from_b * 0.75).clamp(0.15, 0.85)
+    } else {
+        0.0
+    });
+    live_params.set_drive_amount(drive_amount);
+    live_params.set_ott_amount(ott_amount);
+    live_params.bump_revision();
 }
 
 pub fn parse_resize_ipc(body: &str) -> Option<(u32, u32)> {
@@ -2092,6 +2319,206 @@ pub fn parse_resize_ipc(body: &str) -> Option<(u32, u32)> {
     Some((w, h))
 }
 
+/// Sincroniza hacia el Host DAW (`GuiContext` / `ParamSetter`) cualquier parámetro expuesto que haya cambiado
+/// desde la interfaz WebView2, permitiendo grabar automatización (Write / Latch / Touch) en el DAW.
+pub fn sync_host_daw_changed_params(
+    ctx: &dyn GuiContext,
+    params: &SamplerParams,
+    live_params: &LiveParamStore,
+) {
+    let setter = nih_plug::prelude::ParamSetter::new(ctx);
+
+    let live_attack = live_params.get_attack();
+    if (params.attack.value() - live_attack).abs() > 1e-5 {
+        setter.begin_set_parameter(&params.attack);
+        setter.set_parameter(&params.attack, live_attack);
+        setter.end_set_parameter(&params.attack);
+    }
+
+    let live_decay = live_params.get_decay();
+    if (params.decay.value() - live_decay).abs() > 1e-5 {
+        setter.begin_set_parameter(&params.decay);
+        setter.set_parameter(&params.decay, live_decay);
+        setter.end_set_parameter(&params.decay);
+    }
+
+    let live_sustain = live_params.get_sustain();
+    if (params.sustain.value() - live_sustain).abs() > 1e-5 {
+        setter.begin_set_parameter(&params.sustain);
+        setter.set_parameter(&params.sustain, live_sustain);
+        setter.end_set_parameter(&params.sustain);
+    }
+
+    let live_release = live_params.get_release();
+    if (params.release.value() - live_release).abs() > 1e-5 {
+        setter.begin_set_parameter(&params.release);
+        setter.set_parameter(&params.release, live_release);
+        setter.end_set_parameter(&params.release);
+    }
+
+    let live_cutoff = live_params.get_cutoff();
+    if (params.cutoff.value() - live_cutoff).abs() > 0.05 {
+        setter.begin_set_parameter(&params.cutoff);
+        setter.set_parameter(&params.cutoff, live_cutoff);
+        setter.end_set_parameter(&params.cutoff);
+    }
+
+    let live_reso = live_params.get_resonance();
+    if (params.resonance.value() - live_reso).abs() > 1e-4 {
+        setter.begin_set_parameter(&params.resonance);
+        setter.set_parameter(&params.resonance, live_reso);
+        setter.end_set_parameter(&params.resonance);
+    }
+
+    let live_mode = live_params.filter_mode.load(Ordering::Relaxed);
+    if params.filter_mode.value() != live_mode {
+        setter.begin_set_parameter(&params.filter_mode);
+        setter.set_parameter(&params.filter_mode, live_mode);
+        setter.end_set_parameter(&params.filter_mode);
+    }
+
+    let live_gain = live_params.get_gain();
+    if (params.gain.value() - live_gain).abs() > 1e-5 {
+        setter.begin_set_parameter(&params.gain);
+        setter.set_parameter(&params.gain, live_gain);
+        setter.end_set_parameter(&params.gain);
+    }
+
+    let live_space = live_params.get_space_mix();
+    if (params.space_mix.value() - live_space).abs() > 1e-4 {
+        setter.begin_set_parameter(&params.space_mix);
+        setter.set_parameter(&params.space_mix, live_space);
+        setter.end_set_parameter(&params.space_mix);
+    }
+
+    let live_root = live_params.get_root_note();
+    if params.root_note.value() != live_root {
+        setter.begin_set_parameter(&params.root_note);
+        setter.set_parameter(&params.root_note, live_root);
+        setter.end_set_parameter(&params.root_note);
+    }
+
+    let live_lfo_rate = live_params.get_lfo_rate();
+    if (params.lfo_rate.value() - live_lfo_rate).abs() > 1e-4 {
+        setter.begin_set_parameter(&params.lfo_rate);
+        setter.set_parameter(&params.lfo_rate, live_lfo_rate);
+        setter.end_set_parameter(&params.lfo_rate);
+    }
+
+    let live_lfo_depth = live_params.get_lfo_depth();
+    if (params.lfo_depth.value() - live_lfo_depth).abs() > 1e-4 {
+        setter.begin_set_parameter(&params.lfo_depth);
+        setter.set_parameter(&params.lfo_depth, live_lfo_depth);
+        setter.end_set_parameter(&params.lfo_depth);
+    }
+
+    let live_lfo_target = live_params.lfo_target.load(Ordering::Relaxed);
+    if params.lfo_target.value() != live_lfo_target {
+        setter.begin_set_parameter(&params.lfo_target);
+        setter.set_parameter(&params.lfo_target, live_lfo_target);
+        setter.end_set_parameter(&params.lfo_target);
+    }
+
+    let live_lfo_shape = live_params.get_lfo_shape().as_i32();
+    if params.lfo_shape.value() != live_lfo_shape {
+        setter.begin_set_parameter(&params.lfo_shape);
+        setter.set_parameter(&params.lfo_shape, live_lfo_shape);
+        setter.end_set_parameter(&params.lfo_shape);
+    }
+
+    let live_arp_mode = live_params.arp_mode.load(Ordering::Relaxed);
+    if params.arp_mode.value() != live_arp_mode {
+        setter.begin_set_parameter(&params.arp_mode);
+        setter.set_parameter(&params.arp_mode, live_arp_mode);
+        setter.end_set_parameter(&params.arp_mode);
+    }
+
+    let live_wt_pos = live_params.get_wt_pos();
+    if (params.wt_pos.value() - live_wt_pos).abs() > 1e-4 {
+        setter.begin_set_parameter(&params.wt_pos);
+        setter.set_parameter(&params.wt_pos, live_wt_pos);
+        setter.end_set_parameter(&params.wt_pos);
+    }
+
+    let live_wt_warp = live_params.get_wt_warp();
+    if (params.wt_warp.value() - live_wt_warp).abs() > 1e-4 {
+        setter.begin_set_parameter(&params.wt_warp);
+        setter.set_parameter(&params.wt_warp, live_wt_warp);
+        setter.end_set_parameter(&params.wt_warp);
+    }
+
+    let live_uni = live_params.get_unison_voices() as i32;
+    if params.unison_voices.value() != live_uni {
+        setter.begin_set_parameter(&params.unison_voices);
+        setter.set_parameter(&params.unison_voices, live_uni);
+        setter.end_set_parameter(&params.unison_voices);
+    }
+
+    let live_detune = live_params.get_unison_detune();
+    if (params.unison_detune.value() - live_detune).abs() > 1e-4 {
+        setter.begin_set_parameter(&params.unison_detune);
+        setter.set_parameter(&params.unison_detune, live_detune);
+        setter.end_set_parameter(&params.unison_detune);
+    }
+
+    let live_sub = live_params.get_sub_level();
+    if (params.sub_level.value() - live_sub).abs() > 1e-4 {
+        setter.begin_set_parameter(&params.sub_level);
+        setter.set_parameter(&params.sub_level, live_sub);
+        setter.end_set_parameter(&params.sub_level);
+    }
+
+    let live_fm = live_params.get_fm_from_b();
+    if (params.fm_from_b.value() - live_fm).abs() > 1e-4 {
+        setter.begin_set_parameter(&params.fm_from_b);
+        setter.set_parameter(&params.fm_from_b, live_fm);
+        setter.end_set_parameter(&params.fm_from_b);
+    }
+
+    let live_drive = live_params.get_drive_amount();
+    if (params.drive_amount.value() - live_drive).abs() > 1e-4 {
+        setter.begin_set_parameter(&params.drive_amount);
+        setter.set_parameter(&params.drive_amount, live_drive);
+        setter.end_set_parameter(&params.drive_amount);
+    }
+
+    let live_ott = live_params.get_ott_amount();
+    if (params.ott_amount.value() - live_ott).abs() > 1e-4 {
+        setter.begin_set_parameter(&params.ott_amount);
+        setter.set_parameter(&params.ott_amount, live_ott);
+        setter.end_set_parameter(&params.ott_amount);
+    }
+
+    let live_kt = live_params.get_filter_keytrack();
+    if (params.filter_keytrack.value() - live_kt).abs() > 1e-4 {
+        setter.begin_set_parameter(&params.filter_keytrack);
+        setter.set_parameter(&params.filter_keytrack, live_kt);
+        setter.end_set_parameter(&params.filter_keytrack);
+    }
+
+    let live_macros = live_params.get_macros();
+    if (params.macro1.value() - live_macros[0]).abs() > 1e-4 {
+        setter.begin_set_parameter(&params.macro1);
+        setter.set_parameter(&params.macro1, live_macros[0]);
+        setter.end_set_parameter(&params.macro1);
+    }
+    if (params.macro2.value() - live_macros[1]).abs() > 1e-4 {
+        setter.begin_set_parameter(&params.macro2);
+        setter.set_parameter(&params.macro2, live_macros[1]);
+        setter.end_set_parameter(&params.macro2);
+    }
+    if (params.macro3.value() - live_macros[2]).abs() > 1e-4 {
+        setter.begin_set_parameter(&params.macro3);
+        setter.set_parameter(&params.macro3, live_macros[2]);
+        setter.end_set_parameter(&params.macro3);
+    }
+    if (params.macro4.value() - live_macros[3]).abs() > 1e-4 {
+        setter.begin_set_parameter(&params.macro4);
+        setter.set_parameter(&params.macro4, live_macros[3]);
+        setter.end_set_parameter(&params.macro4);
+    }
+}
+
 impl Editor for WebViewEditor {
     fn spawn(
         &self,
@@ -2106,18 +2533,13 @@ impl Editor for WebViewEditor {
             ParentWindowHandle::Win32Hwnd(hwnd) => hwnd as win32_pump::HWND,
             _ => std::ptr::null_mut(),
         };
+        #[cfg(windows)]
+        let win_hwnd_usize = win_hwnd as usize;
 
         #[cfg(windows)]
         if !win_hwnd.is_null() {
             unsafe {
                 win32_pump::apply_window_icon(win_hwnd);
-                let _ = win32_pump::setup_resizable_window(win_hwnd, w, h);
-                win32_pump::SetTimer(
-                    win_hwnd,
-                    win32_pump::TIMER_ID,
-                    8,
-                    Some(win32_pump::timer_pump_proc),
-                );
             }
         }
 
@@ -2140,7 +2562,21 @@ impl Editor for WebViewEditor {
         let ai_worker_proto = self.ai_worker.clone();
         let gui_param_tx_proto = self.gui_param_tx.clone();
 
-        let builder = WebViewBuilder::new().with_background_color((12, 14, 18, 255));
+        let webview_data_dir = std::env::var("TEPUI_WEBVIEW_DATA_DIR")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                let base = std::env::var("LOCALAPPDATA")
+                    .or_else(|_| std::env::var("APPDATA"))
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|_| std::env::temp_dir());
+                base.join("Tepui").join("WebView2_Studio")
+            });
+        let _ = std::fs::create_dir_all(&webview_data_dir);
+        let mut web_context = wry::WebContext::new(Some(webview_data_dir));
+        let builder = WebViewBuilder::with_web_context(&mut web_context)
+            .with_background_color((12, 14, 18, 255));
 
         let builder = builder
                     .with_custom_protocol("tepui".into(), move |_webview_id, req: Request<Vec<u8>>| {
@@ -2148,6 +2584,7 @@ impl Editor for WebViewEditor {
                         let method = req.method().as_str();
                         if !path.ends_with("api/telemetry")
                             && !path.ends_with("api/init-state")
+                            && !path.ends_with("api/dev-mtime")
                             && !path.ends_with("favicon.ico")
                         {
                             println!("[TEPUI PROTO REQ] uri: {:?}, method: {:?}", req.uri(), req.method());
@@ -2184,6 +2621,7 @@ impl Editor for WebViewEditor {
                             let bundled = build_html_bundle(&params_proto, &live_params_proto, &ai_worker_proto);
                             Response::builder()
                                 .header(CONTENT_TYPE, "text/html; charset=utf-8")
+                                .header("Cache-Control", "no-store, no-cache, must-revalidate")
                                 .header("Access-Control-Allow-Origin", "*")
                                 .body(Cow::Owned(bundled.into_bytes()))
                                 .unwrap()
@@ -2191,6 +2629,7 @@ impl Editor for WebViewEditor {
                             let bytes = load_asset_bytes("style.css", include_bytes!("../ui/style.css"));
                             Response::builder()
                                 .header(CONTENT_TYPE, "text/css; charset=utf-8")
+                                .header("Cache-Control", "no-store, no-cache, must-revalidate")
                                 .header("Access-Control-Allow-Origin", "*")
                                 .body(bytes)
                                 .unwrap()
@@ -2198,6 +2637,7 @@ impl Editor for WebViewEditor {
                             let bytes = load_asset_bytes("app.js", include_bytes!("../ui/app.js"));
                             Response::builder()
                                 .header(CONTENT_TYPE, "application/javascript; charset=utf-8")
+                                .header("Cache-Control", "no-store, no-cache, must-revalidate")
                                 .header("Access-Control-Allow-Origin", "*")
                                 .body(bytes)
                                 .unwrap()
@@ -2565,10 +3005,15 @@ impl Editor for WebViewEditor {
                             live_params.bump_revision();
                             #[cfg(windows)]
                             unsafe {
-                                win32_pump::request_window_resize(rw, rh);
+                                win32_pump::request_window_resize(
+                                    win_hwnd_usize as win32_pump::HWND,
+                                    rw,
+                                    rh,
+                                );
                             }
                             return;
                         }
+                        let rev_before = live_params.get_revision();
                         handle_native_ipc_message(
                             req.body(),
                             &gui_midi_tx,
@@ -2578,6 +3023,9 @@ impl Editor for WebViewEditor {
                             &sample_rate,
                             &gui_param_tx,
                         );
+                        if live_params.get_revision() != rev_before {
+                            sync_host_daw_changed_params(ctx_ipc.as_ref(), &params, &live_params);
+                        }
                     })
                     .with_bounds(Rect {
                         position: LogicalPosition::new(0.0, 0.0).into(),
@@ -2605,6 +3053,14 @@ impl Editor for WebViewEditor {
                         last_w: w as i32,
                         last_h: h as i32,
                     });
+                    unsafe {
+                        win32_pump::SetTimer(
+                            win_hwnd,
+                            win32_pump::TIMER_ID,
+                            12,
+                            Some(win32_pump::timer_pump_proc),
+                        );
+                    }
                 }
                 let cur_url = webview.url().unwrap_or_default();
                 println!(
@@ -2625,6 +3081,7 @@ impl Editor for WebViewEditor {
                 if !win_hwnd.is_null() {
                     unsafe {
                         let mut msg: win32_pump::MSG = std::mem::zeroed();
+                        let mut initial_drain = 0;
                         while win32_pump::PeekMessageW(
                             &mut msg,
                             std::ptr::null_mut(),
@@ -2635,12 +3092,17 @@ impl Editor for WebViewEditor {
                         {
                             win32_pump::TranslateMessage(&msg);
                             win32_pump::DispatchMessageW(&msg);
+                            initial_drain += 1;
+                            if initial_drain >= 32 {
+                                break;
+                            }
                         }
                     }
                 }
 
                 Box::new(WebEditorHandle {
                     _webview: webview,
+                    _web_context: web_context,
                     #[cfg(windows)]
                     parent_hwnd: win_hwnd,
                 })
@@ -3247,5 +3709,267 @@ mod tests {
         let telem_final = build_telemetry_json(&params, &live_params, &ai_worker);
         assert!(telem_final.contains(r#""hardware_midi_events":"#));
         assert!(telem_final.contains(r#""fm_from_b":0.65"#));
+    }
+
+    #[test]
+    fn test_every_ui_control_and_oled_impacts_dsp_audio_output() {
+        use synth_core::{SampleBuffer, StereoFxRack, VoiceManager};
+
+        let sr = 48000.0_f32;
+        let (gui_midi_tx, _gui_midi_rx) = crossbeam_channel::bounded(64);
+        let live_params = Arc::new(LiveParamStore::default());
+        let ai_worker = Arc::new(AiWorker::new(sr));
+        let sample_rate = Arc::new(AtomicU32::new(sr.to_bits()));
+        let params = Arc::new(SamplerParams::new_linked(
+            live_params.clone(),
+            Some(ai_worker.clone()),
+            Some(sample_rate.clone()),
+        ));
+
+        // Señal base rica en armónicos (C4 = 261.63 Hz + armónicos 2x, 3x, 4x, 6x, 8x)
+        let samples: Vec<f32> = (0..12000)
+            .map(|i| {
+                let t = i as f32 / sr;
+                let w = std::f32::consts::TAU * 261.63 * t;
+                (0.50 * w.sin()
+                    + 0.22 * (w * 2.0).sin()
+                    + 0.14 * (w * 3.0).sin()
+                    + 0.08 * (w * 4.0).sin()
+                    + 0.04 * (w * 6.0).sin()
+                    + 0.02 * (w * 8.0).sin())
+                    * 0.65
+            })
+            .collect();
+        let mut test_sample = SampleBuffer::new_mono(samples, sr, 60);
+        test_sample.loop_enabled = true;
+        test_sample.loop_start = 480;
+        test_sample.loop_end = 9600;
+
+        let send = |msg: &str| {
+            handle_native_ipc_message(
+                msg,
+                &gui_midi_tx,
+                &params,
+                &live_params,
+                &ai_worker,
+                &sample_rate,
+                &None,
+            );
+        };
+
+        let render_audio = |lp: &LiveParamStore, note: u8, frames: usize| -> (Vec<f32>, Vec<f32>) {
+            let mut vm = VoiceManager::new(sr, 16);
+            let mut fx = StereoFxRack::new(sr);
+
+            vm.update_envelope_params(
+                lp.get_attack(),
+                lp.get_decay(),
+                lp.get_sustain(),
+                lp.get_release(),
+            );
+            vm.update_filter_params(lp.get_cutoff(), lp.get_resonance(), lp.get_filter_mode());
+            vm.set_filter_keytrack(lp.get_filter_keytrack());
+            vm.update_lfo_params(lp.get_lfo_rate(), lp.get_lfo_depth(), lp.get_lfo_target());
+            vm.set_mod_matrix_mask(lp.get_mod_matrix_mask());
+            vm.update_vital_serum_params(
+                lp.get_wt_pos(),
+                lp.get_wt_warp(),
+                lp.get_unison_voices(),
+                lp.get_unison_detune(),
+                lp.get_sub_level(),
+                lp.get_lfo_shape(),
+                lp.get_macros(),
+            );
+            vm.set_osc_b_fm_params(lp.get_fm_from_b(), lp.get_osc_b_level());
+            if lp.is_custom_wavetable_active() {
+                let cycle = lp.get_custom_wavetable_cycle();
+                vm.set_custom_wavetable_cycle(&cycle);
+            }
+            vm.update_arp_params(lp.get_arp_mode(), lp.get_arp_bpm());
+            if lp.is_arp_custom_accents_active() {
+                let accents = lp.get_arp_step_accents();
+                vm.set_arp_step_accents(&accents, true);
+            }
+            vm.set_root_note_override(Some(lp.get_root_note() as u8), &test_sample);
+            vm.set_region_override(lp.get_region_override());
+            vm.set_pitch_bend(lp.get_pitch_bend_semitones());
+            vm.set_mod_wheel(lp.get_mod_wheel());
+            vm.set_sustain_pedal(lp.get_sustain_pedal());
+
+            let m4 = lp.get_macro(3);
+            fx.set_mix((lp.get_space_mix() + m4 * 0.35).clamp(0.0, 1.0));
+            fx.set_drive((lp.get_drive_amount() + m4 * 0.45).clamp(0.0, 1.0));
+            fx.set_ott((lp.get_ott_amount() + m4 * 0.50).clamp(0.0, 1.0));
+            fx.set_tempo_sync(lp.get_arp_bpm(), lp.get_arp_mode());
+
+            vm.note_on(note, lp.get_last_velocity(), &test_sample);
+            let mut l = vec![0.0_f32; frames];
+            let mut r = vec![0.0_f32; frames];
+            vm.process_block(&test_sample, &mut l, &mut r);
+            fx.process_block(&mut l, &mut r);
+
+            let gain = lp.get_gain();
+            for (sl, sr_val) in l.iter_mut().zip(r.iter_mut()) {
+                *sl *= gain;
+                *sr_val *= gain;
+            }
+            lp.recorder.push_stereo_block_rt(&l, &r, true);
+            (l, r)
+        };
+
+        let l1_diff = |a: &[f32], b: &[f32]| -> f32 {
+            a.iter().zip(b.iter()).map(|(x, y)| (x - y).abs()).sum()
+        };
+
+        // 0. Línea base limpia (Sin efectos espaciales para aislar oscilador)
+        send("p,space_mix,0.0");
+        let (base_l, base_r) = render_audio(&live_params, 60, 1024);
+        assert!(base_l.iter().map(|x| x.abs()).sum::<f32>() > 10.0);
+
+        // 1. MÓDULO 1 — Wavetable 3D OLED / Knobs (wt_pos, wt_warp)
+        send("p,wt_pos,0.85");
+        send("p,wt_warp,0.75");
+        let (wt_l, _) = render_audio(&live_params, 60, 1024);
+        assert!(
+            l1_diff(&base_l, &wt_l) > 5.0,
+            "Module 1 WT POS + WARP must alter synthesized waveform"
+        );
+        send("p,wt_pos,0.0");
+        send("p,wt_warp,0.0");
+
+        // 2. MÓDULO 1 — Unison Voices Button (uni,8) + Detune Knob (p,unison_detune,0.85)
+        send("uni,8");
+        send("p,unison_detune,0.85");
+        assert_eq!(live_params.get_unison_voices(), 8);
+        let (uni_l, uni_r) = render_audio(&live_params, 60, 1024);
+        let base_stereo_spread = l1_diff(&base_l, &base_r);
+        let uni_stereo_spread = l1_diff(&uni_l, &uni_r);
+        assert!(
+            uni_stereo_spread > base_stereo_spread + 5.0,
+            "Module 1 UNI:8V + Detune must widen stereo field: base={}, uni={}",
+            base_stereo_spread,
+            uni_stereo_spread
+        );
+        send("uni,1");
+        send("p,unison_detune,0.20");
+
+        // 3. MÓDULO 1 — Sub-Oscillator (-1 Oct) Knob & FM B Cross-Mod Button
+        send("p,sub_level,0.95");
+        let (sub_l, _) = render_audio(&live_params, 60, 1024);
+        assert!(
+            l1_diff(&base_l, &sub_l) > 8.0,
+            "Module 1 SUB -1 Knob must inject sub-octave energy"
+        );
+        send("p,sub_level,0.0");
+
+        send("fmb,0.85");
+        let (fm_l, _) = render_audio(&live_params, 60, 1024);
+        assert!(
+            l1_diff(&base_l, &fm_l) > 8.0,
+            "Module 1 FM B Button must modulate phase/harmonics"
+        );
+        send("fmb,0.0");
+
+        // 4. MÓDULO 1 — WT DRAW OLED Freehand Wavetable Drawing
+        send("wtdraw:0.9,0.7,-0.9,0.8,-0.8,0.95,-0.95,0.6,-0.6,0.85,-0.85,0.4,-0.4,0.9,-0.9,0.0");
+        let (draw_l, _) = render_audio(&live_params, 60, 1024);
+        assert!(
+            l1_diff(&base_l, &draw_l) > 5.0,
+            "Module 1 WT DRAW OLED must synthesize custom hand-drawn cycle"
+        );
+        send("wtdraw:off");
+
+        // 5. MÓDULO 2 — SVF Filter 2D OLED / Knobs (Cutoff, Resonance, Mode LP/HP/BP, Keytrack)
+        send("m,0"); // Lowpass
+        send("p,cutoff,0.12"); // Low cutoff (~150 Hz)
+        send("p,resonance,0.55");
+        let (lp_l, _) = render_audio(&live_params, 60, 1024);
+        assert!(
+            l1_diff(&base_l, &lp_l) > 10.0,
+            "Module 2 SVF Lowpass Cutoff/Resonance must filter harmonics"
+        );
+
+        // Keytrack: con KEY:100% (kt,1.00) vs KEY:OFF (kt,0.00) en nota aguda C6 (MIDI 84, ~1046 Hz)
+        send("p,cutoff,0.45"); // ~850 Hz
+        send("kt,0.00");
+        let (kt_off_l, _) = render_audio(&live_params, 84, 1024);
+        send("kt,1.00");
+        let (kt_on_l, _) = render_audio(&live_params, 84, 1024);
+        assert!(
+            l1_diff(&kt_off_l, &kt_on_l) > 2.0,
+            "Module 2 KEY:100% button must open filter cutoff on high notes compared to KEY:OFF"
+        );
+        send("kt,0.50");
+        send("p,cutoff,1.0");
+        send("p,resonance,0.061");
+
+        // 6. MÓDULO 3 — ADSR Envelope 2D OLED / Faders
+        send("p,attack,0.85"); // Slow attack
+        let (slow_atk_l, _) = render_audio(&live_params, 60, 512);
+        let fast_early_energy: f32 = base_l[..256].iter().map(|x| x.abs()).sum();
+        let slow_early_energy: f32 = slow_atk_l[..256].iter().map(|x| x.abs()).sum();
+        assert!(
+            fast_early_energy > slow_early_energy * 3.0,
+            "Module 3 ADSR Attack fader/OLED must ramp initial amplitude: fast={}, slow={}",
+            fast_early_energy,
+            slow_early_energy
+        );
+        send("p,attack,0.05");
+
+        // 7. MÓDULO 4 — LFO Knobs, Shape OLED & 5x5 Mod Matrix Grid
+        send("p,lfo_rate,0.75");
+        send("p,lfo_depth,0.95");
+        send("lt,1"); // Pitch Vibrato
+        send("ls,2"); // Saw LFO
+        let (lfo_l, _) = render_audio(&live_params, 60, 2048);
+        let (base_2k_l, _) = {
+            send("p,lfo_depth,0.0");
+            render_audio(&live_params, 60, 2048)
+        };
+        assert!(
+            l1_diff(&base_2k_l, &lfo_l) > 5.0,
+            "Module 4 LFO Rate/Depth/Shape must modulate pitch/filter"
+        );
+
+        // Pin de Matriz 5x5: LFO2 -> PAN (fila 1, col 3)
+        send("matrix:1,3,1");
+        let (mat_l, mat_r) = render_audio(&live_params, 60, 1024);
+        assert!(
+            l1_diff(&mat_l, &mat_r) > 1.0,
+            "Module 4 5x5 Mod Matrix LFO2->PAN pin must create stereo pan modulation"
+        );
+        send("matrix:1,3,0");
+
+        // 8. MÓDULO 5 — Poly Arpeggiator & Interactive Step Velocity OLED (#oled-arp)
+        send("arp,3"); // 6/8 Joropo Sync
+        send("arpstep,0,0.18"); // Esculpir paso 1 muy suave en el OLED
+        let (arp_soft_l, _) = render_audio(&live_params, 60, 1024);
+        send("arpstep,0,1.00"); // Esculpir paso 1 al 100% en el OLED
+        let (arp_loud_l, _) = render_audio(&live_params, 60, 1024);
+        let soft_arp_e: f32 = arp_soft_l.iter().map(|x| x.abs()).sum();
+        let loud_arp_e: f32 = arp_loud_l.iter().map(|x| x.abs()).sum();
+        assert!(
+            loud_arp_e > soft_arp_e * 2.0,
+            "Module 5 #oled-arp step bar sculpting must control arpeggiator step velocity: loud={}, soft={}",
+            loud_arp_e,
+            soft_arp_e
+        );
+        send("arp,0");
+
+        // 9. MÓDULO 6 — OTT, Drive, Spatial Canyon 2D OLED & Master Recorder
+        send("rec,start");
+        send("p,drive,0.85");
+        send("p,ott,0.80");
+        send("p,space_mix,0.65");
+        let (fx_l, _) = render_audio(&live_params, 60, 1024);
+        send("rec,stop");
+        assert!(
+            l1_diff(&base_l, &fx_l) > 10.0,
+            "Module 6 Drive + OTT + Spatial Canyon must saturate, compress, and diffuse audio"
+        );
+        assert!(
+            live_params.recorder.recorded_frames() >= 1024,
+            "Module 6 REC LIVE must capture synthesized stereo frames"
+        );
     }
 }

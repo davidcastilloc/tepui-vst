@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="plugin-container" data-ui="true">
+  <div id="plugin-shell" class="plugin-container" data-ui="true">
     <!-- 1. TOP CHASSIS HEADER & TELEMETRY BAR -->
     <header class="studio-header">
       <div class="brand">
@@ -40,6 +40,7 @@
           <input type="file" id="patch-file-input" accept=".tepui,.json,application/json" class="hidden-file-input">
         </div>
         <button id="btn-ui-scale" class="btn-io btn-ui-scale" title="Cambiar escala / tamaño de ventana (90% / 100% / 115% / 130%)" type="button">SCALE 100%</button>
+        <button id="btn-oled-theme" class="btn-io btn-oled-theme" title="Ciclar Tema Cromático OLED y Chasis (CYAN / AMBER / EMERALD)" type="button">OLED: CYAN</button>
         <button id="btn-cloud-credits" class="btn-io btn-cloud-credits" title="Selector de Proveedor IA Open Source (Community KV, Ollama Local, Gemini, Groq, OpenAI, Intel NPU)" type="button">
           <span class="cloud-dot"></span>
           <span id="cloud-credits-text">AI: COMMUNITY KV</span>
@@ -93,6 +94,12 @@
           <span class="btn-text">[ GENERAR IA ]</span>
         </button>
 
+        <button id="btn-ab-compare" class="btn-ab-compare" type="button" title="Comparador instantáneo A/B entre el timbre actual (Slot A) y el timbre previo (Slot B)">
+          <span class="ab-slot active" id="ab-slot-a">A</span>
+          <span class="ab-sep">/</span>
+          <span class="ab-slot" id="ab-slot-b">B</span>
+        </button>
+
         <div class="pack-pills-group" aria-label="Packs por Género">
           <button class="pack-pill amber" data-pack="pack-01" type="button">Vital Wavetables</button>
           <button class="pack-pill magenta" data-pack="pack-02" type="button">Reese &amp; 808 Bass</button>
@@ -124,7 +131,10 @@
           <div class="browser-col-header">
             <span class="b-screw"></span>
             <span class="b-title">PRESET SEARCH &amp; TABLE</span>
-            <button id="btn-close-browser" class="btn-close-browser" title="Cerrar explorador y volver a los módulos Eurorack" type="button">× MÓDULOS</button>
+            <div class="browser-header-actions">
+              <button id="btn-preset-audition" class="btn-preset-audition active" title="Auto-Audición al seleccionar preset o navegar con flechas ↑/↓" type="button">🔊 AUTO</button>
+              <button id="btn-close-browser" class="btn-close-browser" title="Cerrar explorador y volver a los módulos Eurorack" type="button">× MÓDULOS</button>
+            </div>
           </div>
 
           <div class="browser-search-bar">
@@ -247,7 +257,10 @@
         <i class="hex-screw tl"></i><i class="hex-screw tr"></i><i class="hex-screw bl"></i><i class="hex-screw br"></i>
         <div class="mod-header">
           <span class="mod-title">SVF FILTER</span>
-          <span class="mod-sub-tag">CYTOMIC TPT</span>
+          <div class="mod-header-pills">
+            <button id="btn-svf-fft-toggle" class="oled-pill-btn cyan active" title="Analizador Espectral FFT de 64 Bandas en Tiempo Real Post-Filtro" type="button">FFT 64B</button>
+            <span class="mod-sub-tag">CYTOMIC TPT</span>
+          </div>
         </div>
 
         <div class="oled-bezel cyan-bezel">
@@ -272,6 +285,11 @@
               <div class="knob-val" id="val-resonance">0.71</div>
               <div class="knob-label">RESONANCE</div>
             </div>
+          </div>
+          <div class="hw-btn-stack svf-arch-stack">
+            <span class="hw-tiny-lbl">SLOPE / KEY</span>
+            <span id="svf-slope-badge" class="hw-readout cyan">24 dB/OCT</span>
+            <button id="btn-svf-keytrack" class="hw-sq-btn cyan-led" title="Seguimiento de Teclado del Filtro Cytomic SVF (Clic para alternar KEY: 50% / 100% / OFF)" type="button">KEY:50%</button>
           </div>
         </div>
       </div>
@@ -345,6 +363,14 @@
 
         <div class="mod-controls-row lfo-matrix-row">
           <div class="mod-matrix-mini" id="mod-matrix-grid" title="Haz clic en cualquier pin para enrutar la matriz de modulación 5×5 en vivo">
+            <div class="matrix-header-row" aria-hidden="true">
+              <span class="m-src-hdr">SRC</span>
+              <span class="m-dst-hdr" title="Filter Cutoff">CUT</span>
+              <span class="m-dst-hdr" title="Filter Resonance">RES</span>
+              <span class="m-dst-hdr" title="Wavetable Position">WT</span>
+              <span class="m-dst-hdr" title="Oscillator Pitch / Vibrato">PIT</span>
+              <span class="m-dst-hdr" title="OTT / Spatial FX Mix">FX</span>
+            </div>
             <div class="matrix-row" data-row="0"><span class="m-lbl">LFO 1</span><i data-col="0"></i><i class="on" data-col="1"></i><i data-col="2"></i><i data-col="3"></i><i data-col="4"></i></div>
             <div class="matrix-row" data-row="1"><span class="m-lbl">LFO 2</span><i data-col="0"></i><i data-col="1"></i><i data-col="2"></i><i class="on" data-col="3"></i><i data-col="4"></i></div>
             <div class="matrix-row" data-row="2"><span class="m-lbl">ENV 2</span><i data-col="0"></i><i data-col="1"></i><i class="on" data-col="2"></i><i data-col="3"></i><i data-col="4"></i></div>
@@ -405,14 +431,26 @@
           <div class="oled-bezel cyan-bezel reverb-bezel">
             <canvas id="oled-reverb" width="230" height="72"></canvas>
           </div>
-          <div class="meter-panel">
+          <div class="meter-panel" title="Medidores Estéreo L/R con escala dBFS y Peak-Hold">
+            <div class="meter-scale" aria-hidden="true">
+              <span>0</span>
+              <span>-6</span>
+              <span>-12</span>
+              <span>-24</span>
+            </div>
             <div class="meter-column">
               <span class="meter-channel">L</span>
-              <div class="vu-meter"><div id="meter-fill-l" class="vu-fill"></div></div>
+              <div class="vu-meter">
+                <div id="meter-fill-l" class="vu-fill"></div>
+                <div id="meter-peak-l" class="vu-peak"></div>
+              </div>
             </div>
             <div class="meter-column">
               <span class="meter-channel">R</span>
-              <div class="vu-meter"><div id="meter-fill-r" class="vu-fill"></div></div>
+              <div class="vu-meter">
+                <div id="meter-fill-r" class="vu-fill"></div>
+                <div id="meter-peak-r" class="vu-peak"></div>
+              </div>
             </div>
           </div>
         </div>
@@ -577,11 +615,26 @@
               <svg class="hw-svg cyan-svg" viewBox="0 0 16 16"><path d="M2 4h12M2 8h12M2 12h12"/><circle cx="5" cy="4" r="1.6"/><circle cx="11" cy="8" r="1.6"/><circle cx="7" cy="12" r="1.6"/></svg>
             </span>
             <div class="modal-titles">
-              <h2 class="modal-title">AUDIO &amp; MIDI ROUTING</h2>
-              <span class="modal-subtitle">CONFIGURACIÓN DE HARDWARE STANDALONE</span>
+              <h2 class="modal-title">AUDIO, MIDI &amp; AI ENGINE ROUTING</h2>
+              <span class="modal-subtitle">CONFIGURACIÓN DE HARDWARE STANDALONE Y MOTOR NEURONAL</span>
             </div>
           </div>
-          <button id="btn-close-settings" class="btn-close" title="Cerrar ventana" type="button">×</button>
+          <div class="modal-header-right">
+            <span id="settings-latency-badge" class="settings-latency-badge">48.0 kHz • 1056 smp (~22.0 ms)</span>
+            <button id="btn-close-settings" class="btn-close" title="Cerrar ventana" type="button">×</button>
+          </div>
+        </div>
+
+        <div class="modal-tabs-bar" role="tablist" aria-label="Secciones de Configuración">
+          <button id="settings-tab-audio" class="modal-tab-btn active" data-tab="audio" role="tab" aria-selected="true" type="button">
+            <span>1. AUDIO &amp; MIDI HARDWARE</span>
+          </button>
+          <button id="settings-tab-ai" class="modal-tab-btn" data-tab="ai" role="tab" aria-selected="false" type="button">
+            <span>2. MOTOR IA, NPU &amp; CLOUD</span>
+          </button>
+          <button id="settings-tab-all" class="modal-tab-btn" data-tab="all" role="tab" aria-selected="false" type="button">
+            <span>VISTA COMPLETA</span>
+          </button>
         </div>
 
         <div id="daw-mode-banner" class="mode-banner hidden">
@@ -593,159 +646,165 @@
         </div>
 
         <div class="modal-body">
-          <div class="setting-field">
-            <div class="field-label-group">
-              <label for="select-output-device">DISPOSITIVO DE SALIDA (AUDIO OUTPUT):</label>
-              <span class="field-desc">Selecciona tus altavoces físicos, auriculares o interfaz USB</span>
-            </div>
-            <select id="select-output-device" class="studio-select">
-              <option value="">Cargando dispositivos de audio...</option>
-            </select>
-          </div>
-
-          <div class="setting-field">
-            <div class="field-label-group">
-              <label for="select-input-device">DISPOSITIVO DE ENTRADA (AUDIO INPUT):</label>
-              <span class="field-desc">Micrófono o entrada de línea (opcional)</span>
-            </div>
-            <select id="select-input-device" class="studio-select">
-              <option value="">Desactivado (Recomendado)</option>
-            </select>
-          </div>
-
-          <div class="setting-grid-2">
-            <div class="setting-field">
-              <div class="field-label-group">
-                <label for="select-sample-rate">SAMPLE RATE:</label>
-                <span class="field-desc">Frecuencia de procesamiento</span>
-              </div>
-              <select id="select-sample-rate" class="studio-select">
-                <option value="44100">44.1 kHz (44,100 Hz)</option>
-                <option value="48000" selected>48.0 kHz (48,000 Hz) [Nativo]</option>
-                <option value="88200">88.2 kHz (88,200 Hz)</option>
-                <option value="96000">96.0 kHz (96,000 Hz)</option>
-              </select>
-            </div>
-
-            <div class="setting-field">
-              <div class="field-label-group">
-                <label for="select-buffer-size">BUFFER / LATENCIA:</label>
-                <span class="field-desc">Tamaño de bloque en muestras</span>
-              </div>
-              <select id="select-buffer-size" class="studio-select">
-                <option value="128">128 samples (~2.7 ms)</option>
-                <option value="256">256 samples (~5.3 ms)</option>
-                <option value="512">512 samples (~10.6 ms)</option>
-                <option value="1056" selected>1056 samples (~22 ms - Windows WASAPI Óptimo)</option>
-                <option value="2048">2048 samples (~42.6 ms - Seguro)</option>
-              </select>
-            </div>
-          </div>
-
-          <div class="setting-field">
-            <div class="field-label-group">
-              <label for="select-midi-device">TECLADO / CONTROLADOR MIDI:</label>
-              <span class="field-desc">Dispositivo MIDI físico USB conectado</span>
-            </div>
-            <select id="select-midi-device" class="studio-select">
-              <option value="">Cargando puertos MIDI...</option>
-            </select>
-          </div>
-
-          <div class="cloud-license-box">
-            <div class="cloud-license-header">
-              <div class="field-label-group">
-                <label for="select-ai-provider">PROVEEDOR DE IA ABIERTO (OPEN SOURCE MULTI-LLM &amp; NPU):</label>
-                <span class="field-desc">Elige entre el Pool Comunitario KV gratuito, Ollama en tu GPU local, Gemini, Groq, OpenAI o 100% Intel NPU</span>
-              </div>
-              <span id="cloud-modal-tier-badge" class="cloud-tier-pill">COMMUNITY KV • 20 CR</span>
-            </div>
-
+          <div id="settings-pane-audio" class="settings-tab-pane">
             <div class="setting-grid-2">
               <div class="setting-field">
                 <div class="field-label-group">
-                  <label for="select-ai-provider">MOTOR / PROVEEDOR DE SÍNTESIS IA:</label>
-                  <span class="field-desc">Sin lock-in: conecta cualquier LLM o úsalo 100% offline</span>
+                  <label for="select-output-device">DISPOSITIVO DE SALIDA (AUDIO OUTPUT):</label>
+                  <span class="field-desc">Altavoces físicos, auriculares o interfaz USB</span>
                 </div>
-                <select id="select-ai-provider" class="studio-select">
-                  <option value="community_edge" selected>TEPUI Community Edge (Gratis • KV Cache + 20/día)</option>
-                  <option value="ollama_local">Ollama Local (100% Offline en tu PC • http://127.0.0.1:11434)</option>
-                  <option value="gemini">Google Gemini API (BYOK • Tier Gratuito en AI Studio)</option>
-                  <option value="groq">Groq Cloud LPU (BYOK • Ultra-Rápido ~150ms)</option>
-                  <option value="openai_compatible">OpenAI / OpenRouter / Compatible (BYOK)</option>
-                  <option value="local_npu">100% Local Intel NPU + DSP Físico (Offline Instantáneo)</option>
+                <select id="select-output-device" class="studio-select">
+                  <option value="">Cargando dispositivos de audio...</option>
                 </select>
               </div>
 
               <div class="setting-field">
                 <div class="field-label-group">
-                  <label for="input-ai-model">MODELO IA (OPCIONAL):</label>
-                  <span class="field-desc">Ej: llama3.2, gemini-2.5-flash, llama-3.3-70b-versatile, gpt-4o-mini</span>
+                  <label for="select-input-device">DISPOSITIVO DE ENTRADA (AUDIO INPUT):</label>
+                  <span class="field-desc">Micrófono o entrada de línea para resíntesis WAV→WT</span>
                 </div>
-                <input type="text" id="input-ai-model" class="studio-select studio-text-input" placeholder="Auto según proveedor (ej. llama3.2 / gemini-2.5-flash)" autocomplete="off">
+                <select id="select-input-device" class="studio-select">
+                  <option value="">Desactivado (Recomendado)</option>
+                </select>
               </div>
             </div>
 
             <div class="setting-grid-2">
               <div class="setting-field">
                 <div class="field-label-group">
-                  <label for="input-ai-api-key">API KEY (PARA GEMINI / GROQ / OPENAI / OPENROUTER):</label>
-                  <span class="field-desc">Guardada localmente en tu PC (no requerida para Community KV, Ollama ni NPU)</span>
+                  <label for="select-sample-rate">SAMPLE RATE:</label>
+                  <span class="field-desc">Frecuencia de muestreo del motor DSP</span>
                 </div>
-                <input type="password" id="input-ai-api-key" class="studio-select studio-text-input" placeholder="AIzaSy... / gsk_... / sk-..." autocomplete="off">
+                <select id="select-sample-rate" class="studio-select">
+                  <option value="44100">44.1 kHz (44,100 Hz)</option>
+                  <option value="48000" selected>48.0 kHz (48,000 Hz) [Nativo]</option>
+                  <option value="88200">88.2 kHz (88,200 Hz)</option>
+                  <option value="96000">96.0 kHz (96,000 Hz)</option>
+                </select>
               </div>
 
               <div class="setting-field">
                 <div class="field-label-group">
-                  <label for="input-ai-endpoint">TEPUI_AI_GATEWAY_URL (SAMPLES .WAV IA • 5 CR / WAV):</label>
-                  <span class="field-desc">Gateway preconfigurado para generar samples .WAV one-shot con cobro de 5 créditos por sample</span>
+                  <label for="select-buffer-size">BUFFER / LATENCIA:</label>
+                  <span class="field-desc">Tamaño de bloque en muestras (menor = menos latencia)</span>
                 </div>
-                <input type="text" id="input-ai-endpoint" class="studio-select studio-text-input" value="https://tepui-vst.pc911itservices.workers.dev/v1/sample-wav" placeholder="https://tepui-vst.pc911itservices.workers.dev/v1/sample-wav" autocomplete="off">
+                <select id="select-buffer-size" class="studio-select">
+                  <option value="128">128 samples (~2.7 ms)</option>
+                  <option value="256">256 samples (~5.3 ms)</option>
+                  <option value="512">512 samples (~10.6 ms)</option>
+                  <option value="1056" selected>1056 samples (~22 ms - Windows WASAPI Óptimo)</option>
+                  <option value="2048">2048 samples (~42.6 ms - Seguro)</option>
+                </select>
               </div>
             </div>
 
-            <div class="setting-grid-2">
-              <div class="setting-field">
-                <div class="field-label-group">
-                  <label for="input-cloud-redeem-code">CÓDIGO DE RECARGA / LICENCIA CLOUD (STRIPE • LEMONSQUEEZY):</label>
-                  <span class="field-desc">Canjea un voucher de créditos o licencia Pro (ej. TEPUI-PRO-2026)</span>
-                </div>
-                <input type="text" id="input-cloud-redeem-code" class="studio-select studio-text-input" placeholder="TEPUI-PRO-XXXX-XXXX" autocomplete="off">
+            <div class="setting-field">
+              <div class="field-label-group">
+                <label for="select-midi-device">TECLADO / CONTROLADOR MIDI USB (HOT-PLUG):</label>
+                <span class="field-desc">Conexión en caliente con soporte de Velocity, Pitch Bend y Mod Wheel</span>
               </div>
-
-              <div class="setting-field">
-                <div class="field-label-group">
-                  <label for="btn-redeem-cloud-code">ACTIVACIÓN INSTANTÁNEA EN EDGE KV:</label>
-                  <span class="field-desc">Acredita saldo en TEPUI_CREDITS_KV sin reiniciar el DAW</span>
-                </div>
-                <button id="btn-redeem-cloud-code" class="btn-test-tone" type="button">
-                  <span>+ CANJEAR CÓDIGO / RECARGAR CRÉDITOS</span>
-                </button>
-              </div>
+              <select id="select-midi-device" class="studio-select">
+                <option value="">Cargando puertos MIDI...</option>
+              </select>
             </div>
 
-            <div class="cloud-license-actions">
-              <span id="cloud-quota-summary" class="field-desc">Pool Comunitario KV: 0 / 9,500 Neurons hoy (Caché KV global = 0 Neurons en hits)</span>
-              <div style="display:flex; gap:8px; align-items:center;">
-                <button id="btn-buy-cloud-credits" class="btn-test-tone" type="button" title="Abrir Checkout seguro con tu ID de dispositivo para recarga automática por Webhook">
-                  <span>COMPRAR CRÉDITOS PRO</span>
-                </button>
-                <button id="btn-verify-cloud-license" class="btn-test-tone" type="button">
-                  <span>GUARDAR PROVEEDOR DE IA</span>
-                </button>
+            <div class="test-tone-box">
+              <div class="test-tone-info">
+                <span class="test-tone-title">VERIFICADOR DE REPRODUCCIÓN EN VIVO</span>
+                <span class="test-tone-desc">Dispara un acorde C4-E4-G4 para verificar salida de audio en el dispositivo activo</span>
               </div>
+              <button id="btn-test-tone" class="btn-test-tone" type="button">
+                <span class="tone-icon">▶</span>
+                <span id="test-tone-text">PROBAR SONIDO (TEST CHORD)</span>
+              </button>
             </div>
           </div>
 
-          <div class="test-tone-box">
-            <div class="test-tone-info">
-              <span class="test-tone-title">VERIFICADOR DE REPRODUCCIÓN EN VIVO</span>
-              <span class="test-tone-desc">Dispara un acorde de prueba para verificar si el audio sale por tus altavoces</span>
+          <div id="settings-pane-ai" class="settings-tab-pane hidden-pane">
+            <div class="cloud-license-box">
+              <div class="cloud-license-header">
+                <div class="field-label-group">
+                  <label for="select-ai-provider">PROVEEDOR DE IA ABIERTO (OPEN SOURCE MULTI-LLM &amp; NPU):</label>
+                  <span class="field-desc">Pool Comunitario KV gratuito, Ollama GPU local, Gemini, Groq, OpenAI o 100% Intel NPU</span>
+                </div>
+                <span id="cloud-modal-tier-badge" class="cloud-tier-pill">COMMUNITY KV • 20 CR</span>
+              </div>
+
+              <div class="setting-grid-2">
+                <div class="setting-field">
+                  <div class="field-label-group">
+                    <label for="select-ai-provider">MOTOR / PROVEEDOR DE SÍNTESIS IA:</label>
+                    <span class="field-desc">Conecta cualquier LLM o sintetiza 100% offline</span>
+                  </div>
+                  <select id="select-ai-provider" class="studio-select">
+                    <option value="community_edge" selected>TEPUI Community Edge (Gratis • KV Cache + 20/día)</option>
+                    <option value="ollama_local">Ollama Local (100% Offline en tu PC • http://127.0.0.1:11434)</option>
+                    <option value="gemini">Google Gemini API (BYOK • Tier Gratuito en AI Studio)</option>
+                    <option value="groq">Groq Cloud LPU (BYOK • Ultra-Rápido ~150ms)</option>
+                    <option value="openai_compatible">OpenAI / OpenRouter / Compatible (BYOK)</option>
+                    <option value="local_npu">100% Local Intel NPU + DSP Físico (Offline Instantáneo)</option>
+                  </select>
+                </div>
+
+                <div class="setting-field">
+                  <div class="field-label-group">
+                    <label for="input-ai-model">MODELO IA (OPCIONAL):</label>
+                    <span class="field-desc">Ej: llama3.2, gemini-2.5-flash, llama-3.3-70b-versatile</span>
+                  </div>
+                  <input type="text" id="input-ai-model" class="studio-select studio-text-input" placeholder="Auto según proveedor (ej. llama3.2 / gemini-2.5-flash)" autocomplete="off">
+                </div>
+              </div>
+
+              <div class="setting-grid-2">
+                <div class="setting-field">
+                  <div class="field-label-group">
+                    <label for="input-ai-api-key">API KEY (GEMINI / GROQ / OPENAI / OPENROUTER):</label>
+                    <span class="field-desc">Almacenada localmente (no requerida para KV, Ollama o NPU)</span>
+                  </div>
+                  <input type="password" id="input-ai-api-key" class="studio-select studio-text-input" placeholder="AIzaSy... / gsk_... / sk-..." autocomplete="off">
+                </div>
+
+                <div class="setting-field">
+                  <div class="field-label-group">
+                    <label for="input-ai-endpoint">TEPUI_AI_GATEWAY_URL (SAMPLES .WAV IA):</label>
+                    <span class="field-desc">Endpoint para generación de samples .WAV one-shot (5 CR / WAV)</span>
+                  </div>
+                  <input type="text" id="input-ai-endpoint" class="studio-select studio-text-input" value="https://tepui-vst.pc911itservices.workers.dev/v1/sample-wav" placeholder="https://tepui-vst.pc911itservices.workers.dev/v1/sample-wav" autocomplete="off">
+                </div>
+              </div>
+
+              <div class="setting-grid-2">
+                <div class="setting-field">
+                  <div class="field-label-group">
+                    <label for="input-cloud-redeem-code">CÓDIGO DE RECARGA / LICENCIA CLOUD:</label>
+                    <span class="field-desc">Canjea un voucher de créditos o licencia Pro (ej. TEPUI-PRO-2026)</span>
+                  </div>
+                  <input type="text" id="input-cloud-redeem-code" class="studio-select studio-text-input" placeholder="TEPUI-PRO-XXXX-XXXX" autocomplete="off">
+                </div>
+
+                <div class="setting-field">
+                  <div class="field-label-group">
+                    <label for="btn-redeem-cloud-code">ACTIVACIÓN INSTANTÁNEA EN EDGE KV:</label>
+                    <span class="field-desc">Acredita saldo en TEPUI_CREDITS_KV sin reiniciar el DAW</span>
+                  </div>
+                  <button id="btn-redeem-cloud-code" class="btn-test-tone" type="button">
+                    <span>+ CANJEAR CÓDIGO / RECARGAR CRÉDITOS</span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="cloud-license-actions">
+                <span id="cloud-quota-summary" class="field-desc">Pool Comunitario KV: 0 / 9,500 Neurons hoy (Caché KV global = 0 Neurons en hits)</span>
+                <div style="display:flex; gap:8px; align-items:center;">
+                  <button id="btn-buy-cloud-credits" class="btn-test-tone" type="button" title="Abrir Checkout seguro con tu ID de dispositivo para recarga automática por Webhook">
+                    <span>COMPRAR CRÉDITOS PRO</span>
+                  </button>
+                  <button id="btn-verify-cloud-license" class="btn-test-tone" type="button">
+                    <span>GUARDAR PROVEEDOR DE IA</span>
+                  </button>
+                </div>
+              </div>
             </div>
-            <button id="btn-test-tone" class="btn-test-tone" type="button">
-              <span class="tone-icon">▶</span>
-              <span id="test-tone-text">PROBAR SONIDO (TEST CHORD)</span>
-            </button>
           </div>
 
           <div id="settings-status-msg" class="settings-status-msg hidden"></div>

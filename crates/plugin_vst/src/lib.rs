@@ -18,6 +18,7 @@ use synth_core::{StereoFxRack, VoiceManager};
 
 pub mod audio_devices;
 mod params;
+pub mod ui_dsp_contract;
 pub mod web_editor;
 
 use params::{LiveParamStore, SamplerParams};
@@ -31,6 +32,7 @@ pub enum GuiMidiEvent {
     SustainPedal(bool),
     Aftertouch(f32),
     BrightnessCC74(f32),
+    SetVelocity(f32),
     AllNotesOff,
 }
 
@@ -49,6 +51,56 @@ struct LastDawParams {
     lfo_rate: f32,
     lfo_depth: f32,
     lfo_target: i32,
+    lfo_shape: i32,
+    arp_mode: i32,
+    wt_pos: f32,
+    wt_warp: f32,
+    unison_voices: i32,
+    unison_detune: f32,
+    sub_level: f32,
+    fm_from_b: f32,
+    drive_amount: f32,
+    ott_amount: f32,
+    filter_keytrack: f32,
+    macro1: f32,
+    macro2: f32,
+    macro3: f32,
+    macro4: f32,
+}
+
+impl LastDawParams {
+    fn from_params(params: &SamplerParams) -> Self {
+        Self {
+            attack: params.attack.value(),
+            decay: params.decay.value(),
+            sustain: params.sustain.value(),
+            release: params.release.value(),
+            cutoff: params.cutoff.value(),
+            resonance: params.resonance.value(),
+            gain: params.gain.value(),
+            space_mix: params.space_mix.value(),
+            filter_mode: params.filter_mode.value(),
+            root_note: params.root_note.value(),
+            lfo_rate: params.lfo_rate.value(),
+            lfo_depth: params.lfo_depth.value(),
+            lfo_target: params.lfo_target.value(),
+            lfo_shape: params.lfo_shape.value(),
+            arp_mode: params.arp_mode.value(),
+            wt_pos: params.wt_pos.value(),
+            wt_warp: params.wt_warp.value(),
+            unison_voices: params.unison_voices.value(),
+            unison_detune: params.unison_detune.value(),
+            sub_level: params.sub_level.value(),
+            fm_from_b: params.fm_from_b.value(),
+            drive_amount: params.drive_amount.value(),
+            ott_amount: params.ott_amount.value(),
+            filter_keytrack: params.filter_keytrack.value(),
+            macro1: params.macro1.value(),
+            macro2: params.macro2.value(),
+            macro3: params.macro3.value(),
+            macro4: params.macro4.value(),
+        }
+    }
 }
 
 pub struct AiSamplerPlugin {
@@ -69,6 +121,7 @@ pub struct AiSamplerPlugin {
     web_gui_rx: Receiver<web_editor::WebGuiEvent>,
     last_daw: LastDawParams,
     last_custom_wt_rev: u32,
+    smoothed_gain: f32,
     mono_scratch_buffer: Vec<f32>,
 }
 
@@ -94,21 +147,7 @@ impl Default for AiSamplerPlugin {
             Some(sample_rate_atomic.clone()),
         ));
 
-        let last_daw = LastDawParams {
-            attack: params.attack.value(),
-            decay: params.decay.value(),
-            sustain: params.sustain.value(),
-            release: params.release.value(),
-            cutoff: params.cutoff.value(),
-            resonance: params.resonance.value(),
-            gain: params.gain.value(),
-            space_mix: params.space_mix.value(),
-            filter_mode: params.filter_mode.value(),
-            root_note: params.root_note.value(),
-            lfo_rate: params.lfo_rate.value(),
-            lfo_depth: params.lfo_depth.value(),
-            lfo_target: params.lfo_target.value(),
-        };
+        let last_daw = LastDawParams::from_params(&params);
 
         Self {
             params,
@@ -128,6 +167,7 @@ impl Default for AiSamplerPlugin {
             web_gui_rx,
             last_daw,
             last_custom_wt_rev: 0,
+            smoothed_gain: 1.0,
             mono_scratch_buffer: vec![0.0; 4096],
         }
     }
@@ -206,21 +246,7 @@ impl AiSamplerPlugin {
                         self.last_daw.lfo_target = self.params.lfo_target.value();
                     }
                     GuiParamId::AllRefresh => {
-                        self.last_daw = LastDawParams {
-                            attack: self.params.attack.value(),
-                            decay: self.params.decay.value(),
-                            sustain: self.params.sustain.value(),
-                            release: self.params.release.value(),
-                            cutoff: self.params.cutoff.value(),
-                            resonance: self.params.resonance.value(),
-                            gain: self.params.gain.value(),
-                            space_mix: self.params.space_mix.value(),
-                            filter_mode: self.params.filter_mode.value(),
-                            root_note: self.params.root_note.value(),
-                            lfo_rate: self.params.lfo_rate.value(),
-                            lfo_depth: self.params.lfo_depth.value(),
-                            lfo_target: self.params.lfo_target.value(),
-                        };
+                        self.last_daw = LastDawParams::from_params(&self.params);
                     }
                 }
                 self.live_params.bump_gui_param_sync();
@@ -434,6 +460,117 @@ impl Plugin for AiSamplerPlugin {
             daw_changed = true;
         }
 
+        let p_lfo_shape = self.params.lfo_shape.value();
+        if p_lfo_shape != self.last_daw.lfo_shape {
+            self.live_params.set_lfo_shape(p_lfo_shape);
+            self.last_daw.lfo_shape = p_lfo_shape;
+            daw_changed = true;
+        }
+
+        let p_arp_mode = self.params.arp_mode.value();
+        if p_arp_mode != self.last_daw.arp_mode {
+            self.live_params.set_arp_mode(p_arp_mode);
+            self.last_daw.arp_mode = p_arp_mode;
+            daw_changed = true;
+        }
+
+        let p_wt_pos = self.params.wt_pos.value();
+        if (p_wt_pos - self.last_daw.wt_pos).abs() > 1e-4 {
+            self.live_params.set_wt_pos(p_wt_pos);
+            self.last_daw.wt_pos = p_wt_pos;
+            daw_changed = true;
+        }
+
+        let p_wt_warp = self.params.wt_warp.value();
+        if (p_wt_warp - self.last_daw.wt_warp).abs() > 1e-4 {
+            self.live_params.set_wt_warp(p_wt_warp);
+            self.last_daw.wt_warp = p_wt_warp;
+            daw_changed = true;
+        }
+
+        let p_unison_voices = self.params.unison_voices.value();
+        if p_unison_voices != self.last_daw.unison_voices {
+            self.live_params
+                .set_unison_voices(p_unison_voices.clamp(1, 8) as u8);
+            self.last_daw.unison_voices = p_unison_voices;
+            daw_changed = true;
+        }
+
+        let p_unison_detune = self.params.unison_detune.value();
+        if (p_unison_detune - self.last_daw.unison_detune).abs() > 1e-4 {
+            self.live_params.set_unison_detune(p_unison_detune);
+            self.last_daw.unison_detune = p_unison_detune;
+            daw_changed = true;
+        }
+
+        let p_sub_level = self.params.sub_level.value();
+        if (p_sub_level - self.last_daw.sub_level).abs() > 1e-4 {
+            self.live_params.set_sub_level(p_sub_level);
+            self.last_daw.sub_level = p_sub_level;
+            daw_changed = true;
+        }
+
+        let p_fm_from_b = self.params.fm_from_b.value();
+        if (p_fm_from_b - self.last_daw.fm_from_b).abs() > 1e-4 {
+            self.live_params.set_fm_from_b(p_fm_from_b);
+            self.live_params.set_osc_b_level(if p_fm_from_b > 0.001 {
+                (p_fm_from_b * 0.75).clamp(0.15, 0.85)
+            } else {
+                0.0
+            });
+            self.last_daw.fm_from_b = p_fm_from_b;
+            daw_changed = true;
+        }
+
+        let p_drive = self.params.drive_amount.value();
+        if (p_drive - self.last_daw.drive_amount).abs() > 1e-4 {
+            self.live_params.set_drive_amount(p_drive);
+            self.last_daw.drive_amount = p_drive;
+            daw_changed = true;
+        }
+
+        let p_ott = self.params.ott_amount.value();
+        if (p_ott - self.last_daw.ott_amount).abs() > 1e-4 {
+            self.live_params.set_ott_amount(p_ott);
+            self.last_daw.ott_amount = p_ott;
+            daw_changed = true;
+        }
+
+        let p_keytrack = self.params.filter_keytrack.value();
+        if (p_keytrack - self.last_daw.filter_keytrack).abs() > 1e-4 {
+            self.live_params.set_filter_keytrack(p_keytrack);
+            self.last_daw.filter_keytrack = p_keytrack;
+            daw_changed = true;
+        }
+
+        let p_m1 = self.params.macro1.value();
+        if (p_m1 - self.last_daw.macro1).abs() > 1e-4 {
+            self.live_params.set_macro(0, p_m1);
+            self.last_daw.macro1 = p_m1;
+            daw_changed = true;
+        }
+
+        let p_m2 = self.params.macro2.value();
+        if (p_m2 - self.last_daw.macro2).abs() > 1e-4 {
+            self.live_params.set_macro(1, p_m2);
+            self.last_daw.macro2 = p_m2;
+            daw_changed = true;
+        }
+
+        let p_m3 = self.params.macro3.value();
+        if (p_m3 - self.last_daw.macro3).abs() > 1e-4 {
+            self.live_params.set_macro(2, p_m3);
+            self.last_daw.macro3 = p_m3;
+            daw_changed = true;
+        }
+
+        let p_m4 = self.params.macro4.value();
+        if (p_m4 - self.last_daw.macro4).abs() > 1e-4 {
+            self.live_params.set_macro(3, p_m4);
+            self.last_daw.macro4 = p_m4;
+            daw_changed = true;
+        }
+
         if daw_changed {
             self.live_params.bump_revision();
         }
@@ -450,66 +587,19 @@ impl Plugin for AiSamplerPlugin {
             self.active_zones[2].as_deref(),
         ];
 
-        // 3. Actualizar parÃ¡metros en el gestor de voces antes de disparar notas nuevas
-        self.voice_manager.update_envelope_params(
-            self.live_params.get_attack(),
-            self.live_params.get_decay(),
-            self.live_params.get_sustain(),
-            self.live_params.get_release(),
-        );
-
-        self.voice_manager.update_filter_params(
-            self.live_params.get_cutoff(),
-            self.live_params.get_resonance(),
-            self.live_params.get_filter_mode(),
-        );
-
-        self.voice_manager.update_lfo_params(
-            self.live_params.get_lfo_rate(),
-            self.live_params.get_lfo_depth(),
-            self.live_params.get_lfo_target(),
-        );
-        self.voice_manager
-            .set_mod_matrix_mask(self.live_params.get_mod_matrix_mask());
-
-        self.voice_manager.update_vital_serum_params(
-            self.live_params.get_wt_pos(),
-            self.live_params.get_wt_warp(),
-            self.live_params.get_unison_voices(),
-            self.live_params.get_unison_detune(),
-            self.live_params.get_sub_level(),
-            self.live_params.get_lfo_shape(),
-            self.live_params.get_macros(),
-        );
-        self.voice_manager.set_osc_b_fm_params(
-            self.live_params.get_fm_from_b(),
-            self.live_params.get_osc_b_level(),
-        );
-        if self.live_params.is_custom_wavetable_active() {
-            let rev = self.live_params.get_custom_wavetable_revision();
-            if rev != self.last_custom_wt_rev || !self.voice_manager.is_custom_wavetable_active() {
-                self.last_custom_wt_rev = rev;
-                let cycle = self.live_params.get_custom_wavetable_cycle();
-                self.voice_manager.set_custom_wavetable_cycle(&cycle);
-            }
-        } else if self.voice_manager.is_custom_wavetable_active() {
-            self.voice_manager.clear_custom_wavetable_cycle();
-        }
-
-        let host_bpm = context
+        // 3. Proyector Canónico Único (Single-Point DSP Projector): sincronizar LiveParamStore -> VoiceManager + StereoFxRack
+        let host_bpm_opt = context
             .transport()
             .tempo
             .map(|t| t as f32)
-            .filter(|&b| b > 20.0)
-            .unwrap_or_else(|| self.live_params.get_arp_bpm());
-        self.voice_manager
-            .update_arp_params(self.live_params.get_arp_mode(), host_bpm);
-
-        self.voice_manager
-            .set_root_note_override(Some(self.live_params.get_root_note() as u8), active_sample);
-
-        self.voice_manager
-            .set_region_override(self.live_params.get_region_override());
+            .filter(|&b| b > 20.0);
+        self.live_params.project_to_dsp(
+            &mut self.voice_manager,
+            &mut self.fx_rack,
+            host_bpm_opt,
+            active_sample,
+            &mut self.last_custom_wt_rev,
+        );
 
         // 4. Procesar notas tocadas interactivamente desde la GUI / Teclado QWERTY nativo
         //    (MÃ¡xima prioridad interactiva sin jitter: entran en el sample 0 del bloque)
@@ -553,6 +643,9 @@ impl Plugin for AiSamplerPlugin {
                 GuiMidiEvent::BrightnessCC74(val) => {
                     self.voice_manager.set_brightness_cc74(val);
                     self.live_params.bump_midi_cc_events();
+                }
+                GuiMidiEvent::SetVelocity(vel) => {
+                    self.voice_manager.set_arp_live_velocity(vel);
                 }
                 GuiMidiEvent::AllNotesOff => {
                     #[cfg(debug_assertions)]
@@ -683,26 +776,20 @@ impl Plugin for AiSamplerPlugin {
             next_event = context.next_event();
         }
 
-        // 7a. Aplicar Master Stereo FX Rack (Tube Drive + OTT Multibanda + Chorus en Cuadratura + Delay Cruzado Sincronizado al Tempo y Compás)
-        self.fx_rack
-            .set_tempo_sync(host_bpm, self.live_params.get_arp_mode());
-        let m4_fx = self.live_params.get_macro(3);
-        self.fx_rack
-            .set_drive((self.live_params.get_drive_amount() + m4_fx * 0.55).clamp(0.0, 1.0));
-        self.fx_rack
-            .set_ott((self.live_params.get_ott_amount() + m4_fx * 0.65).clamp(0.0, 1.0));
-        self.fx_rack
-            .set_mix((self.live_params.get_space_mix() + m4_fx * 0.35).clamp(0.0, 1.0));
+        // 7a. Aplicar Master Stereo FX Rack (configurado por project_to_dsp)
         self.fx_rack.process_block(left_channel, right_channel);
 
-        // 7b. Aplicar Master Gain suavizado, saturaciÃ³n analÃ³gica suave anti-clipping, sanitizaciÃ³n NaN y medir pico L/R + mÃ©tricas ODD
-        let gain = self.live_params.get_gain();
+        // 7b. Aplicar Master Gain suavizado por muestra (anti-zipper), saturaciÃ³n analÃ³gica suave anti-clipping, sanitizaciÃ³n NaN y medir pico L/R + mÃ©tricas ODD
+        let target_gain = self.live_params.get_gain();
+        let start_gain = self.smoothed_gain;
+        let mut g_l = start_gain;
         let mut block_peak_l = 0.0_f32;
         let mut limiter_hits: u32 = 0;
         let mut nan_count: u32 = 0;
 
         for s in left_channel.iter_mut() {
-            let raw = *s * gain;
+            g_l += (target_gain - g_l) * 0.015;
+            let raw = *s * g_l;
             let val = if raw.is_finite() {
                 raw
             } else {
@@ -726,9 +813,11 @@ impl Plugin for AiSamplerPlugin {
         }
         let mut block_peak_r = block_peak_l;
         if is_stereo {
+            let mut g_r = start_gain;
             block_peak_r = 0.0_f32;
             for s in right_channel.iter_mut() {
-                let raw = *s * gain;
+                g_r += (target_gain - g_r) * 0.015;
+                let raw = *s * g_r;
                 let val = if raw.is_finite() {
                     raw
                 } else {
@@ -751,6 +840,11 @@ impl Plugin for AiSamplerPlugin {
                 }
             }
         }
+        self.smoothed_gain = if (target_gain - g_l).abs() < 1e-5 {
+            target_gain
+        } else {
+            g_l
+        };
 
         // 7c. Capturar salida Master post-FX en la Grabadora Master en Vivo si estÃ¡ activa (0 allocs, try_lock)
         self.live_params
@@ -928,6 +1022,9 @@ mod tests {
                 GuiMidiEvent::BrightnessCC74(slide) => {
                     plugin.voice_manager.set_brightness_cc74(slide);
                 }
+                GuiMidiEvent::SetVelocity(vel) => {
+                    plugin.voice_manager.set_arp_live_velocity(vel);
+                }
                 GuiMidiEvent::AllNotesOff => {
                     plugin.voice_manager.kill_all();
                 }
@@ -963,6 +1060,9 @@ mod tests {
                 }
                 GuiMidiEvent::BrightnessCC74(slide) => {
                     plugin.voice_manager.set_brightness_cc74(slide);
+                }
+                GuiMidiEvent::SetVelocity(vel) => {
+                    plugin.voice_manager.set_arp_live_velocity(vel);
                 }
                 GuiMidiEvent::AllNotesOff => {
                     plugin.voice_manager.kill_all();
@@ -1013,6 +1113,7 @@ mod tests {
                 GuiMidiEvent::SustainPedal(sus) => plugin.voice_manager.set_sustain_pedal(sus),
                 GuiMidiEvent::Aftertouch(p) => plugin.voice_manager.set_aftertouch(p),
                 GuiMidiEvent::BrightnessCC74(b) => plugin.voice_manager.set_brightness_cc74(b),
+                GuiMidiEvent::SetVelocity(v) => plugin.voice_manager.set_arp_live_velocity(v),
                 GuiMidiEvent::AllNotesOff => plugin.voice_manager.kill_all(),
             }
         }
@@ -1031,6 +1132,7 @@ mod tests {
                 GuiMidiEvent::SustainPedal(sus) => plugin.voice_manager.set_sustain_pedal(sus),
                 GuiMidiEvent::Aftertouch(p) => plugin.voice_manager.set_aftertouch(p),
                 GuiMidiEvent::BrightnessCC74(b) => plugin.voice_manager.set_brightness_cc74(b),
+                GuiMidiEvent::SetVelocity(v) => plugin.voice_manager.set_arp_live_velocity(v),
                 GuiMidiEvent::AllNotesOff => plugin.voice_manager.kill_all(),
             }
         }

@@ -10,7 +10,7 @@ use nih_plug::prelude::*;
 use serde::{Deserialize, Serialize};
 use synth_core::{
     base64_decode, base64_encode, encode_wav_f32, ArpMode, FilterMode, LfoShape, LfoTarget,
-    SampleBuffer, SampleRegionOverride,
+    SampleBuffer, SampleRegionOverride, SeqLockArray, StereoFxRack, VoiceManager,
 };
 
 /// Capacidad máxima prealocada para grabación Master en vivo (~15 segundos a 48 kHz estéreo).
@@ -121,6 +121,19 @@ impl LiveMasterRecorder {
     }
 }
 
+fn default_unison_voices() -> u8 {
+    1
+}
+fn default_unison_detune() -> f32 {
+    0.20
+}
+fn default_filter_keytrack() -> f32 {
+    0.50
+}
+fn default_arp_step_accents() -> [f32; 16] {
+    [1.0; 16]
+}
+
 /// Formato de archivo de Patch autocontenido `.tepui` para guardar y compartir instrumentos completos.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TepuiPatch {
@@ -159,6 +172,34 @@ pub struct TepuiPatch {
     pub fm_from_b: f32,
     #[serde(default)]
     pub osc_b_level: f32,
+    #[serde(default)]
+    pub wt_pos: f32,
+    #[serde(default)]
+    pub wt_warp: f32,
+    #[serde(default = "default_unison_voices")]
+    pub unison_voices: u8,
+    #[serde(default = "default_unison_detune")]
+    pub unison_detune: f32,
+    #[serde(default)]
+    pub sub_level: f32,
+    #[serde(default)]
+    pub drive_amount: f32,
+    #[serde(default)]
+    pub ott_amount: f32,
+    #[serde(default)]
+    pub lfo_shape: i32,
+    #[serde(default = "default_filter_keytrack")]
+    pub filter_keytrack: f32,
+    #[serde(default)]
+    pub macros: [f32; 4],
+    #[serde(default)]
+    pub custom_wt_active: bool,
+    #[serde(default)]
+    pub custom_wt_cycle: Vec<f32>,
+    #[serde(default)]
+    pub arp_custom_accents_active: bool,
+    #[serde(default = "default_arp_step_accents")]
+    pub arp_step_accents: [f32; 16],
 }
 
 impl TepuiPatch {
@@ -170,6 +211,13 @@ impl TepuiPatch {
         let zone_wavs_b64 = ai_worker.export_zones_b64();
         let zone_names = ai_worker.zone_names();
         live_params.bump_patch_io_count();
+
+        let custom_wt_active = live_params.is_custom_wavetable_active();
+        let custom_wt_cycle = if custom_wt_active {
+            live_params.get_custom_wavetable_cycle().to_vec()
+        } else {
+            Vec::new()
+        };
 
         Self {
             magic: "TEPUI_PATCH_V1".to_string(),
@@ -201,6 +249,20 @@ impl TepuiPatch {
             mod_matrix_mask: live_params.get_mod_matrix_mask(),
             fm_from_b: live_params.get_fm_from_b(),
             osc_b_level: live_params.get_osc_b_level(),
+            wt_pos: live_params.get_wt_pos(),
+            wt_warp: live_params.get_wt_warp(),
+            unison_voices: live_params.get_unison_voices(),
+            unison_detune: live_params.get_unison_detune(),
+            sub_level: live_params.get_sub_level(),
+            drive_amount: live_params.get_drive_amount(),
+            ott_amount: live_params.get_ott_amount(),
+            lfo_shape: live_params.get_lfo_shape().as_i32(),
+            filter_keytrack: live_params.get_filter_keytrack(),
+            macros: live_params.get_macros(),
+            custom_wt_active,
+            custom_wt_cycle,
+            arp_custom_accents_active: live_params.is_arp_custom_accents_active(),
+            arp_step_accents: live_params.get_arp_step_accents(),
         }
     }
 
@@ -244,6 +306,30 @@ impl TepuiPatch {
         live_params.set_mod_matrix_mask(self.mod_matrix_mask);
         live_params.set_fm_from_b(self.fm_from_b);
         live_params.set_osc_b_level(self.osc_b_level);
+        live_params.set_wt_pos(self.wt_pos);
+        live_params.set_wt_warp(self.wt_warp);
+        live_params.set_unison_voices(self.unison_voices);
+        live_params.set_unison_detune(self.unison_detune);
+        live_params.set_sub_level(self.sub_level);
+        live_params.set_drive_amount(self.drive_amount);
+        live_params.set_ott_amount(self.ott_amount);
+        live_params.set_lfo_shape(self.lfo_shape);
+        live_params.set_filter_keytrack(self.filter_keytrack);
+        for (i, &m) in self.macros.iter().enumerate() {
+            live_params.set_macro(i, m);
+        }
+        if self.custom_wt_active && !self.custom_wt_cycle.is_empty() {
+            live_params.set_custom_wavetable(&self.custom_wt_cycle);
+        } else {
+            live_params.clear_custom_wavetable();
+        }
+        if self.arp_custom_accents_active {
+            for (i, &acc) in self.arp_step_accents.iter().enumerate() {
+                live_params.set_arp_step_accent(i, acc);
+            }
+        } else {
+            live_params.clear_arp_custom_accents();
+        }
         live_params.bump_patch_io_count();
         live_params.bump_revision();
         Ok(())
@@ -273,6 +359,34 @@ pub struct PersistedSamplerSession {
     pub fm_from_b: f32,
     #[serde(default)]
     pub osc_b_level: f32,
+    #[serde(default)]
+    pub wt_pos: f32,
+    #[serde(default)]
+    pub wt_warp: f32,
+    #[serde(default = "default_unison_voices")]
+    pub unison_voices: u8,
+    #[serde(default = "default_unison_detune")]
+    pub unison_detune: f32,
+    #[serde(default)]
+    pub sub_level: f32,
+    #[serde(default)]
+    pub drive_amount: f32,
+    #[serde(default)]
+    pub ott_amount: f32,
+    #[serde(default)]
+    pub lfo_shape: i32,
+    #[serde(default = "default_filter_keytrack")]
+    pub filter_keytrack: f32,
+    #[serde(default)]
+    pub macros: [f32; 4],
+    #[serde(default)]
+    pub custom_wt_active: bool,
+    #[serde(default)]
+    pub custom_wt_cycle: Vec<f32>,
+    #[serde(default)]
+    pub arp_custom_accents_active: bool,
+    #[serde(default = "default_arp_step_accents")]
+    pub arp_step_accents: [f32; 16],
 }
 
 impl Default for PersistedSamplerSession {
@@ -292,6 +406,20 @@ impl Default for PersistedSamplerSession {
             mod_matrix_mask: 0,
             fm_from_b: 0.0,
             osc_b_level: 0.0,
+            wt_pos: 0.0,
+            wt_warp: 0.0,
+            unison_voices: 1,
+            unison_detune: 0.20,
+            sub_level: 0.0,
+            drive_amount: 0.0,
+            ott_amount: 0.0,
+            lfo_shape: 0,
+            filter_keytrack: 0.50,
+            macros: [0.0; 4],
+            custom_wt_active: false,
+            custom_wt_cycle: Vec::new(),
+            arp_custom_accents_active: false,
+            arp_step_accents: [1.0; 16],
         }
     }
 }
@@ -338,6 +466,24 @@ impl SessionPersistField {
             guard.mod_matrix_mask = self.live_params.get_mod_matrix_mask();
             guard.fm_from_b = self.live_params.get_fm_from_b();
             guard.osc_b_level = self.live_params.get_osc_b_level();
+            guard.wt_pos = self.live_params.get_wt_pos();
+            guard.wt_warp = self.live_params.get_wt_warp();
+            guard.unison_voices = self.live_params.get_unison_voices();
+            guard.unison_detune = self.live_params.get_unison_detune();
+            guard.sub_level = self.live_params.get_sub_level();
+            guard.drive_amount = self.live_params.get_drive_amount();
+            guard.ott_amount = self.live_params.get_ott_amount();
+            guard.lfo_shape = self.live_params.get_lfo_shape().as_i32();
+            guard.filter_keytrack = self.live_params.get_filter_keytrack();
+            guard.macros = self.live_params.get_macros();
+            guard.custom_wt_active = self.live_params.is_custom_wavetable_active();
+            guard.custom_wt_cycle = if guard.custom_wt_active {
+                self.live_params.get_custom_wavetable_cycle().to_vec()
+            } else {
+                Vec::new()
+            };
+            guard.arp_custom_accents_active = self.live_params.is_arp_custom_accents_active();
+            guard.arp_step_accents = self.live_params.get_arp_step_accents();
         }
     }
 }
@@ -358,6 +504,32 @@ impl<'a> PersistentField<'a, PersistedSamplerSession> for SessionPersistField {
             .set_mod_matrix_mask(new_value.mod_matrix_mask);
         self.live_params.set_fm_from_b(new_value.fm_from_b);
         self.live_params.set_osc_b_level(new_value.osc_b_level);
+        self.live_params.set_wt_pos(new_value.wt_pos);
+        self.live_params.set_wt_warp(new_value.wt_warp);
+        self.live_params.set_unison_voices(new_value.unison_voices);
+        self.live_params.set_unison_detune(new_value.unison_detune);
+        self.live_params.set_sub_level(new_value.sub_level);
+        self.live_params.set_drive_amount(new_value.drive_amount);
+        self.live_params.set_ott_amount(new_value.ott_amount);
+        self.live_params.set_lfo_shape(new_value.lfo_shape);
+        self.live_params
+            .set_filter_keytrack(new_value.filter_keytrack);
+        for (i, &m) in new_value.macros.iter().enumerate() {
+            self.live_params.set_macro(i, m);
+        }
+        if new_value.custom_wt_active && !new_value.custom_wt_cycle.is_empty() {
+            self.live_params
+                .set_custom_wavetable(&new_value.custom_wt_cycle);
+        } else {
+            self.live_params.clear_custom_wavetable();
+        }
+        if new_value.arp_custom_accents_active {
+            for (i, &acc) in new_value.arp_step_accents.iter().enumerate() {
+                self.live_params.set_arp_step_accent(i, acc);
+            }
+        } else {
+            self.live_params.clear_arp_custom_accents();
+        }
         self.live_params.bump_persistence_restores();
         self.live_params.bump_revision();
 
@@ -446,6 +618,66 @@ pub struct SamplerParams {
     /// Destino de modulación del LFO (0: Cutoff, 1: Pitch Vibrato, 2: Stereo Tremolo, 3: Off)
     #[id = "lfo_target"]
     pub lfo_target: IntParam,
+
+    /// Forma de onda del LFO (0: Sine, 1: Triangle, 2: Saw, 3: Square, 4: Sample&Hold, 5: ExpDecay)
+    #[id = "lfo_shape"]
+    pub lfo_shape: IntParam,
+
+    /// Modo del Arpegiador / Compás Rítmico (0: Off, 1: Up, 2: Down, 3: Joropo 6/8, 4: Merengue 5/8)
+    #[id = "arp_mode"]
+    pub arp_mode: IntParam,
+
+    /// Posición en la Tabla de Ondas 3D (0.0 a 1.0)
+    #[id = "wt_pos"]
+    pub wt_pos: FloatParam,
+
+    /// Deformación espectral FM/Sync de la Tabla de Ondas (0.0 a 1.0)
+    #[id = "wt_warp"]
+    pub wt_warp: FloatParam,
+
+    /// Número de voces Super-Unison (1 a 8)
+    #[id = "unison_voices"]
+    pub unison_voices: IntParam,
+
+    /// Desafinación y apertura estéreo del Unison (0.0 a 1.0)
+    #[id = "unison_detune"]
+    pub unison_detune: FloatParam,
+
+    /// Nivel del Sub-Oscilador -1 Octava (0.0 a 1.0)
+    #[id = "sub_level"]
+    pub sub_level: FloatParam,
+
+    /// Modulación cruzada FM desde el Oscilador B hacia el Oscilador A (0.0 a 1.0)
+    #[id = "fm_from_b"]
+    pub fm_from_b: FloatParam,
+
+    /// Saturación armónica asimétrica Analog Tube Drive (0.0 a 1.0)
+    #[id = "drive_amount"]
+    pub drive_amount: FloatParam,
+
+    /// Compresión multibanda ascendente/descendente 3-Band OTT (0.0 a 1.0)
+    #[id = "ott_amount"]
+    pub ott_amount: FloatParam,
+
+    /// Seguimiento de teclado (Keytracking) del filtro SVF (0.0 a 1.0)
+    #[id = "filter_keytrack"]
+    pub filter_keytrack: FloatParam,
+
+    /// Macro 1: Morphing de Tabla de Ondas y Apertura de Filtro (0.0 a 1.0)
+    #[id = "macro1"]
+    pub macro1: FloatParam,
+
+    /// Macro 2: Warp FM/Sync y Resonancia (0.0 a 1.0)
+    #[id = "macro2"]
+    pub macro2: FloatParam,
+
+    /// Macro 3: Super-Unison Detune y Sub-Oscilador (0.0 a 1.0)
+    #[id = "macro3"]
+    pub macro3: FloatParam,
+
+    /// Macro 4: Cadena FX (Tube Drive + 3-Band OTT + Space Mix) (0.0 a 1.0)
+    #[id = "macro4"]
+    pub macro4: FloatParam,
 }
 
 impl Default for SamplerParams {
@@ -585,6 +817,112 @@ impl SamplerParams {
                 0, // 0 = Cutoff
                 IntRange::Linear { min: 0, max: 3 },
             ),
+
+            lfo_shape: IntParam::new(
+                "LFO Shape",
+                0, // 0 = Sine
+                IntRange::Linear { min: 0, max: 5 },
+            ),
+
+            arp_mode: IntParam::new(
+                "Arp Mode",
+                0, // 0 = Off
+                IntRange::Linear { min: 0, max: 4 },
+            ),
+
+            wt_pos: FloatParam::new("WT Pos", 0.0, FloatRange::Linear { min: 0.0, max: 1.0 })
+                .with_unit(" %")
+                .with_value_to_string(formatters::v2s_f32_rounded(2))
+                .with_smoother(SmoothingStyle::Linear(10.0)),
+
+            wt_warp: FloatParam::new("WT Warp", 0.0, FloatRange::Linear { min: 0.0, max: 1.0 })
+                .with_unit(" %")
+                .with_value_to_string(formatters::v2s_f32_rounded(2))
+                .with_smoother(SmoothingStyle::Linear(10.0)),
+
+            unison_voices: IntParam::new("Unison Voices", 1, IntRange::Linear { min: 1, max: 8 }),
+
+            unison_detune: FloatParam::new(
+                "Unison Detune",
+                0.20,
+                FloatRange::Linear { min: 0.0, max: 1.0 },
+            )
+            .with_unit(" %")
+            .with_value_to_string(formatters::v2s_f32_rounded(2))
+            .with_smoother(SmoothingStyle::Linear(10.0)),
+
+            sub_level: FloatParam::new("Sub Level", 0.0, FloatRange::Linear { min: 0.0, max: 1.0 })
+                .with_unit(" %")
+                .with_value_to_string(formatters::v2s_f32_rounded(2))
+                .with_smoother(SmoothingStyle::Linear(10.0)),
+
+            fm_from_b: FloatParam::new("FM From B", 0.0, FloatRange::Linear { min: 0.0, max: 1.0 })
+                .with_unit(" %")
+                .with_value_to_string(formatters::v2s_f32_rounded(2))
+                .with_smoother(SmoothingStyle::Linear(10.0)),
+
+            drive_amount: FloatParam::new(
+                "Tube Drive",
+                0.0,
+                FloatRange::Linear { min: 0.0, max: 1.0 },
+            )
+            .with_unit(" %")
+            .with_value_to_string(formatters::v2s_f32_rounded(2))
+            .with_smoother(SmoothingStyle::Linear(10.0)),
+
+            ott_amount: FloatParam::new(
+                "3-Band OTT",
+                0.0,
+                FloatRange::Linear { min: 0.0, max: 1.0 },
+            )
+            .with_unit(" %")
+            .with_value_to_string(formatters::v2s_f32_rounded(2))
+            .with_smoother(SmoothingStyle::Linear(10.0)),
+
+            filter_keytrack: FloatParam::new(
+                "Filter Keytrack",
+                0.50,
+                FloatRange::Linear { min: 0.0, max: 1.0 },
+            )
+            .with_unit(" %")
+            .with_value_to_string(formatters::v2s_f32_rounded(2))
+            .with_smoother(SmoothingStyle::Linear(10.0)),
+
+            macro1: FloatParam::new(
+                "Macro 1 (Morph)",
+                0.0,
+                FloatRange::Linear { min: 0.0, max: 1.0 },
+            )
+            .with_unit(" %")
+            .with_value_to_string(formatters::v2s_f32_rounded(2))
+            .with_smoother(SmoothingStyle::Linear(10.0)),
+
+            macro2: FloatParam::new(
+                "Macro 2 (Warp)",
+                0.0,
+                FloatRange::Linear { min: 0.0, max: 1.0 },
+            )
+            .with_unit(" %")
+            .with_value_to_string(formatters::v2s_f32_rounded(2))
+            .with_smoother(SmoothingStyle::Linear(10.0)),
+
+            macro3: FloatParam::new(
+                "Macro 3 (Unison)",
+                0.0,
+                FloatRange::Linear { min: 0.0, max: 1.0 },
+            )
+            .with_unit(" %")
+            .with_value_to_string(formatters::v2s_f32_rounded(2))
+            .with_smoother(SmoothingStyle::Linear(10.0)),
+
+            macro4: FloatParam::new(
+                "Macro 4 (FX)",
+                0.0,
+                FloatRange::Linear { min: 0.0, max: 1.0 },
+            )
+            .with_unit(" %")
+            .with_value_to_string(formatters::v2s_f32_rounded(2))
+            .with_smoother(SmoothingStyle::Linear(10.0)),
         }
     }
 
@@ -669,7 +1007,10 @@ pub struct LiveParamStore {
     pub custom_wt_active: AtomicI32,
     pub custom_wt_revision: AtomicU32,
     pub custom_wt_draws: AtomicU32,
-    pub custom_wt_cycle: [AtomicU32; 64],
+    pub custom_wt_cycle: SeqLockArray<64>,
+    pub filter_keytrack: AtomicU32,
+    pub arp_custom_accents_active: AtomicI32,
+    pub arp_step_accents: SeqLockArray<16>,
 
     pub active_keyzones_mask: AtomicU32,
     pub lfo_mod_value: AtomicU32,
@@ -745,7 +1086,10 @@ impl Default for LiveParamStore {
             custom_wt_active: AtomicI32::new(0),
             custom_wt_revision: AtomicU32::new(0),
             custom_wt_draws: AtomicU32::new(0),
-            custom_wt_cycle: std::array::from_fn(|_| AtomicU32::new(0.0_f32.to_bits())),
+            custom_wt_cycle: SeqLockArray::new(0.0),
+            filter_keytrack: AtomicU32::new(0.50_f32.to_bits()),
+            arp_custom_accents_active: AtomicI32::new(0),
+            arp_step_accents: SeqLockArray::new(1.0),
             active_keyzones_mask: AtomicU32::new(0),
             lfo_mod_value: AtomicU32::new(0.0_f32.to_bits()),
             playhead_norm: AtomicU32::new(0.0_f32.to_bits()),
@@ -1497,19 +1841,20 @@ impl LiveParamStore {
             return;
         }
         let src_len = raw_points.len();
-        for (i, slot) in self.custom_wt_cycle.iter().enumerate() {
+        let mut cycle = [0.0_f32; 64];
+        for (i, dst) in cycle.iter_mut().enumerate() {
             let src_pos = (i as f32 / 64.0) * (src_len as f32);
             let idx0 = (src_pos.floor() as usize) % src_len;
             let idx1 = (idx0 + 1) % src_len;
             let frac = src_pos.fract();
             let val = raw_points[idx0] * (1.0 - frac) + raw_points[idx1] * frac;
-            let clean = if val.is_finite() {
+            *dst = if val.is_finite() {
                 val.clamp(-1.0, 1.0)
             } else {
                 0.0
             };
-            slot.store(clean.to_bits(), Ordering::Relaxed);
         }
+        self.custom_wt_cycle.write_slice(&cycle, 0.0);
         self.custom_wt_active.store(1, Ordering::Release);
         self.custom_wt_revision.fetch_add(1, Ordering::AcqRel);
         self.custom_wt_draws.fetch_add(1, Ordering::Relaxed);
@@ -1538,13 +1883,281 @@ impl LiveParamStore {
 
     #[inline]
     pub fn get_custom_wavetable_cycle(&self) -> [f32; 64] {
-        let mut out = [0.0_f32; 64];
-        for (i, slot) in self.custom_wt_cycle.iter().enumerate() {
-            out[i] = f32::from_bits(slot.load(Ordering::Relaxed));
+        self.custom_wt_cycle.read_snapshot()
+    }
+
+    #[inline]
+    pub fn set_filter_keytrack(&self, val: f32) {
+        let c = if val.is_finite() {
+            val.clamp(0.0, 1.0)
+        } else {
+            0.50
+        };
+        self.filter_keytrack.store(c.to_bits(), Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_filter_keytrack(&self) -> f32 {
+        f32::from_bits(self.filter_keytrack.load(Ordering::Relaxed))
+    }
+
+    #[inline]
+    pub fn set_arp_step_accent(&self, step_idx: usize, accent: f32) {
+        if step_idx < 16 {
+            if self.arp_custom_accents_active.load(Ordering::Acquire) == 0 {
+                let defaults =
+                    synth_core::TepuiArpeggiator::default_accents_for_mode(self.get_arp_mode());
+                let mut init_arr = [1.0_f32; 16];
+                init_arr[..12].copy_from_slice(defaults);
+                self.arp_step_accents.write_slice(&init_arr, 1.0);
+            }
+            let c = if accent.is_finite() {
+                accent.clamp(0.05, 1.0)
+            } else {
+                1.0
+            };
+            self.arp_step_accents.write_index(step_idx, c);
+            self.arp_custom_accents_active.store(1, Ordering::Release);
         }
-        out
+    }
+
+    #[inline]
+    pub fn set_arp_step_accents_slice(&self, accents: &[f32]) {
+        let mut clamped = self.arp_step_accents.read_snapshot();
+        for (dst, &val) in clamped.iter_mut().zip(accents.iter().take(16)) {
+            *dst = if val.is_finite() {
+                val.clamp(0.05, 1.0)
+            } else {
+                1.0
+            };
+        }
+        self.arp_step_accents.write_slice(&clamped, 1.0);
+        self.arp_custom_accents_active.store(1, Ordering::Release);
+    }
+
+    #[inline]
+    pub fn clear_arp_custom_accents(&self) {
+        self.arp_custom_accents_active.store(0, Ordering::Release);
+        self.arp_step_accents.write_slice(&[1.0_f32; 16], 1.0);
+    }
+
+    #[inline]
+    pub fn is_arp_custom_accents_active(&self) -> bool {
+        self.arp_custom_accents_active.load(Ordering::Acquire) != 0
+    }
+
+    #[inline]
+    pub fn get_arp_step_accents(&self) -> [f32; 16] {
+        self.arp_step_accents.read_snapshot()
+    }
+
+    /// Captura una instantánea atómica completa del estado de síntesis (`Canonical State Snapshot Pattern`).
+    pub fn capture_snapshot(&self) -> SynthStateSnapshot {
+        SynthStateSnapshot {
+            root_note: self.get_root_note(),
+            attack: self.get_attack(),
+            decay: self.get_decay(),
+            sustain: self.get_sustain(),
+            release: self.get_release(),
+            cutoff: self.get_cutoff(),
+            resonance: self.get_resonance(),
+            filter_mode: self.filter_mode.load(Ordering::Relaxed),
+            filter_keytrack: self.get_filter_keytrack(),
+            gain: self.get_gain(),
+            space_mix: self.get_space_mix(),
+            drive_amount: self.get_drive_amount(),
+            ott_amount: self.get_ott_amount(),
+            lfo_rate: self.get_lfo_rate(),
+            lfo_depth: self.get_lfo_depth(),
+            lfo_target: self.lfo_target.load(Ordering::Relaxed),
+            lfo_shape: self.get_lfo_shape().as_i32(),
+            arp_mode: self.arp_mode.load(Ordering::Relaxed),
+            arp_bpm: self.get_arp_bpm(),
+            arp_custom_accents_active: self.is_arp_custom_accents_active(),
+            arp_step_accents: self.get_arp_step_accents(),
+            mod_matrix_mask: self.get_mod_matrix_mask(),
+            wt_pos: self.get_wt_pos(),
+            wt_warp: self.get_wt_warp(),
+            unison_voices: self.get_unison_voices(),
+            unison_detune: self.get_unison_detune(),
+            sub_level: self.get_sub_level(),
+            fm_from_b: self.get_fm_from_b(),
+            osc_b_level: self.get_osc_b_level(),
+            macros: self.get_macros(),
+            trim_start_norm: self.get_trim_start_norm(),
+            trim_end_norm: self.get_trim_end_norm(),
+            loop_enabled: self.get_loop_enabled_override(),
+            loop_start_norm: self.get_loop_start_norm(),
+            loop_end_norm: self.get_loop_end_norm(),
+            custom_wt_active: self.is_custom_wavetable_active(),
+            custom_wt_cycle: self.get_custom_wavetable_cycle().to_vec(),
+        }
+    }
+
+    /// Restaura una instantánea canónica completa sobre `LiveParamStore` (`Canonical State Snapshot Pattern`).
+    pub fn apply_snapshot(&self, snap: &SynthStateSnapshot) {
+        self.set_root_note(snap.root_note);
+        self.set_attack(snap.attack);
+        self.set_decay(snap.decay);
+        self.set_sustain(snap.sustain);
+        self.set_release(snap.release);
+        self.set_cutoff(snap.cutoff);
+        self.set_resonance(snap.resonance);
+        self.set_filter_mode(snap.filter_mode);
+        self.set_filter_keytrack(snap.filter_keytrack);
+        self.set_gain(snap.gain);
+        self.set_space_mix(snap.space_mix);
+        self.set_drive_amount(snap.drive_amount);
+        self.set_ott_amount(snap.ott_amount);
+        self.set_lfo_rate(snap.lfo_rate);
+        self.set_lfo_depth(snap.lfo_depth);
+        self.set_lfo_target(snap.lfo_target);
+        self.set_lfo_shape(snap.lfo_shape);
+        self.set_arp_mode(snap.arp_mode);
+        self.set_arp_bpm(snap.arp_bpm);
+        self.set_mod_matrix_mask(snap.mod_matrix_mask);
+        self.set_wt_pos(snap.wt_pos);
+        self.set_wt_warp(snap.wt_warp);
+        self.set_unison_voices(snap.unison_voices);
+        self.set_unison_detune(snap.unison_detune);
+        self.set_sub_level(snap.sub_level);
+        self.set_fm_from_b(snap.fm_from_b);
+        self.set_osc_b_level(snap.osc_b_level);
+        for (i, &m) in snap.macros.iter().enumerate() {
+            self.set_macro(i, m);
+        }
+        self.set_trim_start_norm(snap.trim_start_norm);
+        self.set_trim_end_norm(snap.trim_end_norm);
+        self.set_loop_enabled_override(snap.loop_enabled);
+        self.set_loop_start_norm(snap.loop_start_norm);
+        self.set_loop_end_norm(snap.loop_end_norm);
+        if snap.custom_wt_active {
+            self.set_custom_wavetable(&snap.custom_wt_cycle);
+        } else {
+            self.clear_custom_wavetable();
+        }
+        if snap.arp_custom_accents_active {
+            self.set_arp_step_accents_slice(&snap.arp_step_accents);
+        } else {
+            self.clear_arp_custom_accents();
+        }
+        self.bump_revision();
+    }
+
+    /// Proyector Canónico Único (`Single-Point DSP Projector Pattern`) desde `LiveParamStore`
+    /// hacia `VoiceManager` y `StereoFxRack` (0 asignaciones dinámicas).
+    ///
+    /// Garantiza que el hilo de audio real (`AiSamplerPlugin::process`) y todas las suites de
+    /// pruebas de contrato (`ui_dsp_contract`) ejecuten exactamente la misma lógica de proyección.
+    #[inline]
+    pub fn project_to_dsp(
+        &self,
+        voice_manager: &mut VoiceManager,
+        fx_rack: &mut StereoFxRack,
+        host_bpm: Option<f32>,
+        active_sample: &SampleBuffer,
+        last_custom_wt_rev: &mut u32,
+    ) {
+        let attack = self.get_attack().max(0.001);
+        let decay = self.get_decay().max(0.001);
+        let sustain = self.get_sustain().clamp(0.0, 1.0);
+        let release = self.get_release().max(0.001);
+        voice_manager.update_envelope_params(attack, decay, sustain, release);
+
+        let cutoff = self.get_cutoff().clamp(20.0, 20000.0);
+        let m2_reso = self.get_macro(1) * 2.4;
+        let resonance = (self.get_resonance() + m2_reso).clamp(0.1, 10.0);
+        let filter_mode = self.get_filter_mode();
+        voice_manager.update_filter_params(cutoff, resonance, filter_mode);
+        voice_manager.set_filter_keytrack(self.get_filter_keytrack());
+
+        voice_manager.update_lfo_params(
+            self.get_lfo_rate(),
+            self.get_lfo_depth(),
+            self.get_lfo_target(),
+        );
+        voice_manager.set_mod_matrix_mask(self.get_mod_matrix_mask());
+        voice_manager.update_vital_serum_params(
+            self.get_wt_pos(),
+            self.get_wt_warp(),
+            self.get_unison_voices(),
+            self.get_unison_detune(),
+            self.get_sub_level(),
+            self.get_lfo_shape(),
+            self.get_macros(),
+        );
+        voice_manager.set_osc_b_fm_params(self.get_fm_from_b(), self.get_osc_b_level());
+
+        if self.is_custom_wavetable_active() {
+            let rev = self.get_custom_wavetable_revision();
+            if rev != *last_custom_wt_rev || !voice_manager.is_custom_wavetable_active() {
+                *last_custom_wt_rev = rev;
+                let cycle = self.get_custom_wavetable_cycle();
+                voice_manager.set_custom_wavetable_cycle(&cycle);
+            }
+        } else if voice_manager.is_custom_wavetable_active() {
+            voice_manager.clear_custom_wavetable_cycle();
+        }
+
+        let eff_bpm = host_bpm
+            .filter(|&b| b.is_finite() && b > 20.0)
+            .unwrap_or_else(|| self.get_arp_bpm());
+        let arp_mode = self.get_arp_mode();
+        voice_manager.update_arp_params(arp_mode, eff_bpm);
+        let accents = self.get_arp_step_accents();
+        voice_manager.set_arp_step_accents(&accents, self.is_arp_custom_accents_active());
+
+        voice_manager.set_root_note_override(Some(self.get_root_note() as u8), active_sample);
+        voice_manager.set_region_override(self.get_region_override());
+
+        let m4_fx = self.get_macro(3);
+        fx_rack.set_tempo_sync(eff_bpm, arp_mode);
+        fx_rack.set_drive((self.get_drive_amount() + m4_fx * 0.55).clamp(0.0, 1.0));
+        fx_rack.set_ott((self.get_ott_amount() + m4_fx * 0.65).clamp(0.0, 1.0));
+        fx_rack.set_mix((self.get_space_mix() + m4_fx * 0.35).clamp(0.0, 1.0));
     }
 
     #[allow(dead_code)]
     fn _odd_sentinel(&self) {}
+}
+
+/// Instantánea canónica completa del estado de parámetros de síntesis (`Canonical State Snapshot Pattern`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SynthStateSnapshot {
+    pub root_note: i32,
+    pub attack: f32,
+    pub decay: f32,
+    pub sustain: f32,
+    pub release: f32,
+    pub cutoff: f32,
+    pub resonance: f32,
+    pub filter_mode: i32,
+    pub filter_keytrack: f32,
+    pub gain: f32,
+    pub space_mix: f32,
+    pub drive_amount: f32,
+    pub ott_amount: f32,
+    pub lfo_rate: f32,
+    pub lfo_depth: f32,
+    pub lfo_target: i32,
+    pub lfo_shape: i32,
+    pub arp_mode: i32,
+    pub arp_bpm: f32,
+    pub arp_custom_accents_active: bool,
+    pub arp_step_accents: [f32; 16],
+    pub mod_matrix_mask: u32,
+    pub wt_pos: f32,
+    pub wt_warp: f32,
+    pub unison_voices: u8,
+    pub unison_detune: f32,
+    pub sub_level: f32,
+    pub fm_from_b: f32,
+    pub osc_b_level: f32,
+    pub macros: [f32; 4],
+    pub trim_start_norm: f32,
+    pub trim_end_norm: f32,
+    pub loop_enabled: Option<bool>,
+    pub loop_start_norm: f32,
+    pub loop_end_norm: f32,
+    pub custom_wt_active: bool,
+    pub custom_wt_cycle: Vec<f32>,
 }

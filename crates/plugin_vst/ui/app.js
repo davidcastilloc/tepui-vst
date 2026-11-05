@@ -208,6 +208,21 @@ function sendFastFilterMode(mode) {
   sendIpc(`m,${mode}`);
 }
 
+function syncArpPatternToDsp(mode) {
+  const m = Math.max(0, Math.min(4, Math.round(Number(mode) || 0)));
+  const bars = getArpBarsForMode(m);
+  if (Array.isArray(bars) && bars.length > 0) {
+    const csv = bars.map((v) => Math.max(0.05, Math.min(1.0, Number(v) || 0.85)).toFixed(3)).join(',');
+    sendIpc(`arpsteps,${csv}`);
+  }
+}
+
+function sendFastArpMode(mode) {
+  const m = Math.max(0, Math.min(4, Math.round(Number(mode) || 0)));
+  sendIpc(`arp,${m}`);
+  syncArpPatternToDsp(m);
+}
+
 function sendFastRootNote(note) {
   const clamped = Math.max(0, Math.min(127, Math.round(note)));
   state.params.root_note = clamped;
@@ -450,7 +465,10 @@ function pollAiGeneration() {
           pollTimer = null;
           state.isGenerating = false;
           updateGeneratingUI(false);
-          if (data.params) Object.assign(state.params, data.params);
+          if (data.params) {
+            Object.assign(state.params, data.params);
+            syncVitalSerumParamsToUI(data.params);
+          }
           if (data.normalized) Object.assign(state.normalized, data.normalized);
           if (data.param_revision !== undefined) state.lastParamRevision = data.param_revision;
           if (data.waveform && data.waveform.length > 0) {
@@ -466,7 +484,21 @@ function pollAiGeneration() {
           if (data.sample_info) updateTelemetry(data.sample_info);
           if (data.region && !state.isDraggingRegion) updateRegionDisplay(data.region);
           if (data.odd_metrics) updateOddMetricsDisplay(data.odd_metrics);
+          if (typeof markAllCanvasesDirty === 'function') markAllCanvasesDirty();
           drawOscilloscope();
+          const genBtn = document.getElementById('btn-generate');
+          const backendName = (data.odd_metrics && data.odd_metrics.synth_backend)
+            ? String(data.odd_metrics.synth_backend).toUpperCase()
+            : 'NEURAL-SPECTRAL-DSP';
+          if (genBtn && typeof showParamHudTooltip === 'function') {
+            showParamHudTooltip(genBtn, backendName, data.sample_info?.name || 'PATCH LISTO');
+            setTimeout(hideParamHudTooltip, 1100);
+          }
+          if (state.activeNotes.size === 0) {
+            const auditionMidi = (data.sample_info && data.sample_info.root_note) || state.params.root_note || 60;
+            pressNote(auditionMidi, state.currentVelocity || 0.90);
+            setTimeout(() => releaseNote(auditionMidi), 260);
+          }
         }
       }
     } catch (e) {
@@ -499,6 +531,31 @@ function syncVitalSerumParamsToUI(p) {
   if (typeof p.unison_voices === 'number') updateUnisonVoicesUI(p.unison_voices);
   if (typeof p.fm_from_b === 'number') updateFmFromBUI(p.fm_from_b);
   if (typeof p.lfo_shape === 'number') updateLfoShapeUI(p.lfo_shape);
+  if (typeof p.filter_keytrack === 'number') {
+    const ktBtn = document.getElementById('btn-svf-keytrack');
+    if (ktBtn) {
+      if (p.filter_keytrack >= 0.75) {
+        ktBtn.dataset.kt = '100';
+        ktBtn.innerText = 'KEY 100%';
+        ktBtn.classList.add('active');
+      } else if (p.filter_keytrack >= 0.25) {
+        ktBtn.dataset.kt = '50';
+        ktBtn.innerText = 'KEY 50%';
+        ktBtn.classList.add('active');
+      } else {
+        ktBtn.dataset.kt = '0';
+        ktBtn.innerText = 'KEY OFF';
+        ktBtn.classList.remove('active');
+      }
+    }
+  }
+  if (p.arp_custom_accents_active && Array.isArray(p.arp_step_accents) && p.arp_step_accents.length >= 12 && !state.isDraggingArpOled) {
+    const curMode = state.params.arp_mode || 0;
+    const cleaned = p.arp_step_accents.slice(0, 12).map((v) => Math.max(0.05, Math.min(1.0, Number(v) || 0.85)));
+    state.arpCustomBars = cleaned;
+    if (!state.arpCustomPatterns) state.arpCustomPatterns = {};
+    state.arpCustomPatterns[curMode] = [...cleaned];
+  }
 }
 
 function applyInitPayload(msg) {
@@ -770,8 +827,9 @@ function updateKnobUI(paramId, norm, displayVal) {
   const faderFill = document.getElementById(`fader-fill-${paramId}`);
   const faderThumb = document.getElementById(`fader-thumb-${paramId}`);
   const pct = Math.max(0, Math.min(100, norm * 100));
+  const thumbPct = 12 + (pct * 0.76);
   if (faderFill) faderFill.style.height = `${pct.toFixed(1)}%`;
-  if (faderThumb) faderThumb.style.bottom = `${pct.toFixed(1)}%`;
+  if (faderThumb) faderThumb.style.bottom = `${thumbPct.toFixed(1)}%`;
 
   // Actualizar texto de valor
   if (valLabel) {
@@ -943,6 +1001,22 @@ function initOscilloscope() {
       state.wt3dMode = !state.wt3dMode;
       wt3dBtn.classList.toggle('active', !!state.wt3dMode);
       wt3dBtn.innerText = state.wt3dMode ? '3D WT' : '2D WAV';
+      if (state.wt3dMode && (state.normalized.wt_pos || 0) < 0.02 && (state.normalized.wt_warp || 0) < 0.02) {
+        state.normalized.wt_pos = 0.35;
+        state.normalized.wt_warp = 0.25;
+        state.params.wt_pos = 0.35;
+        state.params.wt_warp = 0.25;
+        updateKnobUI('wt_pos', 0.35);
+        updateKnobUI('wt_warp', 0.25);
+      } else if (!state.wt3dMode) {
+        state.normalized.wt_pos = 0.0;
+        state.normalized.wt_warp = 0.0;
+        state.params.wt_pos = 0.0;
+        state.params.wt_warp = 0.0;
+        updateKnobUI('wt_pos', 0.0);
+        updateKnobUI('wt_warp', 0.0);
+      }
+      sendIpc(`wt3d,${state.wt3dMode ? 1 : 0}`);
     });
   }
 
@@ -1077,8 +1151,27 @@ function initOscilloscope() {
     };
 
     let isDrawingWt = false;
+    let isScrubbing3dWt = false;
     let lastDrawIdx = -1;
     let lastDrawVal = 0;
+
+    const scrub3dWtAt = (normX, normY) => {
+      const posVal = Math.max(0.0, Math.min(1.0, normX));
+      const warpVal = Math.max(0.0, Math.min(1.0, 1.0 - normY));
+      state.normalized.wt_pos = posVal;
+      state.normalized.wt_warp = warpVal;
+      state.params.wt_pos = posVal;
+      state.params.wt_warp = warpVal;
+      updateKnobUI('wt_pos', posVal);
+      updateKnobUI('wt_warp', warpVal);
+      sendFastParam('wt_pos', posVal);
+      sendFastParam('wt_warp', warpVal);
+      showParamHudTooltip(
+        canvas,
+        '3D TEPUI WT',
+        `POS ${Math.round(posVal * 100)}% • WARP ${Math.round(warpVal * 100)}%`
+      );
+    };
 
     const paintCustomWtAt = (normX, normY) => {
       const idx = Math.max(0, Math.min(63, Math.floor(normX * 64)));
@@ -1111,6 +1204,13 @@ function initOscilloscope() {
         e.preventDefault();
         return;
       }
+      if (state.wt3dMode) {
+        isScrubbing3dWt = true;
+        state.isDraggingKnob = true;
+        scrub3dWtAt(normX, normY);
+        e.preventDefault();
+        return;
+      }
       const picked = pickMarker(normX, normY);
       if (picked) {
         activeRegionMarker = picked;
@@ -1131,9 +1231,14 @@ function initOscilloscope() {
         return;
       }
 
+      if (isScrubbing3dWt && state.wt3dMode && !state.wtDrawMode) {
+        scrub3dWtAt(normX, normY);
+        return;
+      }
+
       if (!activeRegionMarker) {
         if (e.target === canvas) {
-          if (state.wtDrawMode) {
+          if (state.wtDrawMode || state.wt3dMode) {
             canvas.style.cursor = 'crosshair';
           } else {
             const hover = pickMarker(normX, normY);
@@ -1163,6 +1268,11 @@ function initOscilloscope() {
         isDrawingWt = false;
         lastDrawIdx = -1;
       }
+      if (isScrubbing3dWt) {
+        isScrubbing3dWt = false;
+        state.isDraggingKnob = false;
+        hideParamHudTooltip();
+      }
       if (activeRegionMarker) {
         activeRegionMarker = null;
         state.isDraggingRegion = false;
@@ -1183,15 +1293,52 @@ function initOscilloscope() {
   startVisualizationLoop();
 }
 
+let layoutResizeGeneration = 1;
+window.addEventListener('resize', () => {
+  layoutResizeGeneration++;
+});
+
+const oledDirtyCache = {
+  adsrSig: '',
+  arpSig: '',
+  frameTick: 0,
+};
+
 function startVisualizationLoop() {
   if (animFrameId) cancelAnimationFrame(animFrameId);
 
   const render = () => {
+    oledDirtyCache.frameTick = (oledDirtyCache.frameTick + 1) | 0;
+    const isPlaying =
+      state.activeNotes.size > 0 ||
+      (state.dspActiveVoices || 0) > 0 ||
+      (state.vuLevelL || 0) > 0.005 ||
+      (state.vuLevelR || 0) > 0.005;
+
+    // 1. Osciloscopio 3D / Sampler y Filtro SVF + FFT
     drawOscilloscope();
-    drawSvfOled();
-    drawAdsrOled();
+    if (isPlaying || state.svfFftEnabled !== false || state.isDraggingSvfOled || (oledDirtyCache.frameTick & 1) === 0) {
+      drawSvfOled();
+    }
+
+    // 2. Dirty-Flag para #oled-adsr: 0 redibujos redundantes en reposo si los faders no cambian
+    const adsrSig = `${state.oledTheme}|${layoutResizeGeneration}|${(state.normalized.attack || 0).toFixed(4)}|${(state.normalized.decay || 0).toFixed(4)}|${(state.normalized.sustain || 0).toFixed(4)}|${(state.normalized.release || 0).toFixed(4)}|${state.activeAdsrDragNode || ''}`;
+    if (isPlaying || state.activeAdsrDragNode || adsrSig !== oledDirtyCache.adsrSig) {
+      oledDirtyCache.adsrSig = adsrSig;
+      drawAdsrOled();
+    }
+
+    // 3. LFO y Arpegiador con planificación adaptativa
     drawLfoOled();
-    drawArpOled();
+    const arpMode = state.params.arp_mode || 0;
+    const arpBars = getArpBarsForMode(arpMode);
+    const arpSig = `${state.oledTheme}|${layoutResizeGeneration}|${arpMode}|${state.lastEditedArpStep}|${arpBars.join(',')}`;
+    if (isPlaying || arpMode > 0 || arpSig !== oledDirtyCache.arpSig || (oledDirtyCache.frameTick % 4) === 0) {
+      oledDirtyCache.arpSig = arpSig;
+      drawArpOled();
+    }
+
+    // 4. FX Rack, Medidores VU y Anillos de Modulación
     drawReverbOled();
     updateVuMeters();
     updateLiveKnobModulationRings();
@@ -1203,15 +1350,46 @@ function startVisualizationLoop() {
 }
 
 function sizeOledCanvas(canvas) {
-  const rect = canvas.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
+  if (canvas._cachedResizeGen === layoutResizeGeneration && canvas._cachedDpr === dpr && canvas.width > 0 && canvas.height > 0) {
+    return dpr;
+  }
+  const rect = canvas.getBoundingClientRect();
   const targetW = Math.round(rect.width * dpr);
   const targetH = Math.round(rect.height * dpr);
-  if (targetW > 0 && targetH > 0 && (canvas.width !== targetW || canvas.height !== targetH)) {
-    canvas.width = targetW;
-    canvas.height = targetH;
+  if (targetW > 0 && targetH > 0) {
+    if (canvas.width !== targetW || canvas.height !== targetH) {
+      canvas.width = targetW;
+      canvas.height = targetH;
+    }
+    canvas._cachedResizeGen = layoutResizeGeneration;
+    canvas._cachedDpr = dpr;
   }
   return dpr;
+}
+
+function getOledPrimaryColor() {
+  if (state.oledTheme === 'amber') return '#ffaa00';
+  if (state.oledTheme === 'emerald') return '#10b981';
+  return '#00ebff';
+}
+
+function getOledPrimaryRgba(alpha) {
+  if (state.oledTheme === 'amber') return `rgba(255, 170, 0, ${alpha})`;
+  if (state.oledTheme === 'emerald') return `rgba(16, 185, 129, ${alpha})`;
+  return `rgba(0, 235, 255, ${alpha})`;
+}
+
+function getOledSecondaryColor() {
+  if (state.oledTheme === 'amber') return '#38bdf8';
+  if (state.oledTheme === 'emerald') return '#00ebff';
+  return '#ffaa00';
+}
+
+function getOledSecondaryRgba(alpha) {
+  if (state.oledTheme === 'amber') return `rgba(56, 189, 248, ${alpha})`;
+  if (state.oledTheme === 'emerald') return `rgba(0, 235, 255, ${alpha})`;
+  return `rgba(255, 170, 0, ${alpha})`;
 }
 
 function drawSvfOled() {
@@ -1223,75 +1401,315 @@ function drawSvfOled() {
   const h = canvas.height;
   if (w <= 0 || h <= 0) return;
 
-  ctx.fillStyle = '#03070b';
+  const primaryHex = getOledPrimaryColor();
+  const secondaryHex = getOledSecondaryColor();
+  const plotW = w - 16 * dpr; // Reserva margen derecho para escala dB y medidor vertical
+
+  ctx.fillStyle = '#03060a';
   ctx.fillRect(0, 0, w, h);
 
-  // Rejilla logarítmica de frecuencias
-  ctx.strokeStyle = '#0c1622';
+  // 1. Rejilla logarítmica completa (20Hz .. 20kHz) y divisiones decibélicas (+20 .. -30 dB)
+  ctx.strokeStyle = 'rgba(30, 45, 68, 0.45)';
   ctx.lineWidth = 1;
-  for (let i = 1; i < 6; i++) {
-    const x = (w / 6) * i;
-    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
-  }
-  ctx.beginPath(); ctx.moveTo(0, h * 0.55); ctx.lineTo(w, h * 0.55); ctx.stroke();
+  const freqTicks = [
+    { norm: 0.04, lbl: '20Hz' },
+    { norm: 0.14, lbl: '50' },
+    { norm: 0.24, lbl: '100' },
+    { norm: 0.34, lbl: '200' },
+    { norm: 0.47, lbl: '500' },
+    { norm: 0.58, lbl: '1k' },
+    { norm: 0.69, lbl: '2k' },
+    { norm: 0.81, lbl: '5k' },
+    { norm: 0.90, lbl: '10k' },
+    { norm: 0.98, lbl: '20k' }
+  ];
+  const rulerH = 12 * dpr;
+  const botPlotY = h - rulerH;
+
+  freqTicks.forEach((ft) => {
+    const x = Math.round(ft.norm * plotW);
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, botPlotY);
+    ctx.stroke();
+  });
+
+  const dbRows = [
+    { yNorm: 0.16, lbl: '+20' },
+    { yNorm: 0.34, lbl: '+10' },
+    { yNorm: 0.52, lbl: '0' },
+    { yNorm: 0.70, lbl: '-15' },
+    { yNorm: 0.86, lbl: '-30' }
+  ];
+  dbRows.forEach((row) => {
+    const y = Math.round(row.yNorm * botPlotY);
+    ctx.strokeStyle = row.lbl === '0' ? 'rgba(56, 189, 248, 0.24)' : 'rgba(30, 45, 68, 0.38)';
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(plotW, y);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.65)';
+    ctx.font = `${Math.round(5.8 * dpr)}px monospace`;
+    ctx.fillText(row.lbl, plotW + 2 * dpr, y + 2 * dpr);
+  });
 
   const cutNorm = state.normalized.cutoff !== undefined ? state.normalized.cutoff : 1.0;
   const resNorm = state.normalized.resonance !== undefined ? state.normalized.resonance : 0.06;
+  const driveNorm = state.normalized.drive !== undefined ? state.normalized.drive : 0.22;
+  const ottNorm = state.normalized.ott !== undefined ? state.normalized.ott : 0.30;
+  const wtPosNorm = state.normalized.wt_pos !== undefined ? state.normalized.wt_pos : 0.35;
   const mode = state.params.filter_mode || 0;
   const lfoDepth = (state.params.lfo_target === 0) ? (state.params.lfo_depth || 0) : 0;
   const modOffset = lfoDepth * Math.sin(animPhase) * 0.16;
-  const effCut = Math.max(0.06, Math.min(0.94, cutNorm + modOffset));
+  const effCut = Math.max(0.06, Math.min(0.95, cutNorm + modOffset));
   const peakBoost = resNorm * 0.44;
 
-  const evalCurve = (xNorm, cPos, m) => {
+  const evalCurve = (xNorm, cPos, m, extraQ = 1.0) => {
     const d = (xNorm - cPos) * 7.5;
-    const resPeak = peakBoost * Math.exp(-(d * d) * 3.8);
-    if (m === 3) return 0.52; // Bypass
+    const resPeak = peakBoost * extraQ * Math.exp(-(d * d) * 3.8);
+    if (m === 3) return 0.50; // Bypass
     if (m === 0) { // Lowpass
-      const base = 1.0 / (1.0 + Math.exp(d * 2.4));
-      return Math.min(0.95, base * 0.55 + resPeak);
+      const base = 1.0 / (1.0 + Math.exp(d * 2.5));
+      return Math.min(0.96, base * 0.56 + resPeak);
     }
     if (m === 1) { // Highpass
-      const base = 1.0 / (1.0 + Math.exp(-d * 2.4));
-      return Math.min(0.95, base * 0.55 + resPeak);
+      const base = 1.0 / (1.0 + Math.exp(-d * 2.5));
+      return Math.min(0.96, base * 0.56 + resPeak);
     }
     // Bandpass
-    return Math.min(0.95, Math.exp(-(d * d) * 1.1) * (0.55 + resPeak * 0.7));
+    return Math.min(0.96, Math.exp(-(d * d) * 1.15) * (0.56 + resPeak * 0.72));
   };
 
-  // Relleno cian bajo la curva
-  const grad = ctx.createLinearGradient(0, 0, 0, h);
-  grad.addColorStop(0, 'rgba(0, 235, 255, 0.34)');
-  grad.addColorStop(1, 'rgba(0, 235, 255, 0.02)');
+  // 2. ANALIZADOR ESPECTRAL FFT DE 64 BANDAS EN TIEMPO REAL (FabFilter Pro-Q 4 / Serum 2 Tier)
+  if (!state.fftBins64) {
+    state.fftBins64 = new Float32Array(64);
+    state.fftPeaks64 = new Float32Array(64);
+  }
+  const isPlaying = state.activeNotes.size > 0 || (state.dspActiveVoices || 0) > 0 || (state.vuLevelL || 0) > 0.04;
+  const liveWebBins = (typeof window.__tepuiGetFftBins === 'function') ? window.__tepuiGetFftBins() : null;
+  const audioEnergy = isPlaying
+    ? Math.max(0.28, Math.min(1.0, ((state.vuLevelL || 0.35) + (state.vuLevelR || 0.35)) * 0.75 + 0.25))
+    : 0.26; // Piso armónico vivo en reposo para previsualización continua del filtro
+
+  const maxPlotH = botPlotY - 8 * dpr;
+
+  if (state.svfFftEnabled !== false) {
+    const numBands = 64;
+    const bandSlotW = plotW / numBands;
+    const barW = Math.max(1.2 * dpr, bandSlotW * 0.64);
+    const sharedBarGrad = ctx.createLinearGradient(0, 8 * dpr, 0, botPlotY);
+    sharedBarGrad.addColorStop(0, getOledPrimaryRgba(isPlaying ? 0.56 : 0.40));
+    sharedBarGrad.addColorStop(0.55, getOledPrimaryRgba(isPlaying ? 0.28 : 0.18));
+    sharedBarGrad.addColorStop(1, getOledPrimaryRgba(0.04));
+    const capColor = isPlaying ? '#ffffff' : getOledPrimaryRgba(0.78);
+    const capH = Math.max(1.2 * dpr, 1.5 * dpr);
+
+    for (let b = 0; b < numBands; b++) {
+      const bNorm = b / (numBands - 1);
+      const tf = evalCurve(bNorm, effCut, mode, 1.15);
+      let targetMag = 0;
+
+      if (liveWebBins && liveWebBins.length > 0) {
+        // Mapeo logarítmico desde los bins reales del AnalyserNode WebAudio
+        const logIdx = Math.min(liveWebBins.length - 1, Math.floor(Math.pow(bNorm, 1.75) * (liveWebBins.length - 1)));
+        targetMag = (liveWebBins[logIdx] / 255.0) * (0.45 + tf * 0.75);
+      } else {
+        // Síntesis espectral armónica sincronizada con el motor DSP (armónicos + formantes + filtro SVF)
+        const harmComb = Math.abs(Math.sin(bNorm * Math.PI * (7.0 + wtPosNorm * 11.0) + animPhase * (isPlaying ? 1.8 : 0.45)));
+        const subEnergy = Math.exp(-bNorm * 2.2) * 0.62;
+        const formantPeak = Math.exp(-Math.pow((bNorm - (0.28 + wtPosNorm * 0.35)) * 4.5, 2)) * (0.42 + driveNorm * 0.35);
+        const airShimmer = Math.sin(b * 1.9 + animPhase * 2.4) * 0.12 + ottNorm * 0.22;
+        const rawSpec = (subEnergy + harmComb * 0.34 + formantPeak + airShimmer) * audioEnergy;
+        targetMag = Math.max(0.05, Math.min(0.95, rawSpec * (0.18 + tf * 1.05)));
+      }
+
+      // Suavizado balístico de ataque rápido y caída exponencial
+      const prev = state.fftBins64[b] || 0;
+      const smoothed = targetMag > prev
+        ? prev + (targetMag - prev) * 0.52
+        : prev * 0.88 + targetMag * 0.12;
+      state.fftBins64[b] = smoothed;
+
+      if (smoothed >= (state.fftPeaks64[b] || 0)) {
+        state.fftPeaks64[b] = smoothed;
+      } else {
+        state.fftPeaks64[b] = Math.max(0, (state.fftPeaks64[b] || 0) - 0.008);
+      }
+
+      const bx = b * bandSlotW + (bandSlotW - barW) * 0.5;
+      const bh = smoothed * maxPlotH * 0.86;
+      const by = botPlotY - bh;
+
+      // Columna espectral de la banda b
+      ctx.fillStyle = sharedBarGrad;
+      ctx.fillRect(bx, by, barW, bh);
+
+      // Peak-hold cap flotante por banda
+      const peakY = botPlotY - state.fftPeaks64[b] * maxPlotH * 0.86;
+      ctx.fillStyle = capColor;
+      ctx.fillRect(bx, Math.max(6 * dpr, peakY), barW, capH);
+    }
+
+    // Trazo continuo de alta resolución FFT (estilo FabFilter Pro-Q 4)
+    ctx.beginPath();
+    for (let b = 0; b < numBands; b++) {
+      const bx = (b + 0.5) * bandSlotW;
+      const jitter = Math.sin(b * 3.7 + animPhase * 2.8) * 0.025 * audioEnergy;
+      const by = botPlotY - Math.max(0.03, state.fftBins64[b] + jitter) * maxPlotH * 0.88;
+      if (b === 0) ctx.moveTo(bx, by);
+      else ctx.lineTo(bx, by);
+    }
+    ctx.strokeStyle = getOledPrimaryRgba(0.85);
+    ctx.lineWidth = 1.15 * dpr;
+    ctx.stroke();
+  }
+
+  // 3. Curva secundaria armónica / de modulación bipolar (Ámbar / Complementaria, estilo Propuesta A)
+  const companionCut = cutNorm > 0.88
+    ? 0.56
+    : Math.max(0.14, Math.min(0.88, cutNorm - 0.14 + (driveNorm * 0.22)));
+  ctx.beginPath();
+  for (let px = 0; px <= plotW; px += 2) {
+    const xn = px / plotW;
+    const dComp = (xn - companionCut) * 6.5;
+    const yn = Math.min(0.92, Math.exp(-(dComp * dComp) * 1.15) * (0.62 + resNorm * 0.26));
+    const y = botPlotY - yn * maxPlotH;
+    if (px === 0) ctx.moveTo(px, y);
+    else ctx.lineTo(px, y);
+  }
+  ctx.strokeStyle = getOledSecondaryRgba(0.78);
+  ctx.lineWidth = 1.35 * dpr;
+  ctx.stroke();
+
+  // 4. Relleno y trazo principal de la respuesta Cytomic SVF
+  const grad = ctx.createLinearGradient(0, 0, 0, botPlotY);
+  grad.addColorStop(0, getOledPrimaryRgba(0.32));
+  grad.addColorStop(0.65, getOledPrimaryRgba(0.08));
+  grad.addColorStop(1, getOledPrimaryRgba(0.01));
 
   ctx.beginPath();
-  ctx.moveTo(0, h - 4);
-  for (let px = 0; px <= w; px += 2) {
-    const xn = px / w;
+  ctx.moveTo(0, botPlotY);
+  for (let px = 0; px <= plotW; px += 2) {
+    const xn = px / plotW;
     const yn = evalCurve(xn, effCut, mode);
-    const y = (h - 6) - yn * (h - 14);
+    const y = botPlotY - yn * maxPlotH;
     ctx.lineTo(px, y);
   }
-  ctx.lineTo(w, h - 4);
+  ctx.lineTo(plotW, botPlotY);
   ctx.closePath();
   ctx.fillStyle = grad;
   ctx.fill();
 
-  // Trazo principal de la respuesta SVF
   ctx.beginPath();
-  for (let px = 0; px <= w; px += 2) {
-    const xn = px / w;
+  for (let px = 0; px <= plotW; px += 2) {
+    const xn = px / plotW;
     const yn = evalCurve(xn, effCut, mode);
-    const y = (h - 6) - yn * (h - 14);
+    const y = botPlotY - yn * maxPlotH;
     if (px === 0) ctx.moveTo(px, y);
     else ctx.lineTo(px, y);
   }
-  ctx.strokeStyle = '#00ebff';
-  ctx.lineWidth = 1.8 * dpr;
-  ctx.shadowColor = '#00ebff';
-  ctx.shadowBlur = 6 * dpr;
+  ctx.strokeStyle = primaryHex;
+  ctx.lineWidth = 2.0 * dpr;
+  ctx.shadowColor = primaryHex;
+  ctx.shadowBlur = 7 * dpr;
   ctx.stroke();
   ctx.shadowBlur = 0;
+
+  // 5. Nodos Multi-Banda Visuales + Nodo Principal Interactivo 2D (Cutoff X, Resonance Y)
+  const subAnchorX = 0.24 * plotW;
+  const subAnchorY = botPlotY - evalCurve(0.24, effCut, mode) * maxPlotH;
+  ctx.fillStyle = getOledPrimaryRgba(0.22);
+  ctx.beginPath(); ctx.arc(subAnchorX, subAnchorY, 4.2 * dpr, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = primaryHex; ctx.lineWidth = 1.2 * dpr;
+  ctx.beginPath(); ctx.arc(subAnchorX, subAnchorY, 2.4 * dpr, 0, Math.PI * 2); ctx.stroke();
+
+  const companionNodeX = companionCut * plotW;
+  const companionNodeY = botPlotY - Math.min(0.92, 0.62 + resNorm * 0.26) * maxPlotH;
+  ctx.fillStyle = getOledSecondaryRgba(0.25);
+  ctx.beginPath(); ctx.arc(companionNodeX, companionNodeY, 4.2 * dpr, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = secondaryHex; ctx.lineWidth = 1.2 * dpr;
+  ctx.beginPath(); ctx.arc(companionNodeX, companionNodeY, 2.4 * dpr, 0, Math.PI * 2); ctx.stroke();
+
+  const nodeX = Math.max(8 * dpr, Math.min(plotW - 8 * dpr, effCut * plotW));
+  const nodeCurveY = botPlotY - evalCurve(effCut, effCut, mode) * maxPlotH;
+  const nodeY = Math.max(8 * dpr, Math.min(botPlotY - 6 * dpr, nodeCurveY));
+
+  if (state.isDraggingSvfOled) {
+    ctx.save();
+    ctx.strokeStyle = getOledPrimaryRgba(0.42);
+    ctx.setLineDash([3 * dpr, 3 * dpr]);
+    ctx.beginPath();
+    ctx.moveTo(nodeX, 0); ctx.lineTo(nodeX, botPlotY);
+    ctx.moveTo(0, nodeY); ctx.lineTo(plotW, nodeY);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  ctx.save();
+  ctx.fillStyle = getOledPrimaryRgba(0.28);
+  ctx.beginPath();
+  ctx.arc(nodeX, nodeY, (state.isDraggingSvfOled ? 8.0 : 6.2) * dpr, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#ffffff';
+  ctx.strokeStyle = primaryHex;
+  ctx.lineWidth = 1.8 * dpr;
+  ctx.shadowColor = primaryHex;
+  ctx.shadowBlur = 7 * dpr;
+  ctx.beginPath();
+  ctx.arc(nodeX, nodeY, 3.3 * dpr, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+
+  // Etiqueta flotante sobre el nodo activo (Freq Hz + Q)
+  const calloutX = Math.max(6 * dpr, Math.min(plotW - 64 * dpr, nodeX - 24 * dpr));
+  const calloutY = Math.max(18 * dpr, nodeY - 8 * dpr);
+  ctx.fillStyle = '#e2e8f0';
+  ctx.font = `bold ${Math.round(6.6 * dpr)}px monospace`;
+  ctx.fillText(`${formatKnobValue('cutoff', cutNorm)}`, calloutX, calloutY);
+
+  // 6. Mini Medidor Vertical Post-Filtro en el borde derecho del OLED (Propuesta A)
+  const meterX = w - 4.5 * dpr;
+  const meterH = botPlotY - 8 * dpr;
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+  ctx.fillRect(meterX, 6 * dpr, 3 * dpr, meterH);
+  const outLevel = Math.min(1.0, audioEnergy * (0.45 + evalCurve(effCut, effCut, mode) * 0.55));
+  const fillH = outLevel * meterH;
+  const mGrad = ctx.createLinearGradient(0, botPlotY - fillH, 0, botPlotY);
+  mGrad.addColorStop(0, secondaryHex);
+  mGrad.addColorStop(0.35, primaryHex);
+  mGrad.addColorStop(1, 'rgba(0, 235, 255, 0.35)');
+  ctx.fillStyle = mGrad;
+  ctx.fillRect(meterX, botPlotY - fillH, 3 * dpr, fillH);
+
+  // 7. Regla de Frecuencias Logarítmica dedicada en la base (sin pisar las barras FFT)
+  ctx.fillStyle = 'rgba(4, 7, 13, 0.92)';
+  ctx.fillRect(0, botPlotY, w, rulerH);
+  ctx.strokeStyle = 'rgba(38, 56, 82, 0.65)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, botPlotY);
+  ctx.lineTo(w, botPlotY);
+  ctx.stroke();
+
+  ctx.fillStyle = 'rgba(186, 204, 228, 0.86)';
+  ctx.font = `bold ${Math.round(5.8 * dpr)}px monospace`;
+  freqTicks.forEach((ft, idx) => {
+    if (idx === 1 || idx === 3 || idx === 6) return;
+    const tx = Math.max(3 * dpr, Math.min(plotW - 18 * dpr, Math.round(ft.norm * plotW - 6 * dpr)));
+    ctx.fillText(ft.lbl, tx, h - 2.8 * dpr);
+  });
+
+  // HUD telemetría superior izquierda
+  const modeNames = ['LP 24dB', 'HP 24dB', 'BP 12dB', 'BYPASS'];
+  ctx.fillStyle = primaryHex;
+  ctx.font = `bold ${Math.round(7.2 * dpr)}px monospace`;
+  ctx.fillText(
+    `${modeNames[mode] || 'LP'} • ${formatKnobValue('cutoff', cutNorm)} • Q:${formatKnobValue('resonance', resNorm)}`,
+    6 * dpr,
+    10 * dpr
+  );
 }
 
 function drawAdsrOled() {
@@ -1303,68 +1721,222 @@ function drawAdsrOled() {
   const h = canvas.height;
   if (w <= 0 || h <= 0) return;
 
-  ctx.fillStyle = '#070502';
+  const isAmberTheme = state.oledTheme !== 'emerald';
+  const envHex = state.oledTheme === 'emerald' ? '#10b981' : '#ffaa00';
+  const envRgba = (a) => state.oledTheme === 'emerald' ? `rgba(16, 185, 129, ${a})` : `rgba(255, 170, 0, ${a})`;
+  const accHex = state.oledTheme === 'emerald' ? '#00ebff' : '#ffd166';
+
+  ctx.fillStyle = '#060503';
   ctx.fillRect(0, 0, w, h);
 
-  ctx.strokeStyle = '#1d1508';
-  ctx.lineWidth = 1;
-  for (let i = 1; i < 5; i++) {
-    const x = (w / 5) * i;
-    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
-  }
+  const aNorm = state.normalized.attack !== undefined ? state.normalized.attack : 0.02;
+  const dNorm = state.normalized.decay !== undefined ? state.normalized.decay : 0.15;
+  const sNorm = state.normalized.sustain !== undefined ? state.normalized.sustain : 0.8;
+  const rNorm = state.normalized.release !== undefined ? state.normalized.release : 0.15;
 
-  const a = Math.max(0.04, Math.min(0.32, (state.normalized.attack || 0.02) * 0.30 + 0.05));
-  const d = Math.max(0.06, Math.min(0.28, (state.normalized.decay || 0.15) * 0.25 + 0.07));
-  const s = Math.max(0.05, Math.min(0.95, state.normalized.sustain !== undefined ? state.normalized.sustain : 0.8));
-  const r = Math.max(0.06, Math.min(0.32, (state.normalized.release || 0.15) * 0.28 + 0.07));
+  // Auto-Zoom Dinámico (Serum 2 / Vital Tier): las 4 etapas siempre ocupan el 92% del ancho del OLED
+  const wA = 0.16 + aNorm * 0.34;
+  const wD = 0.19 + dNorm * 0.34;
+  const wS = 0.25;
+  const wR = 0.21 + rNorm * 0.36;
+  const totalW = wA + wD + wS + wR;
 
-  const padX = 8 * dpr;
-  const topY = 10 * dpr;
-  const botY = h - 8 * dpr;
+  const padX = 10 * dpr;
+  const rulerH = 12 * dpr;
+  const topY = 16 * dpr;
+  const botY = h - rulerH - 3 * dpr;
   const spanW = w - padX * 2;
 
   const x0 = padX;
-  const x1 = x0 + a * spanW;
-  const x2 = x1 + d * spanW;
-  const x3 = x2 + 0.22 * spanW;
-  const x4 = Math.min(w - padX, x3 + r * spanW);
+  const x1 = x0 + (wA / totalW) * spanW;
+  const x2 = x1 + (wD / totalW) * spanW;
+  const x3 = x2 + (wS / totalW) * spanW;
+  const x4 = x0 + spanW;
 
+  const s = Math.max(0.06, Math.min(0.96, sNorm));
   const ySus = botY - s * (botY - topY);
 
+  // Guardar coordenadas normalizadas de los nodos para arrastre directo 2D
+  state.adsrNodesLayout = {
+    x0: x0 / w,
+    x1: x1 / w,
+    x2: x2 / w,
+    x3: x3 / w,
+    x4: x4 / w,
+    topY: topY / h,
+    botY: botY / h,
+    ySus: ySus / h
+  };
+
+  // 1. Grilla horizontal de amplitud (100%, 75%, 50%, 25%) y columnas de etapa (A | D | S | R)
+  ctx.lineWidth = 1;
+  [0.25, 0.5, 0.75].forEach((lvl) => {
+    const gy = topY + lvl * (botY - topY);
+    ctx.strokeStyle = 'rgba(255, 170, 0, 0.08)';
+    ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(w, gy); ctx.stroke();
+  });
+
+  const stageBounds = [
+    { xStart: x0, xEnd: x1, lbl: 'ATTACK', val: formatKnobValue('attack', aNorm) },
+    { xStart: x1, xEnd: x2, lbl: 'DECAY', val: formatKnobValue('decay', dNorm) },
+    { xStart: x2, xEnd: x3, lbl: 'SUSTAIN', val: `${Math.round(sNorm * 100)}%` },
+    { xStart: x3, xEnd: x4, lbl: 'RELEASE', val: formatKnobValue('release', rNorm) }
+  ];
+
+  stageBounds.forEach((st, idx) => {
+    if (idx % 2 === 1) {
+      ctx.fillStyle = 'rgba(255, 170, 0, 0.025)';
+      ctx.fillRect(st.xStart, topY - 4 * dpr, st.xEnd - st.xStart, botY - topY + 4 * dpr);
+    }
+    ctx.save();
+    ctx.strokeStyle = envRgba(0.18);
+    ctx.setLineDash([2.5 * dpr, 2.5 * dpr]);
+    ctx.beginPath();
+    ctx.moveTo(st.xEnd, topY - 3 * dpr);
+    ctx.lineTo(st.xEnd, botY);
+    ctx.stroke();
+    ctx.restore();
+
+    const colW = st.xEnd - st.xStart;
+    if (colW > 28 * dpr) {
+      ctx.fillStyle = envRgba(0.45);
+      ctx.font = `bold ${Math.round(5.4 * dpr)}px monospace`;
+      ctx.fillText(st.lbl[0], st.xStart + 3 * dpr, topY + 7 * dpr);
+    }
+  });
+
+  // 2. Relleno degradado bajo la envolvente ADSR
+  const c1x = x0 + (x1 - x0) * 0.42;
+  const c1y = topY + (botY - topY) * 0.18;
+  const c2x = x1 + (x2 - x1) * 0.38;
+  const c2y = ySus - (ySus - topY) * 0.12;
+  const c3x = x3 + (x4 - x3) * 0.36;
+  const c3y = botY - (botY - ySus) * 0.12;
+
   const grad = ctx.createLinearGradient(0, topY, 0, botY);
-  grad.addColorStop(0, 'rgba(255, 170, 0, 0.32)');
-  grad.addColorStop(1, 'rgba(255, 170, 0, 0.02)');
+  grad.addColorStop(0, envRgba(0.36));
+  grad.addColorStop(0.65, envRgba(0.12));
+  grad.addColorStop(1, envRgba(0.02));
 
   ctx.beginPath();
   ctx.moveTo(x0, botY);
-  ctx.lineTo(x1, topY);
-  ctx.quadraticCurveTo((x1 + x2) * 0.5, ySus, x2, ySus);
+  ctx.quadraticCurveTo(c1x, c1y, x1, topY);
+  ctx.quadraticCurveTo(c2x, c2y, x2, ySus);
   ctx.lineTo(x3, ySus);
-  ctx.quadraticCurveTo((x3 + x4) * 0.5, botY, x4, botY);
+  ctx.quadraticCurveTo(c3x, c3y, x4, botY);
   ctx.closePath();
   ctx.fillStyle = grad;
   ctx.fill();
 
+  // 3. Trazo principal luminoso de la envolvente
   ctx.beginPath();
   ctx.moveTo(x0, botY);
-  ctx.lineTo(x1, topY);
-  ctx.quadraticCurveTo((x1 + x2) * 0.5, ySus, x2, ySus);
+  ctx.quadraticCurveTo(c1x, c1y, x1, topY);
+  ctx.quadraticCurveTo(c2x, c2y, x2, ySus);
   ctx.lineTo(x3, ySus);
-  ctx.quadraticCurveTo((x3 + x4) * 0.5, botY, x4, botY);
-  ctx.strokeStyle = '#ffaa00';
-  ctx.lineWidth = 1.9 * dpr;
-  ctx.shadowColor = '#ffaa00';
-  ctx.shadowBlur = 6 * dpr;
+  ctx.quadraticCurveTo(c3x, c3y, x4, botY);
+  ctx.strokeStyle = envHex;
+  ctx.lineWidth = 2.0 * dpr;
+  ctx.shadowColor = envHex;
+  ctx.shadowBlur = 7 * dpr;
   ctx.stroke();
   ctx.shadowBlur = 0;
 
-  // Nodos de control brillantes
-  [[x1, topY], [x2, ySus], [x3, ySus], [x4, botY]].forEach(([nx, ny]) => {
-    ctx.fillStyle = '#ffd166';
+  // 4. Puntos medios de tensión exponencial (Serum-style hollow tension handles)
+  const evalQuad = (t, p0, pc, p1) => (1 - t) * (1 - t) * p0 + 2 * (1 - t) * t * pc + t * t * p1;
+  const tensionHandles = [
+    { x: evalQuad(0.5, x0, c1x, x1), y: evalQuad(0.5, botY, c1y, topY) },
+    { x: evalQuad(0.5, x1, c2x, x2), y: evalQuad(0.5, topY, c2y, ySus) },
+    { x: evalQuad(0.5, x3, c3x, x4), y: evalQuad(0.5, ySus, c3y, botY) }
+  ];
+  tensionHandles.forEach((th) => {
+    ctx.fillStyle = '#060503';
+    ctx.strokeStyle = accHex;
+    ctx.lineWidth = 1.2 * dpr;
     ctx.beginPath();
-    ctx.arc(nx, ny, 2.6 * dpr, 0, Math.PI * 2);
+    ctx.arc(th.x, th.y, 2.3 * dpr, 0, Math.PI * 2);
     ctx.fill();
+    ctx.stroke();
   });
+
+  // 5. Nodos de control principales interactivos 2D (Attack, Decay, Sustain, Release)
+  const nodes = [
+    { id: 'attack', x: x1, y: topY, lbl: 'A' },
+    { id: 'decay', x: x2, y: ySus, lbl: 'D' },
+    { id: 'sustain', x: x3, y: ySus, lbl: 'S' },
+    { id: 'release', x: x4, y: botY, lbl: 'R' }
+  ];
+  nodes.forEach((n) => {
+    const isActive = state.activeAdsrDragNode === n.id;
+    ctx.fillStyle = isActive ? envRgba(0.45) : envRgba(0.22);
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, (isActive ? 6.8 : 5.0) * dpr, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = isActive ? '#ffffff' : accHex;
+    ctx.strokeStyle = envHex;
+    ctx.lineWidth = 1.3 * dpr;
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, 3.0 * dpr, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  });
+
+  // 6. Cursor animado de envolvente en vivo cuando hay notas activas
+  const isPlaying = state.activeNotes.size > 0 || (state.dspActiveVoices || 0) > 0;
+  if (isPlaying) {
+    const envPhase = ((animPhase * 0.25) % 1.0 + 1.0) % 1.0;
+    const playX = x0 + envPhase * spanW;
+    let playY = botY;
+    if (playX <= x1) {
+      const t = (playX - x0) / Math.max(1, x1 - x0);
+      playY = evalQuad(t, botY, c1y, topY);
+    } else if (playX <= x2) {
+      const t = (playX - x1) / Math.max(1, x2 - x1);
+      playY = evalQuad(t, topY, c2y, ySus);
+    } else if (playX <= x3) {
+      playY = ySus;
+    } else {
+      const t = (playX - x3) / Math.max(1, x4 - x3);
+      playY = evalQuad(t, ySus, c3y, botY);
+    }
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+    ctx.lineWidth = 1 * dpr;
+    ctx.beginPath(); ctx.moveTo(playX, topY); ctx.lineTo(playX, botY); ctx.stroke();
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = envHex;
+    ctx.shadowBlur = 8 * dpr;
+    ctx.beginPath(); ctx.arc(playX, playY, 3.2 * dpr, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  // 7. Regla de Tiempo Auto-Zoom inferior
+  ctx.fillStyle = 'rgba(5, 4, 2, 0.92)';
+  ctx.fillRect(0, h - rulerH, w, rulerH);
+  ctx.strokeStyle = envRgba(0.28);
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, h - rulerH); ctx.lineTo(w, h - rulerH); ctx.stroke();
+
+  const aSec = 0.001 * Math.pow(5.0 / 0.001, aNorm);
+  const dSec = 0.001 * Math.pow(5.0 / 0.001, dNorm);
+  const rSec = 0.001 * Math.pow(10.0 / 0.001, rNorm);
+  const totSec = aSec + dSec + rSec;
+  const fmtSec = (sec) => sec >= 1.0 ? `${sec.toFixed(2)}s` : `${Math.max(1, Math.round(sec * 1000))}ms`;
+
+  ctx.fillStyle = 'rgba(253, 224, 138, 0.78)';
+  ctx.font = `bold ${Math.round(5.6 * dpr)}px monospace`;
+  ctx.fillText('0ms', x0, h - 2.8 * dpr);
+  ctx.fillText(`A:${fmtSec(aSec)}`, Math.max(x0 + 22 * dpr, x1 - 12 * dpr), h - 2.8 * dpr);
+  ctx.fillText(`D:${fmtSec(dSec)}`, Math.max(x1 + 22 * dpr, x2 - 12 * dpr), h - 2.8 * dpr);
+  ctx.fillText(`TOT:${fmtSec(totSec)}`, Math.max(x2 + 24 * dpr, w - 46 * dpr), h - 2.8 * dpr);
+
+  // HUD Superior
+  ctx.fillStyle = accHex;
+  ctx.font = `bold ${Math.round(6.8 * dpr)}px monospace`;
+  ctx.fillText(`AUTO-ZOOM ADSR • S:${Math.round(sNorm * 100)}%`, 6 * dpr, 10 * dpr);
+  ctx.fillStyle = envRgba(0.75);
+  ctx.fillText(`EXP CURVE`, w - 46 * dpr, 10 * dpr);
 }
 
 function drawLfoOled() {
@@ -1376,36 +1948,70 @@ function drawLfoOled() {
   const h = canvas.height;
   if (w <= 0 || h <= 0) return;
 
-  ctx.fillStyle = '#020806';
+  const lfoHex = state.oledTheme === 'amber' ? '#ffaa00' : (state.oledTheme === 'emerald' ? '#00ebff' : '#10b981');
+  const lfoRgba = (a) => state.oledTheme === 'amber'
+    ? `rgba(255, 170, 0, ${a})`
+    : (state.oledTheme === 'emerald' ? `rgba(0, 235, 255, ${a})` : `rgba(16, 185, 129, ${a})`);
+  const ghostRgba = (a) => state.oledTheme === 'amber'
+    ? `rgba(0, 235, 255, ${a})`
+    : `rgba(255, 170, 0, ${a})`;
+
+  ctx.fillStyle = '#030709';
   ctx.fillRect(0, 0, w, h);
 
-  const midY = h * 0.5;
-  ctx.strokeStyle = '#0b2219';
+  const rulerH = 11 * dpr;
+  const topPlotY = 13 * dpr;
+  const botPlotY = h - rulerH;
+  const midY = (topPlotY + botPlotY) * 0.5;
+  const halfAmpH = (botPlotY - topPlotY) * 0.44;
+
+  // 1. Sub-grilla musical polirrítmica (1/4, 2/4, 3/4, 1 BAR) y eje bipolar 0.0
+  ctx.lineWidth = 1;
+  const beatLabels = ['1/4', '2/4', '3/4', '1 BAR'];
+  for (let i = 1; i <= 8; i++) {
+    const gx = (w / 8) * i;
+    ctx.strokeStyle = i % 2 === 0 ? 'rgba(45, 85, 98, 0.45)' : 'rgba(30, 58, 68, 0.25)';
+    ctx.beginPath(); ctx.moveTo(gx, topPlotY); ctx.lineTo(gx, botPlotY); ctx.stroke();
+  }
+  ctx.strokeStyle = 'rgba(56, 189, 248, 0.28)';
   ctx.beginPath(); ctx.moveTo(0, midY); ctx.lineTo(w, midY); ctx.stroke();
 
   const rateNorm = state.normalized.lfo_rate !== undefined ? state.normalized.lfo_rate : 0.32;
-  const depthNorm = state.normalized.lfo_depth !== undefined ? state.normalized.lfo_depth : 0.0;
+  const depthNorm = state.normalized.lfo_depth !== undefined ? state.normalized.lfo_depth : 0.30;
   const shape = state.params.lfo_shape || 0;
   const cycles = 1.5 + rateNorm * 4.5;
-  const amp = Math.max(0.18, depthNorm) * (h * 0.38);
+  const amp = Math.max(0.32, depthNorm) * halfAmpH;
 
-  const evalLfoShape = (phaseNorm) => {
+  const evalLfoShape = (phaseNorm, sh = shape) => {
     const p = ((phaseNorm % 1.0) + 1.0) % 1.0;
-    if (shape === 1) return 1.0 - 4.0 * Math.abs(p - 0.5); // TRI
-    if (shape === 2) return 1.0 - 2.0 * p; // SAW
-    if (shape === 3) return 2.0 * p - 1.0; // RAMP
-    if (shape === 4) return p < 0.5 ? 1.0 : -1.0; // SQR
-    if (shape === 5) { // S&H stepped
+    if (sh === 1) return 1.0 - 4.0 * Math.abs(p - 0.5); // TRI
+    if (sh === 2) return 1.0 - 2.0 * p; // SAW
+    if (sh === 3) return 2.0 * p - 1.0; // RAMP
+    if (sh === 4) return p < 0.5 ? 1.0 : -1.0; // SQR
+    if (sh === 5) { // S&H stepped
       const step = Math.floor(p * 8.0);
-      return Math.sin(step * 12.9898 + 4.1414) >= 0 ? (0.4 + (step % 3) * 0.25) : -(0.35 + (step % 4) * 0.2);
+      return Math.sin(step * 12.9898 + 4.1414) >= 0 ? (0.45 + (step % 3) * 0.24) : -(0.40 + (step % 4) * 0.18);
     }
     return Math.sin(p * Math.PI * 2); // SINE
   };
 
-  const grad = ctx.createLinearGradient(0, 0, 0, h);
-  grad.addColorStop(0, 'rgba(16, 185, 129, 0.25)');
-  grad.addColorStop(0.5, 'rgba(16, 185, 129, 0.04)');
-  grad.addColorStop(1, 'rgba(16, 185, 129, 0.25)');
+  // 2. Curva secundaria LFO 2 (Armónico complementario desfasado)
+  ctx.beginPath();
+  for (let x = 0; x <= w; x += 2) {
+    const t = x / w;
+    const y2 = midY - evalLfoShape(t * (cycles * 0.5) - animPhase * 0.10, (shape + 1) % 5) * (amp * 0.62);
+    if (x === 0) ctx.moveTo(x, y2);
+    else ctx.lineTo(x, y2);
+  }
+  ctx.strokeStyle = ghostRgba(0.42);
+  ctx.lineWidth = 1.1 * dpr;
+  ctx.stroke();
+
+  // 3. Relleno bipolar degradado y trazo principal de LFO 1
+  const grad = ctx.createLinearGradient(0, topPlotY, 0, botPlotY);
+  grad.addColorStop(0, lfoRgba(0.36));
+  grad.addColorStop(0.5, lfoRgba(0.04));
+  grad.addColorStop(1, lfoRgba(0.36));
 
   ctx.beginPath();
   ctx.moveTo(0, midY);
@@ -1415,6 +2021,7 @@ function drawLfoOled() {
     ctx.lineTo(x, y);
   }
   ctx.lineTo(w, midY);
+  ctx.closePath();
   ctx.fillStyle = grad;
   ctx.fill();
 
@@ -1425,12 +2032,84 @@ function drawLfoOled() {
     if (x === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   }
-  ctx.strokeStyle = '#10b981';
-  ctx.lineWidth = 1.8 * dpr;
-  ctx.shadowColor = '#10b981';
-  ctx.shadowBlur = 6 * dpr;
+  ctx.strokeStyle = lfoHex;
+  ctx.lineWidth = 1.9 * dpr;
+  ctx.shadowColor = lfoHex;
+  ctx.shadowBlur = 7 * dpr;
   ctx.stroke();
   ctx.shadowBlur = 0;
+
+  // 4. Nodos vectoriales en los cuartos de compás sobre la curva LFO
+  for (let k = 1; k <= 4; k++) {
+    const nt = (k - 0.5) / 4;
+    const nx = nt * w;
+    const ny = midY - evalLfoShape(nt * cycles + animPhase * 0.16) * amp;
+    ctx.fillStyle = '#030709';
+    ctx.strokeStyle = lfoHex;
+    ctx.lineWidth = 1.3 * dpr;
+    ctx.beginPath();
+    ctx.arc(nx, ny, 2.3 * dpr, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  // 5. Láser vertical de fase LFO en vivo + Orbe brillante
+  const cursorT = ((animPhase * 0.18) % 1.0 + 1.0) % 1.0;
+  const cursorX = cursorT * w;
+  const instVal = evalLfoShape(cursorT * cycles + animPhase * 0.16);
+  const cursorY = midY - instVal * amp;
+
+  ctx.save();
+  ctx.strokeStyle = lfoRgba(0.45);
+  ctx.lineWidth = 1.1 * dpr;
+  ctx.beginPath(); ctx.moveTo(cursorX, topPlotY); ctx.lineTo(cursorX, botPlotY); ctx.stroke();
+
+  ctx.fillStyle = '#ffffff';
+  ctx.shadowColor = lfoHex;
+  ctx.shadowBlur = 8 * dpr;
+  ctx.beginPath();
+  ctx.arc(cursorX, cursorY, 3.2 * dpr, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // 6. Regla rítmica inferior (1/4 • 2/4 • 3/4 • 1 BAR) y HUD superior
+  ctx.fillStyle = 'rgba(2, 5, 8, 0.92)';
+  ctx.fillRect(0, botPlotY, w, rulerH);
+  ctx.strokeStyle = 'rgba(30, 58, 68, 0.55)';
+  ctx.beginPath(); ctx.moveTo(0, botPlotY); ctx.lineTo(w, botPlotY); ctx.stroke();
+
+  ctx.fillStyle = 'rgba(148, 184, 196, 0.78)';
+  ctx.font = `bold ${Math.round(5.4 * dpr)}px monospace`;
+  beatLabels.forEach((lbl, idx) => {
+    const bx = ((idx + 1) / 4) * w - 18 * dpr;
+    ctx.fillText(lbl, bx, h - 2.5 * dpr);
+  });
+
+  const shapeNames = ['SINE', 'TRI', 'SAW', 'RAMP', 'SQR', 'S&H'];
+  const signStr = instVal >= 0 ? `+${(instVal * 100).toFixed(0)}%` : `${(instVal * 100).toFixed(0)}%`;
+  ctx.fillStyle = lfoHex;
+  ctx.font = `bold ${Math.round(6.6 * dpr)}px monospace`;
+  ctx.fillText(`LFO 1 (${shapeNames[shape] || 'SINE'}) • ${formatKnobValue('lfo_rate', rateNorm)}`, 6 * dpr, 9.5 * dpr);
+  ctx.fillStyle = '#e2e8f0';
+  ctx.fillText(`MOD ${signStr}`, w - 48 * dpr, 9.5 * dpr);
+}
+
+const DEFAULT_ARP_PATTERNS = {
+  0: [0.78, 0.45, 0.62, 0.88, 0.50, 0.70, 0.94, 0.48, 0.66, 0.82, 0.56, 0.90],
+  1: [0.25, 0.40, 0.55, 0.70, 0.85, 1.00, 0.25, 0.40, 0.55, 0.70, 0.85, 1.00],
+  2: [1.00, 0.85, 0.70, 0.55, 0.40, 0.25, 1.00, 0.85, 0.70, 0.55, 0.40, 0.25],
+  3: [0.95, 0.48, 0.78, 0.92, 0.52, 0.86, 0.95, 0.48, 0.78, 0.92, 0.52, 0.86], // 6/8 SYNC
+  4: [0.96, 0.55, 0.82, 0.48, 0.90, 0.96, 0.55, 0.82, 0.48, 0.90, 0.75, 0.60], // 5/8 SYNC
+};
+
+const ARP_PITCH_OFFSETS = [0, 4, 7, 12, 7, 12, 0, 3, 7, 10, 12, 15];
+
+function getArpBarsForMode(mode) {
+  if (!state.arpCustomPatterns) state.arpCustomPatterns = {};
+  if (!state.arpCustomPatterns[mode]) {
+    state.arpCustomPatterns[mode] = [...(DEFAULT_ARP_PATTERNS[mode] || DEFAULT_ARP_PATTERNS[3])];
+  }
+  return state.arpCustomPatterns[mode];
 }
 
 function drawArpOled() {
@@ -1442,49 +2121,143 @@ function drawArpOled() {
   const h = canvas.height;
   if (w <= 0 || h <= 0) return;
 
-  ctx.fillStyle = '#080502';
+  const arpHex = state.oledTheme === 'emerald' ? '#10b981' : '#ffaa00';
+  const arpAccHex = state.oledTheme === 'emerald' ? '#6ee7b7' : '#ffd166';
+  const arpCyanHex = state.oledTheme === 'amber' ? '#ffffff' : '#00ebff';
+
+  ctx.fillStyle = '#070502';
   ctx.fillRect(0, 0, w, h);
 
   const mode = state.params.arp_mode || 0;
-  const patterns = {
-    0: [0.35, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35],
-    1: [0.25, 0.40, 0.55, 0.70, 0.85, 1.00, 0.25, 0.40, 0.55, 0.70, 0.85, 1.00],
-    2: [1.00, 0.85, 0.70, 0.55, 0.40, 0.25, 1.00, 0.85, 0.70, 0.55, 0.40, 0.25],
-    3: [0.95, 0.48, 0.78, 0.92, 0.52, 0.86, 0.95, 0.48, 0.78, 0.92, 0.52, 0.86], // 6/8 Joropo
-    4: [0.96, 0.55, 0.82, 0.48, 0.90, 0.96, 0.55, 0.82, 0.48, 0.90, 0.75, 0.60], // 5/8 Merengue
-  };
-  const bars = patterns[mode] || patterns[3];
+  const bars = getArpBarsForMode(mode);
   const isPlaying = state.activeNotes.size > 0 || (state.dspActiveVoices || 0) > 0;
-  const activeStep = isPlaying ? Math.floor(animPhase * 2.2) % bars.length : -1;
-
-  // Header text inside OLED
-  ctx.fillStyle = '#ffaa00';
-  ctx.font = `bold ${Math.round(8.5 * dpr)}px monospace`;
-  const titleMap = ['4/4 MANUAL', 'ARP UP', 'ARP DOWN', '6/8 JOROPO', '5/8 MERENGUE'];
-  ctx.fillText(titleMap[mode] || '6/8 JOROPO', 6 * dpr, 11 * dpr);
-  ctx.fillText(mode === 4 ? '5/8' : (mode === 3 ? '6/8' : '3/4'), w - 24 * dpr, 11 * dpr);
+  const dspSteps = (state.oddMetrics && typeof state.oddMetrics.arp_steps_triggered === 'number')
+    ? state.oddMetrics.arp_steps_triggered
+    : 0;
+  const activeStep = (isPlaying && mode > 0 && dspSteps > 0)
+    ? (dspSteps - 1) % bars.length
+    : (isPlaying ? Math.floor(animPhase * 2.2) % bars.length : Math.floor(animPhase * 0.6) % bars.length);
 
   const numBars = bars.length;
   const padX = 8 * dpr;
+  const rulerH = 12 * dpr;
+  const topPlotY = 16 * dpr;
+  const botY = h - rulerH - 3 * dpr;
+  const maxBarH = botY - topPlotY;
   const availW = w - padX * 2;
   const slotW = availW / numBars;
-  const barW = Math.max(4 * dpr, slotW * 0.68);
-  const botY = h - 12 * dpr;
-  const maxBarH = h - 28 * dpr;
+  const barW = Math.max(4 * dpr, slotW * 0.64);
+
+  // 1. Grilla horizontal de velocidad (25%, 50%, 75%, 100%) y divisores de compás (6/8 o 4/4)
+  ctx.lineWidth = 1;
+  [0.25, 0.5, 0.75, 1.0].forEach((lvl) => {
+    const gy = botY - lvl * maxBarH;
+    ctx.strokeStyle = 'rgba(255, 170, 0, 0.09)';
+    ctx.beginPath(); ctx.moveTo(padX, gy); ctx.lineTo(w - padX, gy); ctx.stroke();
+  });
+
+  const groupSize = mode === 4 ? 5 : 3;
+  for (let i = 0; i <= numBars; i += groupSize) {
+    const gx = padX + i * slotW;
+    ctx.strokeStyle = 'rgba(255, 170, 0, 0.18)';
+    ctx.beginPath(); ctx.moveTo(gx, topPlotY - 2 * dpr); ctx.lineTo(gx, botY); ctx.stroke();
+  }
+
+  // 2. Columnas LED segmentadas + Línea de Gate + Nodos de Transposición por paso
+  const pitchPts = [];
+  const numSegs = 10;
 
   for (let i = 0; i < numBars; i++) {
-    const bh = bars[i] * maxBarH;
+    const val = bars[i];
+    const bh = val * maxBarH;
     const bx = padX + i * slotW + (slotW - barW) * 0.5;
     const by = botY - bh;
-    const isHit = i === activeStep;
+    const isHit = i === activeStep || i === state.lastEditedArpStep;
+    const isAccentBeat = (i % groupSize) === 0;
 
-    ctx.fillStyle = isHit ? '#ffe082' : (i % 3 === 0 ? '#ffaa00' : 'rgba(255, 170, 0, 0.62)');
-    ctx.fillRect(bx, by, barW, bh);
+    // Halo de columna activa (Playhead Laser)
+    if (isHit) {
+      ctx.fillStyle = state.oledTheme === 'emerald' ? 'rgba(16, 185, 129, 0.12)' : 'rgba(255, 170, 0, 0.13)';
+      ctx.fillRect(padX + i * slotW, topPlotY - 2 * dpr, slotW, maxBarH + 4 * dpr);
+    }
 
-    ctx.fillStyle = '#a16207';
-    ctx.font = `${Math.round(6.5 * dpr)}px monospace`;
-    ctx.fillText(String((i % 9) + 1), bx + 1 * dpr, h - 3 * dpr);
+    // Segmentos LED discretos dentro de cada barra
+    const segH = maxBarH / numSegs;
+    const activeSegs = Math.max(1, Math.round(val * numSegs));
+    for (let s = 0; s < numSegs; s++) {
+      const sy = botY - (s + 1) * segH + 1 * dpr;
+      const sh = Math.max(1 * dpr, segH - 1.4 * dpr);
+      if (s < activeSegs) {
+        if (isHit) {
+          ctx.fillStyle = s === activeSegs - 1 ? '#ffffff' : '#ffe082';
+        } else if (isAccentBeat) {
+          ctx.fillStyle = arpHex;
+        } else {
+          ctx.fillStyle = state.oledTheme === 'emerald' ? 'rgba(16, 185, 129, 0.65)' : 'rgba(255, 170, 0, 0.65)';
+        }
+      } else {
+        ctx.fillStyle = 'rgba(255, 170, 0, 0.06)';
+      }
+      ctx.fillRect(bx, sy, barW, sh);
+    }
+
+    // Tapa Peak-Hold luminosa en la cima del paso
+    ctx.fillStyle = isHit ? '#ffffff' : arpAccHex;
+    ctx.fillRect(bx, by, barW, Math.max(1.6 * dpr, 2.0 * dpr));
+
+    // Sub-barra horizontal de Gate Length en la base del paso
+    const gateW = barW * (isAccentBeat ? 0.92 : 0.68);
+    ctx.fillStyle = isHit ? arpCyanHex : 'rgba(0, 235, 255, 0.55)';
+    ctx.fillRect(bx, botY + 1.2 * dpr, gateW, 1.5 * dpr);
+
+    // Coordenada del nodo de Pitch/Octava sobre la cima
+    pitchPts.push({
+      x: bx + barW * 0.5,
+      y: Math.max(topPlotY + 3 * dpr, by - 3 * dpr),
+      semi: ARP_PITCH_OFFSETS[i % ARP_PITCH_OFFSETS.length],
+      isHit
+    });
   }
+
+  // 3. Curva de trayectoria melódica conectando las cimas de los 12 pasos
+  ctx.beginPath();
+  pitchPts.forEach((pt, idx) => {
+    if (idx === 0) ctx.moveTo(pt.x, pt.y);
+    else ctx.lineTo(pt.x, pt.y);
+  });
+  ctx.strokeStyle = 'rgba(0, 235, 255, 0.55)';
+  ctx.lineWidth = 1.1 * dpr;
+  ctx.stroke();
+
+  pitchPts.forEach((pt) => {
+    ctx.fillStyle = pt.isHit ? '#ffffff' : arpCyanHex;
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, (pt.isHit ? 2.4 : 1.7) * dpr, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // 4. Regla inferior numerada (01..12) y HUD superior
+  ctx.fillStyle = 'rgba(6, 4, 2, 0.94)';
+  ctx.fillRect(0, h - rulerH, w, rulerH);
+  ctx.strokeStyle = 'rgba(255, 170, 0, 0.25)';
+  ctx.beginPath(); ctx.moveTo(0, h - rulerH); ctx.lineTo(w, h - rulerH); ctx.stroke();
+
+  ctx.font = `bold ${Math.round(5.6 * dpr)}px monospace`;
+  for (let i = 0; i < numBars; i++) {
+    const bx = padX + i * slotW + slotW * 0.5 - 3.5 * dpr;
+    const isHit = i === activeStep;
+    ctx.fillStyle = isHit ? '#ffffff' : (i % groupSize === 0 ? arpAccHex : 'rgba(217, 119, 6, 0.75)');
+    const numStr = (i + 1) < 10 ? `0${i + 1}` : `${i + 1}`;
+    ctx.fillText(numStr, bx, h - 2.8 * dpr);
+  }
+
+  const titleMap = ['4/4 MANUAL', 'ARP UP • 12-STEP', 'ARP DOWN • 12-STEP', 'JOROPO 6/8 SYNC', 'MERENGUE 5/8 SYNC'];
+  ctx.fillStyle = arpHex;
+  ctx.font = `bold ${Math.round(6.8 * dpr)}px monospace`;
+  ctx.fillText(titleMap[mode] || 'JOROPO 6/8 SYNC', 6 * dpr, 10 * dpr);
+  ctx.fillStyle = arpCyanHex;
+  const stepVelPct = Math.round((bars[activeStep] !== undefined ? bars[activeStep] : 0.85) * 100);
+  ctx.fillText(`STEP ${activeStep + 1 < 10 ? '0' + (activeStep + 1) : activeStep + 1}/12 • VEL ${stepVelPct}%`, w - 88 * dpr, 10 * dpr);
 }
 
 function drawReverbOled() {
@@ -1496,35 +2269,161 @@ function drawReverbOled() {
   const h = canvas.height;
   if (w <= 0 || h <= 0) return;
 
+  const primaryHex = getOledPrimaryColor();
+  const secondaryHex = getOledSecondaryColor();
   ctx.fillStyle = '#03070b';
   ctx.fillRect(0, 0, w, h);
 
-  const midY = h * 0.5;
-  const mix = Math.max(0.15, state.normalized.space_mix !== undefined ? state.normalized.space_mix : 0.15);
+  const driveNorm = state.normalized.drive !== undefined ? state.normalized.drive : 0.25;
+  const ottNorm = state.normalized.ott !== undefined ? state.normalized.ott : 0.30;
+  const mix = Math.max(0.15, state.normalized.space_mix !== undefined ? state.normalized.space_mix : 0.30);
   const isPlaying = state.activeNotes.size > 0 || (state.dspActiveVoices || 0) > 0;
+  const rulerH = 11 * dpr;
+  const topPlotY = 14 * dpr;
+  const botPlotY = h - rulerH;
+  const midY = (topPlotY + botPlotY) * 0.5;
 
-  ctx.strokeStyle = '#0e1d2b';
-  ctx.beginPath(); ctx.moveTo(0, midY); ctx.lineTo(w, midY); ctx.stroke();
-
-  ctx.beginPath();
-  for (let x = 0; x < w; x++) {
-    const t = x / w;
-    const env = Math.exp(-t * (4.2 - mix * 2.6));
-    const tail = Math.sin(x * 0.65 + (isPlaying ? animPhase * 3 : 0)) * Math.cos(x * 0.23) * env;
-    const y = midY - tail * (h * 0.42) * (0.45 + mix * 0.55);
-    ctx.moveTo(x, midY - Math.abs(y - midY));
-    ctx.lineTo(x, midY + Math.abs(y - midY));
-  }
-  ctx.strokeStyle = 'rgba(0, 235, 255, 0.72)';
+  // =======================================================================
+  // ZONA IZQUIERDA (26%): MEDIDORES MULTIBANDA OTT 3-BAND (LOW / MID / HIGH)
+  // =======================================================================
+  const ottZoneW = Math.round(w * 0.26);
+  ctx.fillStyle = 'rgba(7, 13, 22, 0.85)';
+  ctx.fillRect(0, topPlotY, ottZoneW, botPlotY - topPlotY);
+  ctx.strokeStyle = 'rgba(30, 52, 76, 0.7)';
   ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(ottZoneW, topPlotY);
+  ctx.lineTo(ottZoneW, botPlotY);
   ctx.stroke();
+
+  const bands = [
+    { lbl: 'L', level: Math.min(0.96, 0.38 + ottNorm * 0.45 + (isPlaying ? Math.sin(animPhase * 2.1) * 0.12 : 0.03)), color: primaryHex },
+    { lbl: 'M', level: Math.min(0.96, 0.44 + ottNorm * 0.42 + (isPlaying ? Math.cos(animPhase * 2.7) * 0.12 : 0.04)), color: '#10b981' },
+    { lbl: 'H', level: Math.min(0.96, 0.34 + ottNorm * 0.50 + driveNorm * 0.15 + (isPlaying ? Math.sin(animPhase * 3.4) * 0.12 : 0.03)), color: secondaryHex }
+  ];
+  const colW = (ottZoneW - 10 * dpr) / 3;
+  const meterTop = topPlotY + 4 * dpr;
+  const meterBot = botPlotY - 4 * dpr;
+  const meterH = meterBot - meterTop;
+
+  bands.forEach((b, idx) => {
+    const bx = 5 * dpr + idx * colW + 1.5 * dpr;
+    const bw = Math.max(4 * dpr, colW - 3 * dpr);
+    ctx.fillStyle = 'rgba(15, 23, 38, 0.95)';
+    ctx.fillRect(bx, meterTop, bw, meterH);
+
+    // Barra activa OTT Upward/Downward
+    const bh = b.level * meterH;
+    const by = meterBot - bh;
+    ctx.fillStyle = b.color;
+    ctx.fillRect(bx + 1 * dpr, by, bw - 2 * dpr, bh);
+
+    // Corchete de umbral OTT (Threshold line)
+    const threshY = meterBot - (0.55 + ottNorm * 0.25) * meterH;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(bx, threshY, bw, 1.4 * dpr);
+  });
+
+  // =======================================================================
+  // ZONA DERECHA (74%): ENVOLVENTE ESPACIAL CANYON IR + ARMÓNICOS DRIVE
+  // =======================================================================
+  const irStartX = ottZoneW + 4 * dpr;
+  const irW = w - irStartX - 4 * dpr;
+  const halfH = (botPlotY - topPlotY) * 0.44;
+
+  // Grilla vertical de tiempo de reverberación (50ms, 250ms, 1.0s, 2.5s)
+  [0.25, 0.5, 0.75].forEach((tn) => {
+    const gx = irStartX + tn * irW;
+    ctx.strokeStyle = 'rgba(30, 52, 76, 0.35)';
+    ctx.beginPath(); ctx.moveTo(gx, topPlotY); ctx.lineTo(gx, botPlotY); ctx.stroke();
+  });
+  ctx.strokeStyle = 'rgba(56, 189, 248, 0.25)';
+  ctx.beginPath(); ctx.moveTo(irStartX, midY); ctx.lineTo(w, midY); ctx.stroke();
+
+  // 1. Cono envolvente espacial estéreo (halo superior e inferior de decaimiento Canyon IR)
+  ctx.beginPath();
+  ctx.moveTo(irStartX, midY);
+  for (let px = 0; px <= irW; px += 2) {
+    const t = px / irW;
+    const env = Math.exp(-t * (3.6 - mix * 2.2)) * (0.45 + mix * 0.55);
+    const shimmer = 1.0 + Math.sin(t * 14.0 - animPhase * 0.8) * 0.12;
+    ctx.lineTo(irStartX + px, midY - env * shimmer * halfH);
+  }
+  for (let px = irW; px >= 0; px -= 2) {
+    const t = px / irW;
+    const env = Math.exp(-t * (3.6 - mix * 2.2)) * (0.45 + mix * 0.55);
+    const shimmer = 1.0 + Math.cos(t * 14.0 - animPhase * 0.8) * 0.12;
+    ctx.lineTo(irStartX + px, midY + env * shimmer * halfH);
+  }
+  ctx.closePath();
+  const coneGrad = ctx.createLinearGradient(irStartX, 0, w, 0);
+  coneGrad.addColorStop(0, getOledPrimaryRgba(0.26));
+  coneGrad.addColorStop(0.5, getOledSecondaryRgba(0.14));
+  coneGrad.addColorStop(1, getOledPrimaryRgba(0.02));
+  ctx.fillStyle = coneGrad;
+  ctx.fill();
+
+  // 2. Respuesta a Impulso Bipolar de alta densidad con saturación Drive en las crestas (batched)
+  ctx.lineWidth = 1.15 * dpr;
+  ctx.strokeStyle = getOledPrimaryRgba(0.85);
+  ctx.beginPath();
+  for (let px = 0; px < irW; px += 2) {
+    const t = px / irW;
+    const env = Math.exp(-t * (3.9 - mix * 2.3));
+    const carrier = Math.sin(px * 0.68 + (isPlaying ? animPhase * 2.6 : 0)) * Math.cos(px * 0.27);
+    const driveFold = Math.tanh(carrier * (1.2 + driveNorm * 2.8));
+    const mag = Math.abs(driveFold) * env * halfH * (0.50 + mix * 0.50);
+    const isHotPeak = mag > halfH * 0.48 && driveNorm > 0.15;
+    if (!isHotPeak) {
+      ctx.moveTo(irStartX + px, midY - mag);
+      ctx.lineTo(irStartX + px, midY + mag);
+    }
+  }
+  ctx.stroke();
+
+  if (driveNorm > 0.15) {
+    ctx.strokeStyle = secondaryHex;
+    ctx.beginPath();
+    for (let px = 0; px < irW; px += 2) {
+      const t = px / irW;
+      const env = Math.exp(-t * (3.9 - mix * 2.3));
+      const carrier = Math.sin(px * 0.68 + (isPlaying ? animPhase * 2.6 : 0)) * Math.cos(px * 0.27);
+      const driveFold = Math.tanh(carrier * (1.2 + driveNorm * 2.8));
+      const mag = Math.abs(driveFold) * env * halfH * (0.50 + mix * 0.50);
+      if (mag > halfH * 0.48) {
+        ctx.moveTo(irStartX + px, midY - mag);
+        ctx.lineTo(irStartX + px, midY + mag);
+      }
+    }
+    ctx.stroke();
+  }
+
+  // 3. Regla inferior (OTT L/M/H + Tiempo de Cola IR) y HUD superior
+  ctx.fillStyle = 'rgba(2, 5, 9, 0.94)';
+  ctx.fillRect(0, botPlotY, w, rulerH);
+  ctx.strokeStyle = 'rgba(30, 52, 76, 0.6)';
+  ctx.beginPath(); ctx.moveTo(0, botPlotY); ctx.lineTo(w, botPlotY); ctx.stroke();
+
+  ctx.font = `bold ${Math.round(5.4 * dpr)}px monospace`;
+  ctx.fillStyle = secondaryHex;
+  ctx.fillText('L  M  H', 6 * dpr, h - 2.6 * dpr);
+  ctx.fillStyle = 'rgba(148, 184, 210, 0.78)';
+  ctx.fillText('50ms', irStartX + 4 * dpr, h - 2.6 * dpr);
+  ctx.fillText('350ms', irStartX + irW * 0.36, h - 2.6 * dpr);
+  ctx.fillText('1.2s', irStartX + irW * 0.68, h - 2.6 * dpr);
+  ctx.fillText('2.8s', w - 18 * dpr, h - 2.6 * dpr);
+
+  ctx.fillStyle = primaryHex;
+  ctx.font = `bold ${Math.round(6.6 * dpr)}px monospace`;
+  ctx.fillText(`3B-OTT ${Math.round(ottNorm * 100)}% • DRV ${Math.round(driveNorm * 100)}%`, 6 * dpr, 9.8 * dpr);
+  ctx.fillStyle = secondaryHex;
+  ctx.fillText(`CANYON ${Math.round(mix * 100)}%`, w - 52 * dpr, 9.8 * dpr);
 }
 
 function drawOscilloscope() {
   const canvas = document.getElementById('oscilloscope');
   if (!canvas) return;
 
-  // HiDPI auto-scaler para máxima nitidez OLED en pantallas 4K y escaladas
   const rect = canvas.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
   const targetW = Math.round(rect.width * dpr);
@@ -1537,25 +2436,251 @@ function drawOscilloscope() {
   const ctx = canvas.getContext('2d');
   const w = canvas.width;
   const h = canvas.height;
+  if (w <= 0 || h <= 0) return;
 
-  // Fondo OLED ultra negro
-  ctx.fillStyle = '#040609';
+  const primaryHex = getOledPrimaryColor();
+  const secondaryHex = getOledSecondaryColor();
+  const isPlaying = state.activeNotes.size > 0 || (state.dspActiveVoices || 0) > 0;
+
+  // Fondo OLED profundo
+  ctx.fillStyle = '#03060a';
   ctx.fillRect(0, 0, w, h);
 
-  const centerY = h / 2;
+  // =========================================================================
+  // MODO PROPUESTA A: TERRENO 3D ISOMÉTRICO TEPUI TABLE-MOUNTAIN (16 FRAMES)
+  // =========================================================================
+  if (state.wt3dMode && !state.wtDrawMode) {
+    ctx.save();
+    const wtPos = Math.min(1.0, Math.max(0.0, (state.normalized.wt_pos || 0) + (state.normalized.macro1 || 0) * 0.45));
+    const wtWarp = Math.min(1.0, Math.max(0.0, (state.normalized.wt_warp || 0) + (state.normalized.macro2 || 0) * 0.45));
+    const detune = state.normalized.unison_detune || 0.22;
+    const fmB = state.params.fm_from_b || 0.0;
 
-  // Rejilla técnica de osciloscopio
+    // Proyección Isométrica 3D:
+    // nx (0..1) = Fase Armónica (eje frontal izquierdo -> derecho)
+    // nz (0..1) = Frame de Wavetable 1..16 (eje frontal -> trasero)
+    // ny (-1..+1.5) = Elevación Topográfica de la Meseta Tepuy
+    const originX = w * 0.14;
+    const originY = h * 0.67;
+    const vecXx = w * 0.46;
+    const vecXy = h * 0.24;
+    const vecZx = w * 0.34;
+    const vecZy = -h * 0.34;
+    const elevScale = h * 0.30;
+
+    const isoProject = (nx, nz, ny = 0) => ({
+      x: originX + nx * vecXx + nz * vecZx,
+      y: originY + nx * vecXy + nz * vecZy - ny * elevScale
+    });
+
+    // 1. Rejilla de Piso Isométrica 3D (16x16) con Ejes Numerados (Propuesta A)
+    ctx.lineWidth = Math.max(0.8, 0.8 * dpr);
+    const gridSteps = 8;
+    for (let g = 0; g <= gridSteps; g++) {
+      const gn = g / gridSteps;
+      const pA = isoProject(gn, 0, 0);
+      const pB = isoProject(gn, 1, 0);
+      ctx.strokeStyle = 'rgba(0, 235, 255, 0.13)';
+      ctx.beginPath(); ctx.moveTo(pA.x, pA.y); ctx.lineTo(pB.x, pB.y); ctx.stroke();
+
+      const pC = isoProject(0, gn, 0);
+      const pD = isoProject(1, gn, 0);
+      ctx.strokeStyle = gn > 0.6 ? 'rgba(255, 170, 0, 0.14)' : 'rgba(0, 235, 255, 0.13)';
+      ctx.beginPath(); ctx.moveTo(pC.x, pC.y); ctx.lineTo(pD.x, pD.y); ctx.stroke();
+    }
+
+    // Poste vertical izquierdo de elevación (+10, 0, -10 dB) y bordes isométricos inferiores
+    const postBot = isoProject(0, 0, -0.22);
+    const postTop = isoProject(0, 0, 0.85);
+    ctx.strokeStyle = getOledPrimaryRgba(0.55);
+    ctx.lineWidth = 1.1 * dpr;
+    ctx.beginPath();
+    ctx.moveTo(postTop.x, postTop.y);
+    ctx.lineTo(postBot.x, postBot.y);
+    ctx.lineTo(isoProject(1, 0, -0.22).x, isoProject(1, 0, -0.22).y);
+    ctx.stroke();
+
+    const rightCorner = isoProject(1, 0, -0.22);
+    const backRight = isoProject(1, 1, -0.22);
+    ctx.strokeStyle = getOledSecondaryRgba(0.55);
+    ctx.beginPath();
+    ctx.moveTo(rightCorner.x, rightCorner.y);
+    ctx.lineTo(backRight.x, backRight.y);
+    ctx.stroke();
+
+    // Etiquetas numéricas isométricas (1..16 en ambos ejes y +10/0/-10 vertical)
+    ctx.font = `${Math.round(5.6 * dpr)}px monospace`;
+    ctx.fillStyle = getOledPrimaryRgba(0.75);
+    ctx.fillText('+10', Math.max(1, postTop.x - 13 * dpr), postTop.y + 4 * dpr);
+    ctx.fillText('0', Math.max(1, postTop.x - 8 * dpr), (postTop.y + postBot.y) * 0.5);
+    ctx.fillText('-10', Math.max(1, postBot.x - 13 * dpr), postBot.y);
+
+    const axisLabels = [1, 4, 8, 12, 16];
+    axisLabels.forEach((num) => {
+      const n = (num - 1) / 15;
+      const ptLeft = isoProject(n, 0, -0.25);
+      ctx.fillStyle = getOledPrimaryRgba(0.78);
+      ctx.fillText(String(num), ptLeft.x - 3 * dpr, Math.min(h - 1.5 * dpr, ptLeft.y + 6 * dpr));
+
+      const ptRight = isoProject(1, n, -0.25);
+      ctx.fillStyle = getOledSecondaryRgba(0.78);
+      ctx.fillText(String(num), ptRight.x + 2 * dpr, Math.min(h - 1.5 * dpr, ptRight.y + 5 * dpr));
+    });
+
+    // 2. Función de Elevación 3D del Terreno Tepuy (Meseta Monte Roraima + Armónicos Wavetable)
+    const numSlices = 16;
+    const numSamples = 52;
+    const activeSliceFloat = wtPos * (numSlices - 1);
+    const livePulse = isPlaying ? Math.sin(animPhase * 2.2) * 0.08 : Math.sin(animPhase * 0.45) * 0.025;
+
+    const evalTepuiTerrain = (nx, nz) => {
+      // Distancia elíptica al núcleo de la meseta Tepuy (Mount Roraima plateau)
+      const dx = (nx - 0.50) * 2.15;
+      const dz = (nz - 0.48) * 2.05;
+      const radial = Math.sqrt(dx * dx + dz * dz + 0.14 * Math.sin(nx * 9.0 + nz * 7.0));
+      // Acantilados verticales escarpados del Tepuy (transición sigmoidal abrupta)
+      const cliffWall = 1.0 / (1.0 + Math.exp((radial - (0.64 + wtWarp * 0.12)) * 15.0));
+      // Rugosidad estratificada de la cumbre tabular del Tepuy
+      const summitCrags = (
+        0.11 * Math.cos(nx * 19.0 + nz * 11.0 + wtWarp * 4.0) +
+        0.07 * Math.sin(nx * 31.0 - nz * 17.0)
+      ) * cliffWall;
+      const mesaElevation = cliffWall * (0.72 + wtWarp * 0.22) + summitCrags;
+
+      // Ondas acústicas de la tabla de ondas propagándose alrededor y sobre la meseta
+      const warpedX = Math.pow(nx, 1.0 - wtWarp * 0.45);
+      const phase = warpedX * Math.PI * 2 * (2.0 + nz * 3.0);
+      const customVal = (Array.isArray(state.customWtCycle) && state.customWtCycle.length > 0)
+        ? state.customWtCycle[Math.min(state.customWtCycle.length - 1, Math.floor(nx * state.customWtCycle.length))] * 0.32
+        : 0;
+      const harmonicWave = (
+        Math.sin(phase + animPhase * (isPlaying ? 1.4 : 0.25)) * 0.20 +
+        Math.sin(phase * (2.0 + fmB * 3.0) - nz * 4.0) * (0.12 + detune * 0.10) +
+        customVal
+      ) * (1.0 - cliffWall * 0.38);
+
+      return Math.max(-0.22, Math.min(1.18, mesaElevation + harmonicWave + livePulse));
+    };
+
+    // Precalcular malla 3D [16][53] para oclusión Painter's Algorithm y líneas transversales
+    const mesh = [];
+    for (let s = 0; s < numSlices; s++) {
+      const nz = s / (numSlices - 1);
+      const row = [];
+      for (let i = 0; i <= numSamples; i++) {
+        const nx = i / numSamples;
+        const ny = evalTepuiTerrain(nx, nz);
+        const pt = isoProject(nx, nz, ny);
+        const basePt = isoProject(nx, nz, -0.18);
+        row.push({ nx, nz, ny, x: pt.x, y: pt.y, baseX: basePt.x, baseY: basePt.y });
+      }
+      mesh.push(row);
+    }
+
+    // 3. Renderizado Back-to-Front (s = 15 atrás -> s = 0 adelante) con Oclusión 3D y Bruma
+    const activeCurtainGrad = ctx.createLinearGradient(0, originY - elevScale, 0, originY + h * 0.25);
+    activeCurtainGrad.addColorStop(0, getOledSecondaryRgba(0.42));
+    activeCurtainGrad.addColorStop(1, 'rgba(4, 8, 15, 0.90)');
+
+    const warmCurtainGrad = ctx.createLinearGradient(0, originY - elevScale, 0, originY + h * 0.25);
+    warmCurtainGrad.addColorStop(0, getOledSecondaryRgba(0.20));
+    warmCurtainGrad.addColorStop(1, 'rgba(4, 8, 15, 0.86)');
+
+    const coolCurtainGrad = ctx.createLinearGradient(0, originY - elevScale, 0, originY + h * 0.25);
+    coolCurtainGrad.addColorStop(0, getOledPrimaryRgba(0.24));
+    coolCurtainGrad.addColorStop(1, 'rgba(4, 8, 15, 0.88)');
+
+    for (let s = numSlices - 1; s >= 0; s--) {
+      const nz = s / (numSlices - 1);
+      const row = mesh[s];
+      const distToActive = Math.abs(s - activeSliceFloat);
+      const isActiveSlice = distToActive < 0.55;
+      const isWarmZone = nz > 0.58; // Frames 10..16 en Ámbar dorado, Frames 1..9 en Cyan glacial
+
+      // Cortina de oclusión 3D bajo la cresta (Painter's Algorithm)
+      ctx.beginPath();
+      ctx.moveTo(row[0].baseX, row[0].baseY);
+      for (let i = 0; i <= numSamples; i++) {
+        ctx.lineTo(row[i].x, row[i].y);
+      }
+      ctx.lineTo(row[numSamples].baseX, row[numSamples].baseY);
+      ctx.closePath();
+
+      ctx.fillStyle = isActiveSlice ? activeCurtainGrad : (isWarmZone ? warmCurtainGrad : coolCurtainGrad);
+      ctx.fill();
+
+      // Líneas de malla topográfica transversal (unen slice s con s+1 sobre la meseta del Tepuy)
+      if (s < numSlices - 1) {
+        const backRow = mesh[s + 1];
+        ctx.strokeStyle = isWarmZone ? getOledSecondaryRgba(0.22) : getOledPrimaryRgba(0.24);
+        ctx.lineWidth = 0.75 * dpr;
+        ctx.beginPath();
+        for (let i = 2; i < numSamples; i += 3) {
+          if (row[i].ny > 0.22 || backRow[i].ny > 0.22) {
+            ctx.moveTo(row[i].x, row[i].y);
+            ctx.lineTo(backRow[i].x, backRow[i].y);
+          }
+        }
+        ctx.stroke();
+      }
+
+      // Bruma atmosférica volumétrica en la base de los acantilados del Tepuy (Frame central)
+      if (s === 7) {
+        const mistCenter = isoProject(0.50, 0.46, 0.24);
+        const mistGrad = ctx.createRadialGradient(
+          mistCenter.x, mistCenter.y, 4 * dpr,
+          mistCenter.x, mistCenter.y, w * 0.26
+        );
+        mistGrad.addColorStop(0, 'rgba(224, 248, 255, 0.26)');
+        mistGrad.addColorStop(0.45, getOledPrimaryRgba(0.14));
+        mistGrad.addColorStop(1, 'rgba(3, 6, 10, 0)');
+        ctx.fillStyle = mistGrad;
+        ctx.fillRect(0, 0, w, h);
+      }
+
+      // Cresta luminosa de la rodaja s
+      ctx.beginPath();
+      for (let i = 0; i <= numSamples; i++) {
+        if (i === 0) ctx.moveTo(row[i].x, row[i].y);
+        else ctx.lineTo(row[i].x, row[i].y);
+      }
+      if (isActiveSlice) {
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2.1 * dpr;
+        ctx.shadowColor = secondaryHex;
+        ctx.shadowBlur = 8 * dpr;
+      } else {
+        ctx.strokeStyle = isWarmZone
+          ? getOledSecondaryRgba((0.36 + (1.0 - nz) * 0.42).toFixed(2))
+          : getOledPrimaryRgba((0.36 + (1.0 - nz) * 0.50).toFixed(2));
+        ctx.lineWidth = 1.15 * dpr;
+        ctx.shadowBlur = 0;
+      }
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+
+    // HUD 3D Superior Derecho indicando Frame Activo y Morfología (sin rozar Z-LOW / Z-MID / Z-HIGH abajo)
+    const activeFrameNum = Math.min(16, Math.max(1, Math.round(wtPos * 15) + 1));
+    ctx.fillStyle = secondaryHex;
+    ctx.font = `bold ${Math.round(6.4 * dpr)}px monospace`;
+    ctx.fillText(`3D TEPUI MESA • FRM ${activeFrameNum}/16`, w - 108 * dpr, 20 * dpr);
+    ctx.restore();
+    return;
+  }
+
+  // =========================================================================
+  // MODO 2D: EDICIÓN DE WAVETABLE FREEHAND (WT DRAW) O SAMPLER 2D (S/E/L1/L2)
+  // =========================================================================
+  const centerY = h / 2;
   ctx.strokeStyle = '#0e141f';
   ctx.lineWidth = 1;
-
-  // Línea cero central
   ctx.beginPath();
   ctx.moveTo(0, centerY);
   ctx.lineTo(w, centerY);
   ctx.strokeStyle = '#182232';
   ctx.stroke();
 
-  // Líneas de división verticales (12 divisiones)
   ctx.strokeStyle = '#0c121b';
   for (let i = 1; i < 12; i++) {
     const x = (w / 12) * i;
@@ -1565,87 +2690,28 @@ function drawOscilloscope() {
     ctx.stroke();
   }
 
-  // Silueta topográfica del Tepui Roraima + Terreno 3D Isometric Wavetable (Vital / Serum Mode)
-  ctx.save();
-  const tepuiPts = [
-    [0.44, 0.88], [0.50, 0.82], [0.55, 0.70], [0.58, 0.56],
-    [0.61, 0.25], [0.64, 0.22], [0.71, 0.23], [0.76, 0.21],
-    [0.82, 0.23], [0.85, 0.26], [0.88, 0.56], [0.93, 0.74], [0.98, 0.88]
-  ];
-  ctx.beginPath();
-  tepuiPts.forEach(([tx, ty], idx) => {
-    const px = tx * w;
-    const py = ty * h;
-    if (idx === 0) ctx.moveTo(px, py);
-    else ctx.lineTo(px, py);
-  });
-  ctx.strokeStyle = 'rgba(0, 235, 255, 0.35)';
-  ctx.lineWidth = 1.2 * dpr;
-  ctx.stroke();
-  ctx.lineTo(0.98 * w, h);
-  ctx.lineTo(0.44 * w, h);
-  ctx.closePath();
-  ctx.fillStyle = 'rgba(0, 235, 255, 0.04)';
-  ctx.fill();
-  ctx.restore();
-
-  if (state.wt3dMode) {
-    ctx.save();
-    const wtPos = Math.min(1.0, (state.normalized.wt_pos || 0) + (state.normalized.macro1 || 0) * 0.65);
-    const wtWarp = Math.min(1.0, (state.normalized.wt_warp || 0) + (state.normalized.macro2 || 0) * 0.65);
-    const numSlices = 9;
-    const activeSliceFloat = wtPos * (numSlices - 1);
-    for (let s = numSlices - 1; s >= 0; s--) {
-      const zNorm = s / (numSlices - 1); // 0 = front, 1 = back
-      const xOffset = zNorm * w * 0.20;
-      const yBase = h * (0.76 - zNorm * 0.48);
-      const sliceW = w * 0.74;
-      const amp = h * 0.17 * (1.0 - zNorm * 0.25);
-      const isActiveSlice = Math.abs(s - activeSliceFloat) < 0.65;
-
-      ctx.beginPath();
-      for (let i = 0; i <= 48; i++) {
-        const t = i / 48;
-        const warpedT = Math.pow(t, 1.0 - wtWarp * 0.55);
-        const p = warpedT * Math.PI * 2;
-        const f0 = (state.wtDrawMode && Array.isArray(state.customWtCycle))
-          ? state.customWtCycle[Math.min(63, Math.floor(warpedT * 64))]
-          : Math.sin(p);
-        const f1 = f0 + 0.5 * Math.sin(2 * p) + 0.25 * Math.sin(3 * p);
-        const f2 = Math.sin(p + Math.sin(3 * p) * 0.85);
-        const f3 = Math.sin(p + Math.sin(5 * p) * (1.2 + wtWarp));
-        const wave = (1 - zNorm) * ((1 - zNorm) * f0 + zNorm * f1) + zNorm * ((1 - zNorm) * f2 + zNorm * f3);
-        const px = 8 * dpr + xOffset + t * sliceW;
-        const py = yBase - wave * amp;
-        if (i === 0) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
-      }
-      ctx.strokeStyle = isActiveSlice
-        ? '#ffaa00'
-        : `rgba(0, 235, 255, ${(0.18 + (1.0 - zNorm) * 0.28).toFixed(2)})`;
-      ctx.lineWidth = (isActiveSlice ? 2.1 : 1.0) * dpr;
-      if (isActiveSlice) {
-        ctx.shadowColor = '#ffaa00';
-        ctx.shadowBlur = 6 * dpr;
-      }
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-    }
-    ctx.restore();
-  }
-
-  // Trazar forma de onda
-  const pts = state.waveform;
+  const pts = (state.wtDrawMode && Array.isArray(state.customWtCycle) && state.customWtCycle.length > 1)
+    ? state.customWtCycle
+    : state.waveform;
   if (!pts || pts.length < 2) return;
 
-  const isPlaying = state.activeNotes.size > 0 || (state.dspActiveVoices || 0) > 0;
   const wobble = isPlaying ? Math.sin(animPhase) * 0.08 : 0;
-
-  // Relleno gradiente con glow cian
   const grad = ctx.createLinearGradient(0, 0, 0, h);
-  grad.addColorStop(0, 'rgba(0, 235, 255, 0.22)');
-  grad.addColorStop(0.5, 'rgba(0, 235, 255, 0.04)');
-  grad.addColorStop(1, 'rgba(0, 235, 255, 0.22)');
+  grad.addColorStop(0, getOledPrimaryRgba(0.24));
+  grad.addColorStop(0.5, getOledPrimaryRgba(0.04));
+  grad.addColorStop(1, getOledPrimaryRgba(0.24));
+
+  // En modo WT DRAW mostramos además barras armónicas verticales estilo Serum Wavetable Editor
+  if (state.wtDrawMode) {
+    const barSlot = w / pts.length;
+    ctx.fillStyle = getOledPrimaryRgba(0.22);
+    for (let i = 0; i < pts.length; i++) {
+      const bx = i * barSlot;
+      const val = pts[i];
+      const by = centerY - val * (centerY - 8 * dpr);
+      ctx.fillRect(bx, Math.min(centerY, by), Math.max(1, barSlot - 1 * dpr), Math.abs(by - centerY));
+    }
+  }
 
   ctx.beginPath();
   ctx.moveTo(0, centerY);
@@ -1659,7 +2725,6 @@ function drawOscilloscope() {
   ctx.fillStyle = grad;
   ctx.fill();
 
-  // Línea de señal de fósforo cian brillante con resplandor
   ctx.beginPath();
   for (let i = 0; i < pts.length; i++) {
     const x = (i / (pts.length - 1)) * w;
@@ -1668,30 +2733,31 @@ function drawOscilloscope() {
     if (i === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   }
-  ctx.strokeStyle = isPlaying ? '#e0ffff' : '#00ebff';
-  ctx.lineWidth = isPlaying ? 2.0 : 1.6;
-  ctx.shadowColor = '#00ebff';
-  ctx.shadowBlur = isPlaying ? 10 : 5;
+  ctx.strokeStyle = isPlaying ? '#ffffff' : primaryHex;
+  ctx.lineWidth = (isPlaying ? 2.0 : 1.7) * dpr;
+  ctx.shadowColor = primaryHex;
+  ctx.shadowBlur = (isPlaying ? 10 : 5) * dpr;
   ctx.stroke();
   ctx.shadowBlur = 0;
 
-  // --- OVERLAY INTERACTIVO DE TRIM (START / END) Y LOOP (L1 / L2) ---
+  if (state.wtDrawMode) {
+    ctx.fillStyle = secondaryHex;
+    ctx.font = `bold ${Math.round(6.8 * dpr)}px monospace`;
+    ctx.fillText('64-POINT HARMONIC DRAW • DOBLE CLIC RESET', 6 * dpr, h - 4 * dpr);
+    return;
+  }
+
+  // --- OVERLAY INTERACTIVO DE TRIM (START / END) Y LOOP (L1 / L2) EN MODO 2D SAMPLER ---
   const r = state.region || { trim_start_norm: 0, trim_end_norm: 1, loop_enabled: true, loop_start_norm: 0.2, loop_end_norm: 0.85 };
   const trimStartX = Math.round(r.trim_start_norm * w);
   const trimEndX = Math.round(r.trim_end_norm * w);
   const loopStartX = Math.round(r.loop_start_norm * w);
   const loopEndX = Math.round(r.loop_end_norm * w);
 
-  // Sombreado de zonas recortadas (fuera de Trim Start .. Trim End)
   ctx.fillStyle = 'rgba(2, 4, 8, 0.72)';
-  if (trimStartX > 0) {
-    ctx.fillRect(0, 0, trimStartX, h);
-  }
-  if (trimEndX < w) {
-    ctx.fillRect(trimEndX, 0, w - trimEndX, h);
-  }
+  if (trimStartX > 0) ctx.fillRect(0, 0, trimStartX, h);
+  if (trimEndX < w) ctx.fillRect(trimEndX, 0, w - trimEndX, h);
 
-  // Región de Loop Sostenido (cuando loop_enabled = true)
   if (r.loop_enabled && loopEndX > loopStartX) {
     ctx.fillStyle = 'rgba(255, 170, 0, 0.11)';
     ctx.fillRect(loopStartX, 0, loopEndX - loopStartX, h);
@@ -1701,14 +2767,11 @@ function drawOscilloscope() {
     ctx.lineWidth = Math.max(1.2, 1.2 * dpr);
     ctx.setLineDash([4 * dpr, 3 * dpr]);
     ctx.beginPath();
-    ctx.moveTo(loopStartX, 0);
-    ctx.lineTo(loopStartX, h);
-    ctx.moveTo(loopEndX, 0);
-    ctx.lineTo(loopEndX, h);
+    ctx.moveTo(loopStartX, 0); ctx.lineTo(loopStartX, h);
+    ctx.moveTo(loopEndX, 0); ctx.lineTo(loopEndX, h);
     ctx.stroke();
     ctx.restore();
 
-    // Banderines inferiores L1 / L2
     ctx.fillStyle = '#ffaa00';
     const flagW = 14 * dpr;
     const flagH = 11 * dpr;
@@ -1720,14 +2783,11 @@ function drawOscilloscope() {
     ctx.fillText('L2', Math.max(0, loopEndX - flagW) + 2 * dpr, h - 2.5 * dpr);
   }
 
-  // Marcadores verticales de Trim Start (S) y Trim End (E)
   ctx.strokeStyle = '#10b981';
   ctx.lineWidth = Math.max(1.5, 1.5 * dpr);
   ctx.beginPath();
-  ctx.moveTo(trimStartX, 0);
-  ctx.lineTo(trimStartX, h);
-  ctx.moveTo(trimEndX, 0);
-  ctx.lineTo(trimEndX, h);
+  ctx.moveTo(trimStartX, 0); ctx.lineTo(trimStartX, h);
+  ctx.moveTo(trimEndX, 0); ctx.lineTo(trimEndX, h);
   ctx.stroke();
 
   const tFlagW = 11 * dpr;
@@ -1740,38 +2800,6 @@ function drawOscilloscope() {
   ctx.fillText('S', trimStartX + 2.5 * dpr, 8.5 * dpr);
   ctx.fillText('E', Math.max(0, trimEndX - tFlagW) + 2.5 * dpr, 8.5 * dpr);
 
-  // --- CURVA DE MODULACIÓN LFO EN TIEMPO REAL ---
-  const lfoDepth = state.params.lfo_depth || 0;
-  const lfoTarget = state.params.lfo_target !== undefined ? state.params.lfo_target : 0;
-  if (lfoDepth > 0.005 && lfoTarget !== 3) {
-    const lfoRate = state.params.lfo_rate || 3.5;
-    const cycles = Math.max(1.0, Math.min(12.0, lfoRate * 0.6));
-    const lfoLive = (state.oddMetrics && typeof state.oddMetrics.lfo_mod_value === 'number')
-      ? state.oddMetrics.lfo_mod_value
-      : Math.sin(animPhase) * lfoDepth;
-
-    ctx.save();
-    ctx.beginPath();
-    for (let x = 0; x <= w; x += Math.max(2, Math.round(2 * dpr))) {
-      const normX = x / w;
-      const waveY = centerY - Math.sin(normX * Math.PI * 2 * cycles + animPhase) * lfoDepth * (centerY * 0.65);
-      if (x === 0) ctx.moveTo(x, waveY);
-      else ctx.lineTo(x, waveY);
-    }
-    ctx.strokeStyle = 'rgba(16, 185, 129, 0.55)';
-    ctx.lineWidth = Math.max(1.2, 1.2 * dpr);
-    ctx.stroke();
-
-    // Indicador vertical lateral de modulación LFO instantánea
-    const modY = centerY - lfoLive * (centerY * 0.65);
-    ctx.fillStyle = '#10b981';
-    ctx.beginPath();
-    ctx.arc(w - 6 * dpr, modY, 3 * dpr, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-  }
-
-  // --- CABEZAL DE REPRODUCCIÓN EN VIVO (PLAYHEAD CURSOR) ---
   const phNorm = state.playheadNorm || 0;
   if (isPlaying || phNorm > 0.001) {
     const effPlayhead = phNorm > 0.001
@@ -1782,21 +2810,12 @@ function drawOscilloscope() {
     ctx.save();
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = Math.max(1.6, 1.6 * dpr);
-    ctx.shadowColor = '#00ebff';
+    ctx.shadowColor = primaryHex;
     ctx.shadowBlur = 8 * dpr;
     ctx.beginPath();
     ctx.moveTo(phX, 0);
     ctx.lineTo(phX, h);
     ctx.stroke();
-
-    // Triángulo superior del Playhead
-    ctx.fillStyle = '#00ebff';
-    ctx.beginPath();
-    ctx.moveTo(phX - 4 * dpr, 0);
-    ctx.lineTo(phX + 4 * dpr, 0);
-    ctx.lineTo(phX, 6 * dpr);
-    ctx.closePath();
-    ctx.fill();
     ctx.restore();
   }
 }
@@ -1820,11 +2839,358 @@ function updateVuMeters() {
   if (targetR > state.vuLevelR) state.vuLevelR = targetR;
   else state.vuLevelR = Math.max(0, state.vuLevelR - 0.04);
 
+  // Peak-Hold con retención temporal y caída lenta
+  state.vuPeakHoldL = state.vuPeakHoldL || 0;
+  state.vuPeakHoldR = state.vuPeakHoldR || 0;
+  state.vuPeakTimerL = state.vuPeakTimerL || 0;
+  state.vuPeakTimerR = state.vuPeakTimerR || 0;
+
+  if (state.vuLevelL >= state.vuPeakHoldL) {
+    state.vuPeakHoldL = state.vuLevelL;
+    state.vuPeakTimerL = 26;
+  } else if (state.vuPeakTimerL > 0) {
+    state.vuPeakTimerL--;
+  } else {
+    state.vuPeakHoldL = Math.max(0, state.vuPeakHoldL - 0.015);
+  }
+
+  if (state.vuLevelR >= state.vuPeakHoldR) {
+    state.vuPeakHoldR = state.vuLevelR;
+    state.vuPeakTimerR = 26;
+  } else if (state.vuPeakTimerR > 0) {
+    state.vuPeakTimerR--;
+  } else {
+    state.vuPeakHoldR = Math.max(0, state.vuPeakHoldR - 0.015);
+  }
+
   const fillL = document.getElementById('meter-fill-l');
   const fillR = document.getElementById('meter-fill-r');
+  const peakL = document.getElementById('meter-peak-l');
+  const peakR = document.getElementById('meter-peak-r');
 
   if (fillL) fillL.style.transform = `scaleY(${state.vuLevelL.toFixed(3)})`;
   if (fillR) fillR.style.transform = `scaleY(${state.vuLevelR.toFixed(3)})`;
+  if (peakL) {
+    peakL.style.bottom = `${Math.min(98, state.vuPeakHoldL * 100).toFixed(1)}%`;
+    peakL.style.opacity = state.vuPeakHoldL > 0.03 ? '1' : '0';
+  }
+  if (peakR) {
+    peakR.style.bottom = `${Math.min(98, state.vuPeakHoldR * 100).toFixed(1)}%`;
+    peakR.style.opacity = state.vuPeakHoldR > 0.03 ? '1' : '0';
+  }
+}
+
+function initInteractiveOleds() {
+  // 0. 64-Band Real-Time FFT Spectrum Toggle button on SVF Filter Header + Keytrack Toggle
+  const btnSvfFft = document.getElementById('btn-svf-fft-toggle');
+  if (btnSvfFft) {
+    state.svfFftEnabled = state.svfFftEnabled !== false;
+    btnSvfFft.classList.toggle('active', state.svfFftEnabled);
+    btnSvfFft.addEventListener('click', () => {
+      state.svfFftEnabled = !state.svfFftEnabled;
+      btnSvfFft.classList.toggle('active', state.svfFftEnabled);
+    });
+  }
+
+  const btnSvfKey = document.getElementById('btn-svf-keytrack');
+  if (btnSvfKey) {
+    const KEY_STEPS = [
+      { label: 'KEY:50%', val: 0.50 },
+      { label: 'KEY:100%', val: 1.00 },
+      { label: 'KEY:OFF', val: 0.00 }
+    ];
+    let keyIdx = 0;
+    btnSvfKey.addEventListener('click', () => {
+      keyIdx = (keyIdx + 1) % KEY_STEPS.length;
+      const step = KEY_STEPS[keyIdx];
+      btnSvfKey.innerText = step.label;
+      sendIpc('kt,' + step.val.toFixed(2));
+    });
+  }
+
+  const lfoCanvas = document.getElementById('oled-lfo');
+  if (lfoCanvas) {
+    lfoCanvas.style.cursor = 'pointer';
+    lfoCanvas.addEventListener('click', () => {
+      const btnLfoShape = document.getElementById('btn-lfo-shape');
+      if (btnLfoShape) btnLfoShape.click();
+    });
+  }
+
+  // 1. 2D Filter Node Manipulation on #oled-svf (Cutoff X, Resonance Y)
+  const svfCanvas = document.getElementById('oled-svf');
+  if (svfCanvas) {
+    const applySvf2D = (e) => {
+      const rect = svfCanvas.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      const normX = Math.max(0.0, Math.min(1.0, (e.clientX - rect.left) / rect.width));
+      const normY = Math.max(0.0, Math.min(1.0, 1.0 - (e.clientY - rect.top) / rect.height));
+      state.normalized.cutoff = normX;
+      state.normalized.resonance = normY;
+      updateKnobUI('cutoff', normX);
+      updateKnobUI('resonance', normY);
+      sendFastParam('cutoff', normX);
+      sendFastParam('resonance', normY);
+      showParamHudTooltip(
+        svfCanvas,
+        'SVF 2D',
+        `${formatKnobValue('cutoff', normX)} • Q ${formatKnobValue('resonance', normY)}`
+      );
+    };
+
+    svfCanvas.addEventListener('mousedown', (e) => {
+      state.isDraggingSvfOled = true;
+      state.isDraggingKnob = true;
+      applySvf2D(e);
+      e.preventDefault();
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (state.isDraggingSvfOled) applySvf2D(e);
+    });
+    window.addEventListener('mouseup', () => {
+      if (state.isDraggingSvfOled) {
+        state.isDraggingSvfOled = false;
+        state.isDraggingKnob = false;
+        hideParamHudTooltip();
+      }
+    });
+    svfCanvas.addEventListener('dblclick', () => {
+      state.normalized.cutoff = 1.0;
+      state.normalized.resonance = 0.061;
+      updateKnobUI('cutoff', 1.0);
+      updateKnobUI('resonance', 0.061);
+      sendFastParam('cutoff', 1.0);
+      sendFastParam('resonance', 0.061);
+    });
+  }
+
+  // 2. 2D Envelope Stage Node Manipulation on #oled-adsr (Attack, Decay, Sustain, Release)
+  const adsrCanvas = document.getElementById('oled-adsr');
+  if (adsrCanvas) {
+    const pickAdsrNode = (normX) => {
+      const lay = state.adsrNodesLayout || { x1: 0.18, x2: 0.36, x3: 0.56, x4: 0.78 };
+      const candidates = [
+        { id: 'attack', x: lay.x1 },
+        { id: 'decay', x: lay.x2 },
+        { id: 'sustain', x: lay.x3 },
+        { id: 'release', x: lay.x4 }
+      ];
+      let best = 'decay';
+      let minDist = 999;
+      candidates.forEach((c) => {
+        const d = Math.abs(normX - c.x);
+        if (d < minDist) {
+          minDist = d;
+          best = c.id;
+        }
+      });
+      return best;
+    };
+
+    const applyAdsr2D = (e) => {
+      const rect = adsrCanvas.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      const normX = Math.max(0.0, Math.min(1.0, (e.clientX - rect.left) / rect.width));
+      const normY = Math.max(0.0, Math.min(1.0, 1.0 - (e.clientY - rect.top) / rect.height));
+      const node = state.activeAdsrDragNode || 'decay';
+      const lay = state.adsrNodesLayout || { x0: 0.03, x1: 0.18, x2: 0.36, x3: 0.56 };
+
+      if (node === 'attack') {
+        const aVal = Math.max(0.0, Math.min(1.0, (normX - 0.04) / 0.28));
+        state.normalized.attack = aVal;
+        updateKnobUI('attack', aVal);
+        sendFastParam('attack', aVal);
+        showParamHudTooltip(adsrCanvas, 'ATTACK 2D', formatKnobValue('attack', aVal));
+      } else if (node === 'decay') {
+        const dVal = Math.max(0.0, Math.min(1.0, (normX - lay.x1 - 0.02) / 0.25));
+        const sVal = Math.max(0.0, Math.min(1.0, normY));
+        state.normalized.decay = dVal;
+        state.normalized.sustain = sVal;
+        updateKnobUI('decay', dVal);
+        updateKnobUI('sustain', sVal);
+        sendFastParam('decay', dVal);
+        sendFastParam('sustain', sVal);
+        showParamHudTooltip(
+          adsrCanvas,
+          'DECAY / SUS',
+          `${formatKnobValue('decay', dVal)} • ${formatKnobValue('sustain', sVal)}`
+        );
+      } else if (node === 'sustain') {
+        const sVal = Math.max(0.0, Math.min(1.0, normY));
+        state.normalized.sustain = sVal;
+        updateKnobUI('sustain', sVal);
+        sendFastParam('sustain', sVal);
+        showParamHudTooltip(adsrCanvas, 'SUSTAIN 2D', formatKnobValue('sustain', sVal));
+      } else if (node === 'release') {
+        const rVal = Math.max(0.0, Math.min(1.0, (normX - lay.x3 - 0.02) / 0.28));
+        state.normalized.release = rVal;
+        updateKnobUI('release', rVal);
+        sendFastParam('release', rVal);
+        showParamHudTooltip(adsrCanvas, 'RELEASE 2D', formatKnobValue('release', rVal));
+      }
+    };
+
+    adsrCanvas.addEventListener('mousedown', (e) => {
+      const rect = adsrCanvas.getBoundingClientRect();
+      if (rect.width <= 0) return;
+      const normX = Math.max(0.0, Math.min(1.0, (e.clientX - rect.left) / rect.width));
+      state.activeAdsrDragNode = pickAdsrNode(normX);
+      state.isDraggingKnob = true;
+      applyAdsr2D(e);
+      e.preventDefault();
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (state.activeAdsrDragNode) applyAdsr2D(e);
+    });
+    window.addEventListener('mouseup', () => {
+      if (state.activeAdsrDragNode) {
+        state.activeAdsrDragNode = null;
+        state.isDraggingKnob = false;
+        hideParamHudTooltip();
+      }
+    });
+  }
+
+  // 3. Interactive Step Velocity/Accent Sculpting on #oled-arp
+  const arpCanvas = document.getElementById('oled-arp');
+  if (arpCanvas) {
+    let draggingArp = false;
+    const paintArpStep = (e) => {
+      const rect = arpCanvas.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      const normX = Math.max(0.0, Math.min(0.999, (e.clientX - rect.left) / rect.width));
+      const normY = Math.max(0.0, Math.min(1.0, (e.clientY - rect.top) / rect.height));
+      const mode = state.params.arp_mode || 0;
+      const bars = getArpBarsForMode(mode);
+      const stepIdx = Math.max(0, Math.min(bars.length - 1, Math.floor(normX * bars.length)));
+      const accent = Math.max(0.05, Math.min(1.0, 1.0 - (normY - 0.12) / 0.76));
+      bars[stepIdx] = accent;
+      if (mode === 0) {
+        // Si el usuario dibuja su curva de velocidad mientras ARP está en OFF, propagarla a los modos activos
+        [1, 2, 3, 4].forEach((m) => {
+          getArpBarsForMode(m)[stepIdx] = accent;
+        });
+      }
+      state.lastEditedArpStep = stepIdx;
+      state.currentVelocity = accent;
+      state.lastPlayedVelocity = accent;
+      sendIpc('arpstep,' + stepIdx + ',' + accent.toFixed(3));
+      syncArpPatternToDsp(mode);
+      const velBadge = document.getElementById('vel-badge');
+      if (velBadge) velBadge.innerText = `${Math.round(accent * 100)}%`;
+      showParamHudTooltip(arpCanvas, `STEP ${stepIdx + 1} VEL`, `${Math.round(accent * 100)}%`);
+    };
+
+    arpCanvas.addEventListener('mousedown', (e) => {
+      draggingArp = true;
+      state.isDraggingArpOled = true;
+      state.isDraggingKnob = true;
+      paintArpStep(e);
+      e.preventDefault();
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (draggingArp) paintArpStep(e);
+    });
+    window.addEventListener('mouseup', () => {
+      if (draggingArp) {
+        draggingArp = false;
+        state.isDraggingArpOled = false;
+        state.isDraggingKnob = false;
+        state.lastEditedArpStep = -1;
+        hideParamHudTooltip();
+      }
+    });
+    arpCanvas.addEventListener('dblclick', () => {
+      const nextMode = ((state.params.arp_mode || 0) + 1) % 5;
+      updateArpModeUI(nextMode);
+      sendFastArpMode(nextMode);
+    });
+  }
+
+  // 4. Interactive 2D FX Sculpting on #oled-reverb (X: Spatial Canyon Mix, Y: Drive / Shift+Y: OTT)
+  const revCanvas = document.getElementById('oled-reverb');
+  if (revCanvas) {
+    revCanvas.style.cursor = 'crosshair';
+    let draggingRev = false;
+    const applyReverb2D = (e) => {
+      const rect = revCanvas.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      const normX = Math.max(0.0, Math.min(1.0, (e.clientX - rect.left) / rect.width));
+      const normY = Math.max(0.0, Math.min(1.0, 1.0 - (e.clientY - rect.top) / rect.height));
+      state.normalized.space_mix = normX;
+      state.params.space_mix = normX;
+      updateKnobUI('space_mix', normX);
+      sendFastParam('space_mix', normX);
+      if (e.shiftKey) {
+        state.normalized.ott = normY;
+        state.params.ott = normY;
+        updateKnobUI('ott', normY);
+        sendFastParam('ott', normY);
+        showParamHudTooltip(
+          revCanvas,
+          'FX 2D (OTT)',
+          `SPATIAL ${Math.round(normX * 100)}% • OTT ${Math.round(normY * 100)}%`
+        );
+      } else {
+        state.normalized.drive = normY;
+        state.params.drive = normY;
+        updateKnobUI('drive', normY);
+        sendFastParam('drive', normY);
+        showParamHudTooltip(
+          revCanvas,
+          'FX 2D',
+          `SPATIAL ${Math.round(normX * 100)}% • DRIVE ${Math.round(normY * 100)}%`
+        );
+      }
+    };
+
+    revCanvas.addEventListener('mousedown', (e) => {
+      draggingRev = true;
+      state.isDraggingKnob = true;
+      applyReverb2D(e);
+      e.preventDefault();
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (draggingRev) applyReverb2D(e);
+    });
+    window.addEventListener('mouseup', () => {
+      if (draggingRev) {
+        draggingRev = false;
+        state.isDraggingKnob = false;
+        hideParamHudTooltip();
+      }
+    });
+    revCanvas.addEventListener('dblclick', () => {
+      state.normalized.drive = 0.0;
+      state.normalized.ott = 0.0;
+      state.normalized.space_mix = 0.15;
+      state.params.drive = 0.0;
+      state.params.ott = 0.0;
+      state.params.space_mix = 0.15;
+      updateKnobUI('drive', 0.0);
+      updateKnobUI('ott', 0.0);
+      updateKnobUI('space_mix', 0.15);
+      sendFastParam('drive', 0.0);
+      sendFastParam('ott', 0.0);
+      sendFastParam('space_mix', 0.15);
+    });
+  }
+}
+
+function initOledThemeSwitcher() {
+  const btnTheme = document.getElementById('btn-oled-theme');
+  const container = document.querySelector('.plugin-container');
+  if (!btnTheme || !container) return;
+  const THEMES = ['cyan', 'amber', 'emerald'];
+  state.oledTheme = state.oledTheme || 'cyan';
+
+  btnTheme.addEventListener('click', () => {
+    const idx = THEMES.indexOf(state.oledTheme);
+    const next = THEMES[(idx + 1) % THEMES.length];
+    state.oledTheme = next;
+    container.setAttribute('data-oled-theme', next);
+    btnTheme.innerText = `OLED: ${next.toUpperCase()}`;
+  });
 }
 
 function updateTelemetry(info) {
@@ -2153,6 +3519,7 @@ function initKeyboardEvents() {
       const nextVel = Math.max(0.05, Math.min(1.0, startVel + dy * 0.008));
       state.currentVelocity = nextVel;
       state.lastPlayedVelocity = nextVel;
+      sendIpc(`vel,${nextVel.toFixed(3)}`);
       velBadge.innerText = `${Math.round(nextVel * 100)}%`;
       refreshFooterOddText();
     });
@@ -2254,7 +3621,7 @@ function initKeyboardEvents() {
       const nextMode = ((state.params.arp_mode || 0) + 1) % 5;
       state.params.arp_mode = nextMode;
       updateArpModeUI(nextMode);
-      sendIpc(`arp,${nextMode}`);
+      sendFastArpMode(nextMode);
     });
   }
 
@@ -2298,8 +3665,8 @@ const ARP_LABELS = [
   'ARP: OFF',
   'ARP: UP',
   'ARP: DOWN',
-  'JOROPO 6/8',
-  'MERENGUE 5/8'
+  '6/8 SYNC',
+  '5/8 SYNC'
 ];
 
 function updateArpModeUI(mode) {
@@ -2316,7 +3683,7 @@ function updateArpModeUI(mode) {
   });
   const meterLbl = document.getElementById('arp-meter-label');
   if (meterLbl) {
-    const meters = ['4/4 FREE', '4/4 UP', '4/4 DOWN', '6/8 JOROPO', '5/8 MERENGUE'];
+    const meters = ['4/4 FREE', '4/4 UP', '4/4 DOWN', '6/8 SYNC', '5/8 SYNC'];
     meterLbl.innerText = meters[m] || '4/4 FREE';
   }
 }
@@ -2373,6 +3740,7 @@ function shiftVelocity(delta) {
   const newVel = Math.max(0.05, Math.min(1.0, state.currentVelocity + delta));
   state.currentVelocity = newVel;
   state.lastPlayedVelocity = newVel;
+  sendIpc(`vel,${newVel.toFixed(3)}`);
   const badge = document.getElementById('vel-badge');
   if (badge) badge.innerText = `${Math.round(newVel * 100)}%`;
   refreshFooterOddText();
@@ -2648,7 +4016,10 @@ function initLfoAndKeyzoneControls() {
       refreshFooterOddText();
     };
 
+    const SRC_NAMES = ['LFO 1', 'LFO 2', 'ENV 2', 'VEL', 'MOD W'];
+    const DST_NAMES = ['CUTOFF', 'RESONANCE', 'WAVETABLE POS', 'PITCH / VIBRATO', 'OTT / FX MIX'];
     pins.forEach((pinEl, colIdx) => {
+      pinEl.title = `${SRC_NAMES[rowIdx] || 'SRC'} → ${DST_NAMES[colIdx] || 'DST'} (Clic para activar/desactivar ruta)`;
       pinEl.addEventListener('click', () => applyMatrixPin(colIdx, false));
     });
     const lbl = rowEl.querySelector('.m-lbl');
@@ -2673,12 +4044,142 @@ function initRootNoteControls() {
   }
 }
 
+function capturePatchSnapshot() {
+  const input = document.getElementById('prompt-input');
+  return {
+    prompt: input ? input.value : 'Concert Grand Piano C4',
+    sampleName: state.sampleName,
+    normalized: { ...state.normalized },
+    params: { ...state.params },
+    waveform: Array.isArray(state.waveform) ? [...state.waveform] : []
+  };
+}
+
+function saveSnapshotBeforeChange() {
+  if (!state.abSnapshots) {
+    state.abSnapshots = { A: capturePatchSnapshot(), B: capturePatchSnapshot() };
+    state.activeAbSlot = 'A';
+  }
+  const currentSnap = capturePatchSnapshot();
+  const inactiveSlot = state.activeAbSlot === 'A' ? 'B' : 'A';
+  state.abSnapshots[inactiveSlot] = currentSnap;
+}
+
+function restorePatchSnapshot(snap) {
+  if (!snap) return;
+  const input = document.getElementById('prompt-input');
+  if (input && snap.prompt) input.value = snap.prompt;
+  if (snap.sampleName) state.sampleName = snap.sampleName;
+  if (snap.params) Object.assign(state.params, snap.params);
+  if (snap.normalized) {
+    Object.assign(state.normalized, snap.normalized);
+    for (const [k, v] of Object.entries(snap.normalized)) {
+      updateKnobUI(k, v);
+      sendFastParam(k, v);
+    }
+  }
+  if (Array.isArray(snap.waveform) && snap.waveform.length > 0) {
+    state.waveform = [...snap.waveform];
+  }
+  if (state.params.filter_mode !== undefined) {
+    updateFilterModeUI(state.params.filter_mode);
+    sendIpc(`m,${state.params.filter_mode}`);
+  }
+  if (state.params.lfo_target !== undefined) {
+    updateLfoTargetUI(state.params.lfo_target);
+    sendIpc(`lt,${state.params.lfo_target}`);
+  }
+  if (state.params.lfo_shape !== undefined) {
+    updateLfoShapeUI(state.params.lfo_shape);
+    sendIpc(`ls,${state.params.lfo_shape}`);
+  }
+  if (state.params.unison_voices !== undefined) {
+    updateUnisonVoicesUI(state.params.unison_voices);
+    sendIpc(`uni,${state.params.unison_voices}`);
+  }
+  if (state.params.fm_from_b !== undefined) {
+    updateFmFromBUI(state.params.fm_from_b);
+    sendIpc(`fmb,${Number(state.params.fm_from_b).toFixed(2)}`);
+  }
+  if (state.params.arp_mode !== undefined) {
+    updateArpModeUI(state.params.arp_mode);
+    sendIpc(`arp,${state.params.arp_mode}`);
+  }
+  if (state.params.mod_matrix_mask !== undefined) {
+    syncMatrixPinsFromMask(state.params.mod_matrix_mask);
+  }
+  if (state.params.root_note !== undefined) {
+    sendFastRootNote(state.params.root_note);
+    updateRootNoteDisplay(state.params.root_note, state.sampleName);
+  }
+  if (snap.prompt) {
+    sendFastGenerate(snap.prompt);
+  }
+  refreshFooterOddText();
+}
+
+function initAbCompareButton() {
+  const btnAb = document.getElementById('btn-ab-compare');
+  const slotA = document.getElementById('ab-slot-a');
+  const slotB = document.getElementById('ab-slot-b');
+  if (!btnAb) return;
+
+  const snapA = capturePatchSnapshot();
+  const snapB = {
+    prompt: 'Hyper Supersaw Anthem Lead C4',
+    sampleName: 'HYPER SUPERSAW ANTHEM • C4',
+    normalized: {
+      ...snapA.normalized,
+      attack: 0.005,
+      decay: 0.28,
+      sustain: 0.85,
+      release: 0.34,
+      cutoff: 0.92,
+      resonance: 0.18,
+      space_mix: 0.38,
+      wt_pos: 0.48,
+      wt_warp: 0.22,
+      unison_detune: 0.58,
+      sub_level: 0.25,
+      drive: 0.22,
+      ott: 0.48
+    },
+    params: {
+      ...snapA.params,
+      unison_voices: 7,
+      arp_mode: 1,
+      root_note: 60
+    },
+    waveform: snapA.waveform
+  };
+  state.abSnapshots = { A: snapA, B: snapB };
+  state.activeAbSlot = 'A';
+
+  btnAb.addEventListener('click', () => {
+    const curSlot = state.activeAbSlot || 'A';
+    const nextSlot = curSlot === 'A' ? 'B' : 'A';
+    state.abSnapshots[curSlot] = capturePatchSnapshot();
+    state.activeAbSlot = nextSlot;
+
+    if (slotA) slotA.classList.toggle('active', nextSlot === 'A');
+    if (slotB) slotB.classList.toggle('active', nextSlot === 'B');
+    btnAb.classList.toggle('slot-b-active', nextSlot === 'B');
+
+    restorePatchSnapshot(state.abSnapshots[nextSlot]);
+    showParamHudTooltip(btnAb, `SLOT ${nextSlot}`, state.abSnapshots[nextSlot]?.prompt || 'PATCH');
+    setTimeout(hideParamHudTooltip, 900);
+  });
+}
+
 function initAiHub() {
   const btn = document.getElementById('btn-generate');
   const input = document.getElementById('prompt-input');
 
+  initAbCompareButton();
+
   btn.addEventListener('click', () => {
     if (state.isGenerating) return;
+    saveSnapshotBeforeChange();
     const prompt = input.value.trim() || 'Concert Grand Piano C4';
     state.isGenerating = true;
     updateGeneratingUI(true);
@@ -2714,6 +4215,7 @@ function initAiHub() {
 
   document.querySelectorAll('.chip').forEach((chip) => {
     chip.addEventListener('click', (e) => {
+      saveSnapshotBeforeChange();
       document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
       chip.classList.add('active');
       const rect = chip.getBoundingClientRect();
@@ -2834,9 +4336,10 @@ function initAudioSettingsModal() {
       if (!data) data = window.__TEPUI_AUDIO_STATUS__;
       if (!data) return;
 
-      if (data.is_standalone) {
+      const isAudioTabHidden = paneAudio && paneAudio.classList.contains('hidden-pane');
+      if (data.is_standalone || isAudioTabHidden) {
         if (dawBanner) dawBanner.classList.add('hidden');
-        if (btnSave) btnSave.disabled = false;
+        if (data.is_standalone && btnSave) btnSave.disabled = false;
       } else {
         if (dawBanner) dawBanner.classList.remove('hidden');
       }
@@ -2921,7 +4424,18 @@ function initAudioSettingsModal() {
         };
       }
 
+      function updateSettingsLatencyBadge() {
+        const srVal = selectSr && selectSr.value ? parseInt(selectSr.value, 10) : 48000;
+        const bufVal = selectBuf && selectBuf.value ? parseInt(selectBuf.value, 10) : 1056;
+        const ms = ((bufVal / Math.max(8000, srVal)) * 1000).toFixed(1);
+        const badge = document.getElementById('settings-latency-badge');
+        if (badge) {
+          badge.innerText = `${(srVal / 1000).toFixed(1)} kHz • ${bufVal} smp (~${ms} ms)`;
+        }
+      }
+
       function autoSaveConfig() {
+        updateSettingsLatencyBadge();
         const cfg = getModalConfig();
         if (window.__TEPUI_AUDIO_STATUS__) {
           window.__TEPUI_AUDIO_STATUS__.active_output_device = cfg.output_device;
@@ -2960,6 +4474,7 @@ function initAudioSettingsModal() {
       if (selectSr) {
         selectSr.onchange = autoSaveConfig;
       }
+      updateSettingsLatencyBadge();
 
       // MIDI Inputs
       const selectMidi = document.getElementById('select-midi-device');
@@ -2996,17 +4511,47 @@ function initAudioSettingsModal() {
     }
   }
 
-  const openSettingsModal = () => {
+  const tabBtnAudio = document.getElementById('settings-tab-audio');
+  const tabBtnAi = document.getElementById('settings-tab-ai');
+  const tabBtnAll = document.getElementById('settings-tab-all');
+  const paneAudio = document.getElementById('settings-pane-audio');
+  const paneAi = document.getElementById('settings-pane-ai');
+
+  const switchSettingsTab = (tabName) => {
+    [tabBtnAudio, tabBtnAi, tabBtnAll].forEach((b) => {
+      if (!b) return;
+      const isMatch = b.dataset.tab === tabName;
+      b.classList.toggle('active', isMatch);
+      b.setAttribute('aria-selected', isMatch ? 'true' : 'false');
+    });
+    if (paneAudio) {
+      paneAudio.classList.toggle('hidden-pane', tabName === 'ai');
+    }
+    if (paneAi) {
+      paneAi.classList.toggle('hidden-pane', tabName === 'audio');
+    }
+    if (dawBanner) {
+      const isStandalone = window.__TEPUI_AUDIO_STATUS__ ? Boolean(window.__TEPUI_AUDIO_STATUS__.is_standalone) : true;
+      dawBanner.classList.toggle('hidden', isStandalone || tabName === 'ai');
+    }
+  };
+
+  if (tabBtnAudio) tabBtnAudio.addEventListener('click', () => switchSettingsTab('audio'));
+  if (tabBtnAi) tabBtnAi.addEventListener('click', () => switchSettingsTab('ai'));
+  if (tabBtnAll) tabBtnAll.addEventListener('click', () => switchSettingsTab('all'));
+
+  const openSettingsModal = (initialTab = 'audio') => {
     hideStatus();
+    switchSettingsTab(initialTab);
     modal.classList.remove('hidden');
     loadAudioDevices(true);
     loadCloudLicenseState();
   };
 
-  btnOpen.addEventListener('click', openSettingsModal);
+  btnOpen.addEventListener('click', () => openSettingsModal('audio'));
   const btnCloudCredits = document.getElementById('btn-cloud-credits');
   if (btnCloudCredits) {
-    btnCloudCredits.addEventListener('click', openSettingsModal);
+    btnCloudCredits.addEventListener('click', () => openSettingsModal('ai'));
   }
 
   async function loadCloudLicenseState() {
@@ -3311,8 +4856,9 @@ function buildPresetCatalog() {
   }
 }
 
-function applyPresetFromCatalog(preset) {
+function applyPresetFromCatalog(preset, triggerAudition = true) {
   if (!preset) return;
+  saveSnapshotBeforeChange();
   activePresetId = preset.id;
 
   const promptInput = document.getElementById('prompt-input');
@@ -3356,6 +4902,12 @@ function applyPresetFromCatalog(preset) {
   refreshFooterOddText();
   pollAiGeneration();
   renderPresetTable();
+
+  if (triggerAudition && state.presetAutoAudition !== false) {
+    const auditionMidi = preset.root !== undefined ? preset.root : (state.params.root_note || 60);
+    pressNote(auditionMidi, 0.88);
+    setTimeout(() => releaseNote(auditionMidi), 240);
+  }
 }
 
 function renderSoundPacks() {
@@ -3458,18 +5010,50 @@ function initPresetBrowser() {
   const btnClose = document.getElementById('btn-close-browser');
   const searchInput = document.getElementById('preset-search-input');
 
+  const btnAudition = document.getElementById('btn-preset-audition');
+  state.presetAutoAudition = true;
+  if (btnAudition) {
+    btnAudition.addEventListener('click', () => {
+      state.presetAutoAudition = !state.presetAutoAudition;
+      btnAudition.classList.toggle('active', state.presetAutoAudition);
+      btnAudition.innerText = state.presetAutoAudition ? '🔊 AUTO' : '🔇 MUTE';
+    });
+  }
+
   const stepPreset = (delta) => {
+    const q = (searchInput && searchInput.value ? searchInput.value : '').trim().toLowerCase();
     const list = PRESET_CATALOG.filter((p) => {
       if (activePackFilter !== 'ALL' && p.pack !== activePackFilter) return false;
       if (activeCatFilter === 'FAV' && !favoritePresets.has(p.id)) return false;
       if (activeCatFilter !== 'ALL' && activeCatFilter !== 'FAV' && p.cat !== activeCatFilter) return false;
+      if (q) {
+        const hay = `${p.name} ${p.tags} ${p.cat} ${p.rhythm} ${p.prompt}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
       return true;
     });
     if (list.length === 0) return;
     const curIdx = Math.max(0, list.findIndex((p) => p.id === activePresetId));
     const nextIdx = (curIdx + delta + list.length) % list.length;
-    applyPresetFromCatalog(list[nextIdx]);
+    applyPresetFromCatalog(list[nextIdx], true);
+    requestAnimationFrame(() => {
+      const activeRow = document.querySelector('#preset-table-body .preset-row-item.active');
+      if (activeRow && typeof activeRow.scrollIntoView === 'function') {
+        activeRow.scrollIntoView({ block: 'nearest' });
+      }
+    });
   };
+
+  window.addEventListener('keydown', (e) => {
+    if (!drawer || drawer.classList.contains('hidden')) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      stepPreset(1);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      stepPreset(-1);
+    }
+  });
 
   if (btnPrev) btnPrev.addEventListener('click', () => stepPreset(-1));
   if (btnNext) btnNext.addEventListener('click', () => stepPreset(1));
@@ -3505,6 +5089,13 @@ function initPresetBrowser() {
       pill.classList.add('active');
       activeCatFilter = pill.dataset.cat || 'ALL';
       renderPresetTable();
+      const firstMatch = PRESET_CATALOG.find((p) => {
+        if (activePackFilter !== 'ALL' && p.pack !== activePackFilter) return false;
+        if (activeCatFilter === 'FAV' && !favoritePresets.has(p.id)) return false;
+        if (activeCatFilter !== 'ALL' && activeCatFilter !== 'FAV' && p.cat !== activeCatFilter) return false;
+        return true;
+      });
+      if (firstMatch) applyPresetFromCatalog(firstMatch, true);
     });
   });
 
@@ -3513,6 +5104,10 @@ function initPresetBrowser() {
       const packId = pill.dataset.pack || 'ALL';
       activePackFilter = packId;
       document.querySelectorAll('.pack-pill').forEach(b => b.classList.toggle('active', b === pill));
+      const firstPackPreset = PRESET_CATALOG.find(p => packId === 'ALL' || p.pack === packId);
+      if (firstPackPreset) {
+        applyPresetFromCatalog(firstPackPreset, true);
+      }
       setBrowserOpen(true);
     });
   });
@@ -3522,7 +5117,7 @@ function initPresetBrowser() {
     btn.addEventListener('click', () => {
       const m = parseInt(btn.dataset.arp, 10) || 0;
       updateArpModeUI(m);
-      sendIpc(`arp,${m}`);
+      sendFastArpMode(m);
     });
   });
 
@@ -3576,6 +5171,8 @@ function initApp() {
   initKnobs();
   initFilterModes();
   initOscilloscope();
+  initInteractiveOleds();
+  initOledThemeSwitcher();
   initKeyboard();
   initKeyboardEvents();
   initAiHub();

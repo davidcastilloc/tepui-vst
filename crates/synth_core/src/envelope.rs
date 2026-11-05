@@ -91,8 +91,14 @@ impl AdsrEnvelope {
         self.kill_coeff = (-6.0 / kill_samples).exp();
     }
 
-    /// Dispara la nota (Note On)
+    /// Dispara la nota (Note On) reiniciando el ataque desde una articulación limpia
     pub fn note_on(&mut self) {
+        if self.stage != AdsrStage::Idle {
+            // Articulación limpia en re-disparo (ej. pasos del arpegiador sobre la misma nota)
+            self.current_value *= 0.12;
+        } else {
+            self.current_value = 0.0;
+        }
         self.stage = AdsrStage::Attack;
     }
 

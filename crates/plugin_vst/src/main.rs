@@ -193,5 +193,8 @@ fn main() {
         }
     }
 
+    // 9. Pre-calentar caché de estado de dispositivos de audio/MIDI antes de abrir la ventana GUI
+    let _ = audio_devices::enumerate_audio_system(&saved_config);
+
     nih_plug::wrapper::standalone::nih_export_standalone_with_args::<AiSamplerPlugin, _>(args);
 }

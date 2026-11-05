@@ -7,6 +7,7 @@ use crate::envelope::AdsrStage;
 use crate::filter::FilterMode;
 use crate::lfo::{LfoShape, LfoState, LfoTarget};
 use crate::resampler::ResamplingQuality;
+use crate::rt_primitives::OnePoleSmoother;
 use crate::voice::{SampleRegionOverride, Voice};
 
 pub const DEFAULT_MAX_VOICES: usize = 16;
@@ -25,6 +26,7 @@ pub struct VoiceManager {
     cutoff_hz: f32,
     resonance: f32,
     filter_mode: FilterMode,
+    filter_keytrack: f32,
     resampling_quality: ResamplingQuality,
 
     // Estado MIDI y Modulación LFO en tiempo real (0 asignaciones)
@@ -60,6 +62,12 @@ pub struct VoiceManager {
     custom_wt_active: bool,
     custom_wt_cycle: [f32; 64],
     custom_wt_draws_count: u32,
+
+    // Suavizadores exponenciales de 1 polo (One-Pole Smoothers) para eliminar zipper-noise en vivo
+    cutoff_smoother: OnePoleSmoother,
+    resonance_smoother: OnePoleSmoother,
+    wt_pos_smoother: OnePoleSmoother,
+    wt_warp_smoother: OnePoleSmoother,
 }
 
 impl Default for VoiceManager {
@@ -88,6 +96,7 @@ impl VoiceManager {
             cutoff_hz: 20000.0,
             resonance: 0.707,
             filter_mode: FilterMode::Bypass,
+            filter_keytrack: 0.50,
             resampling_quality: ResamplingQuality::HermiteCubic,
             sustain_pedal: false,
             sustained_notes: [false; 128],
@@ -119,6 +128,10 @@ impl VoiceManager {
             custom_wt_active: false,
             custom_wt_cycle: [0.0; 64],
             custom_wt_draws_count: 0,
+            cutoff_smoother: OnePoleSmoother::new(20000.0, 4.0, sample_rate),
+            resonance_smoother: OnePoleSmoother::new(0.707, 4.0, sample_rate),
+            wt_pos_smoother: OnePoleSmoother::new(0.0, 4.0, sample_rate),
+            wt_warp_smoother: OnePoleSmoother::new(0.0, 4.0, sample_rate),
         }
     }
 
@@ -229,9 +242,20 @@ impl VoiceManager {
             0.0
         };
 
+        let any_active = self.voices.iter().any(|v| v.is_active());
+        if any_active {
+            self.wt_pos_smoother.set_target(eff_wt_pos);
+            self.wt_warp_smoother.set_target(eff_wt_warp);
+        } else {
+            self.wt_pos_smoother.snap_to(eff_wt_pos);
+            self.wt_warp_smoother.snap_to(eff_wt_warp);
+        }
+        let cur_wt_pos = self.wt_pos_smoother.current();
+        let cur_wt_warp = self.wt_warp_smoother.current();
+
         for voice in &mut self.voices {
-            voice.wt_pos = eff_wt_pos;
-            voice.wt_warp = eff_wt_warp;
+            voice.wt_pos = cur_wt_pos;
+            voice.wt_warp = cur_wt_warp;
             voice.unison_voices = eff_unison_voices;
             voice.unison_detune = eff_detune;
             voice.sub_level = eff_sub;
@@ -377,6 +401,70 @@ impl VoiceManager {
         self.arp.set_bpm(bpm);
     }
 
+    /// Configura el acento/velocidad personalizado (`0.05..=1.0`) de un paso del arpegiador (`0..16`).
+    #[inline]
+    pub fn set_arp_step_accent(&mut self, step_idx: usize, accent: f32) {
+        self.arp.set_step_accent(step_idx, accent);
+    }
+
+    /// Sincroniza la tabla de 16 acentos de pasos del arpegiador desde el almacén lock-free.
+    #[inline]
+    pub fn set_arp_step_accents(&mut self, accents: &[f32; 16], active: bool) {
+        self.arp.set_step_accents(accents, active);
+    }
+
+    /// Actualiza en vivo la velocidad base de las notas retenidas en el arpegiador y de las voces activas.
+    #[inline]
+    pub fn set_arp_live_velocity(&mut self, velocity: f32) {
+        self.arp.set_live_velocity(velocity);
+        if velocity.is_finite() {
+            let clamped = velocity.clamp(0.01, 1.0);
+            self.last_velocity = clamped;
+            self.velocity_events_count = self.velocity_events_count.wrapping_add(1);
+            let eff_cut = self.effective_cutoff_hz();
+            for voice in &mut self.voices {
+                if voice.is_active() {
+                    voice.velocity = clamped;
+                    let vel_oct = (clamped.clamp(0.02, 1.0) - 0.92) * 3.6;
+                    let key_oct = ((voice.note as f32 - 60.0) / 12.0) * self.filter_keytrack;
+                    let voice_cut =
+                        (eff_cut * 2.0_f32.powf(vel_oct + key_oct)).clamp(20.0, 20000.0);
+                    voice.filter_l.set_cutoff(voice_cut);
+                    voice.filter_r.set_cutoff(voice_cut);
+                }
+            }
+        }
+    }
+
+    /// Configura el seguimiento de nota del filtro SVF (`0.0` = OFF, `0.5` = 50%, `1.0` = 100%).
+    #[inline]
+    pub fn set_filter_keytrack(&mut self, keytrack: f32) {
+        let clamped = if keytrack.is_finite() {
+            keytrack.clamp(0.0, 1.0)
+        } else {
+            0.50
+        };
+        if (self.filter_keytrack - clamped).abs() > 1e-5 {
+            self.filter_keytrack = clamped;
+            let eff_cut = self.effective_cutoff_hz();
+            for voice in &mut self.voices {
+                if voice.is_active() {
+                    let vel_oct = (voice.velocity.clamp(0.02, 1.0) - 0.92) * 3.6;
+                    let key_oct = ((voice.note as f32 - 60.0) / 12.0) * self.filter_keytrack;
+                    let voice_cut =
+                        (eff_cut * 2.0_f32.powf(vel_oct + key_oct)).clamp(20.0, 20000.0);
+                    voice.filter_l.set_cutoff(voice_cut);
+                    voice.filter_r.set_cutoff(voice_cut);
+                }
+            }
+        }
+    }
+
+    #[inline]
+    pub fn filter_keytrack(&self) -> f32 {
+        self.filter_keytrack
+    }
+
     /// Retorna el total acumulado de pasos rítmicos disparados por el arpegiador (ODD).
     #[inline]
     pub fn arp_steps_triggered(&self) -> u32 {
@@ -408,12 +496,12 @@ impl VoiceManager {
         }
     }
 
-    /// Calcula la frecuencia de corte efectiva combinando `cutoff_hz`, `CC #74 (Brightness)`, `Aftertouch` y `Macro 1 (TIMBRE)`.
+    /// Calcula la frecuencia de corte efectiva combinando `cutoff_smoother`, `CC #74 (Brightness)`, `Aftertouch` y `Macro 1 (TIMBRE)`.
     #[inline]
     pub fn effective_cutoff_hz(&self) -> f32 {
         let boost_octaves =
             (self.brightness_cc74 + self.channel_aftertouch + self.macros[0] * 0.85) * 1.5;
-        (self.cutoff_hz * 2.0_f32.powf(boost_octaves)).clamp(20.0, 20000.0)
+        (self.cutoff_smoother.current() * 2.0_f32.powf(boost_octaves)).clamp(20.0, 20000.0)
     }
 
     /// Actualiza la rueda de modulación MIDI (`CC #1 ModWheel`, `0.0..=1.0`), sumándose a la profundidad del LFO.
@@ -512,6 +600,10 @@ impl VoiceManager {
             self.sample_rate = sample_rate;
             self.lfo.set_sample_rate(sample_rate);
             self.arp.set_sample_rate(sample_rate);
+            self.cutoff_smoother.set_sample_rate(sample_rate);
+            self.resonance_smoother.set_sample_rate(sample_rate);
+            self.wt_pos_smoother.set_sample_rate(sample_rate);
+            self.wt_warp_smoother.set_sample_rate(sample_rate);
             for voice in &mut self.voices {
                 voice.set_sample_rate(sample_rate);
             }
@@ -544,13 +636,30 @@ impl VoiceManager {
         self.resonance = resonance;
         self.filter_mode = mode;
 
+        let any_active = self.voices.iter().any(|v| v.is_active());
+        if any_active {
+            self.cutoff_smoother.set_target(cutoff_hz);
+            self.resonance_smoother.set_target(resonance);
+        } else {
+            self.cutoff_smoother.snap_to(cutoff_hz);
+            self.resonance_smoother.snap_to(resonance);
+        }
+
         let eff_cut = self.effective_cutoff_hz();
+        let cur_reso = self.resonance_smoother.current();
         for voice in &mut self.voices {
-            voice.filter_l.set_cutoff(eff_cut);
-            voice.filter_l.set_resonance(resonance);
+            let voice_cut = if voice.is_active() {
+                let vel_oct = (voice.velocity.clamp(0.02, 1.0) - 0.92) * 3.6;
+                let key_oct = ((voice.note as f32 - 60.0) / 12.0) * self.filter_keytrack;
+                (eff_cut * 2.0_f32.powf(vel_oct + key_oct)).clamp(20.0, 20000.0)
+            } else {
+                eff_cut
+            };
+            voice.filter_l.set_cutoff(voice_cut);
+            voice.filter_l.set_resonance(cur_reso);
             voice.filter_l.mode = mode;
-            voice.filter_r.set_cutoff(eff_cut);
-            voice.filter_r.set_resonance(resonance);
+            voice.filter_r.set_cutoff(voice_cut);
+            voice.filter_r.set_resonance(cur_reso);
             voice.filter_r.mode = mode;
         }
     }
@@ -614,9 +723,12 @@ impl VoiceManager {
         if self.arp.is_active() {
             self.arp.press_note_with_velocity(note, clamped_vel);
             if let Some(step) = self.arp.advance_chunk(1) {
-                if let Some(prev) = step.prev_note_off {
-                    self.trigger_voice_note_off(prev);
+                for voice in &mut self.voices {
+                    if voice.is_active() && voice.note != step.note_on {
+                        voice.kill();
+                    }
                 }
+                self.last_velocity = step.velocity;
                 self.trigger_voice_note_on_with_zones(
                     step.note_on,
                     step.velocity,
@@ -701,11 +813,13 @@ impl VoiceManager {
             ),
         };
 
-        // 4. Asignar la nota a la voz elegida con sensibilidad tímbrica de filtro por velocity
+        // 4. Asignar la nota a la voz elegida con sensibilidad tímbrica de filtro por velocity + keytrack
         if let Some(idx) = target_idx {
+            self.last_velocity = velocity.clamp(0.01, 1.0);
             let eff_cut = self.effective_cutoff_hz();
-            let vel_oct = (velocity.clamp(0.01, 1.0) - 0.65) * 1.15;
-            let voice_cut = (eff_cut * 2.0_f32.powf(vel_oct)).clamp(20.0, 20000.0);
+            let vel_oct = (velocity.clamp(0.02, 1.0) - 0.92) * 3.6;
+            let key_oct = ((note as f32 - 60.0) / 12.0) * self.filter_keytrack;
+            let voice_cut = (eff_cut * 2.0_f32.powf(vel_oct + key_oct)).clamp(20.0, 20000.0);
             let voice = &mut self.voices[idx];
             voice.zone_slot = zone_slot;
             voice
@@ -814,16 +928,56 @@ impl VoiceManager {
             let chunk_len = chunk_end - offset;
 
             if self.arp.is_active() {
+                if let Some(gate_off_note) = self.arp.advance_gate_off(chunk_len) {
+                    self.trigger_voice_note_off(gate_off_note);
+                }
                 if let Some(step) = self.arp.advance_chunk(chunk_len) {
-                    if let Some(prev) = step.prev_note_off {
-                        self.trigger_voice_note_off(prev);
+                    for voice in &mut self.voices {
+                        if voice.is_active() && voice.note != step.note_on {
+                            voice.kill();
+                        }
                     }
+                    self.last_velocity = step.velocity;
+                    self.velocity_events_count = self.velocity_events_count.wrapping_add(1);
                     self.trigger_voice_note_on_with_zones(
                         step.note_on,
                         step.velocity,
                         primary_buffer,
                         zones,
                     );
+                }
+            }
+
+            // Avanzar suavizadores exponenciales de 1 polo (One-Pole Smoothers) libres de zipper-noise
+            let filter_smoothing =
+                self.cutoff_smoother.is_smoothing() || self.resonance_smoother.is_smoothing();
+            let wt_smoothing =
+                self.wt_pos_smoother.is_smoothing() || self.wt_warp_smoother.is_smoothing();
+            if filter_smoothing || wt_smoothing {
+                let _ = self.cutoff_smoother.advance_samples(chunk_len);
+                let cur_reso = self.resonance_smoother.advance_samples(chunk_len);
+                let cur_wt_pos = self.wt_pos_smoother.advance_samples(chunk_len);
+                let cur_wt_warp = self.wt_warp_smoother.advance_samples(chunk_len);
+                let eff_cut = self.effective_cutoff_hz();
+                let keytrack = self.filter_keytrack;
+
+                for voice in &mut self.voices {
+                    if voice.is_active() {
+                        if wt_smoothing {
+                            voice.wt_pos = cur_wt_pos;
+                            voice.wt_warp = cur_wt_warp;
+                        }
+                        if filter_smoothing && matrix_mask == 0 && !lfo_active {
+                            let vel_oct = (voice.velocity.clamp(0.02, 1.0) - 0.92) * 3.6;
+                            let key_oct = ((voice.note as f32 - 60.0) / 12.0) * keytrack;
+                            let v_cut =
+                                (eff_cut * 2.0_f32.powf(vel_oct + key_oct)).clamp(20.0, 20000.0);
+                            voice.filter_l.set_cutoff(v_cut);
+                            voice.filter_l.set_resonance(cur_reso);
+                            voice.filter_r.set_cutoff(v_cut);
+                            voice.filter_r.set_resonance(cur_reso);
+                        }
+                    }
                 }
             }
 
@@ -879,11 +1033,16 @@ impl VoiceManager {
                     self.pitch_bend_multiplier * 2.0_f64.powf(pitch_semis as f64 / 12.0);
 
                 // Destino 1: CUTOFF (Octavas SVF)
+                let base_cut = self.effective_cutoff_hz();
                 let mut cutoff_octs = dest_sums[1].clamp(-2.5, 2.5) * 1.8;
                 if lfo_active && lfo_target == LfoTarget::Cutoff {
-                    cutoff_octs += lfo1_val * 2.0;
+                    let headroom_bias = if base_cut > 4000.0 {
+                        -lfo_depth * 1.45
+                    } else {
+                        0.0
+                    };
+                    cutoff_octs += (lfo1_val + headroom_bias) * 2.2;
                 }
-                let base_cut = self.effective_cutoff_hz();
                 let mod_cutoff = (base_cut * 2.0_f32.powf(cutoff_octs)).clamp(20.0, 20000.0);
 
                 // Destino 2: RESO (Factor Q SVF)
@@ -911,12 +1070,14 @@ impl VoiceManager {
                     for voice in &mut self.voices {
                         if voice.is_active() {
                             let per_voice_vel_oct = if vel_to_cutoff {
-                                (voice.velocity - 0.5) * 1.6
+                                (voice.velocity.clamp(0.02, 1.0) - 0.88) * 4.5
                             } else {
-                                (voice.velocity - 0.65) * 0.85
+                                (voice.velocity.clamp(0.02, 1.0) - 0.92) * 3.6
                             };
-                            let v_cut =
-                                (mod_cutoff * 2.0_f32.powf(per_voice_vel_oct)).clamp(20.0, 20000.0);
+                            let key_oct =
+                                ((voice.note as f32 - 60.0) / 12.0) * self.filter_keytrack;
+                            let v_cut = (mod_cutoff * 2.0_f32.powf(per_voice_vel_oct + key_oct))
+                                .clamp(20.0, 20000.0);
                             voice.filter_l.set_cutoff(v_cut);
                             voice.filter_l.set_resonance(mod_reso);
                             voice.filter_r.set_cutoff(v_cut);
@@ -930,12 +1091,24 @@ impl VoiceManager {
                 match lfo_target {
                     LfoTarget::Cutoff => {
                         let base_cut = self.effective_cutoff_hz();
-                        let mod_cutoff =
-                            (base_cut * 2.0_f32.powf(lfo_sin * 2.0)).clamp(20.0, 20000.0);
+                        let headroom_bias = if base_cut > 4000.0 {
+                            -lfo_depth * 1.45
+                        } else {
+                            0.0
+                        };
+                        let mod_cutoff = (base_cut * 2.0_f32.powf((lfo_sin + headroom_bias) * 2.2))
+                            .clamp(20.0, 20000.0);
                         for voice in &mut self.voices {
                             if voice.is_active() {
-                                voice.filter_l.set_cutoff(mod_cutoff);
-                                voice.filter_r.set_cutoff(mod_cutoff);
+                                let per_voice_vel_oct =
+                                    (voice.velocity.clamp(0.02, 1.0) - 0.92) * 3.6;
+                                let key_oct =
+                                    ((voice.note as f32 - 60.0) / 12.0) * self.filter_keytrack;
+                                let v_cut = (mod_cutoff
+                                    * 2.0_f32.powf(per_voice_vel_oct + key_oct))
+                                .clamp(20.0, 20000.0);
+                                voice.filter_l.set_cutoff(v_cut);
+                                voice.filter_r.set_cutoff(v_cut);
                             }
                         }
                     }

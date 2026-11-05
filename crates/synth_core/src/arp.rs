@@ -48,6 +48,20 @@ pub struct ArpStepEvent {
     pub prev_note_off: Option<u8>,
 }
 
+/// Patrones de velocidad de 12 pasos sincronizados 1:1 con las 12 barras del visor `#oled-arp`.
+pub const DEFAULT_ARP_ACCENTS_UP: [f32; 12] = [
+    0.25, 0.40, 0.55, 0.70, 0.85, 1.00, 0.25, 0.40, 0.55, 0.70, 0.85, 1.00,
+];
+pub const DEFAULT_ARP_ACCENTS_DOWN: [f32; 12] = [
+    1.00, 0.85, 0.70, 0.55, 0.40, 0.25, 1.00, 0.85, 0.70, 0.55, 0.40, 0.25,
+];
+pub const DEFAULT_ARP_ACCENTS_JOROPO: [f32; 12] = [
+    0.95, 0.48, 0.78, 0.92, 0.52, 0.86, 0.95, 0.48, 0.78, 0.92, 0.52, 0.86,
+];
+pub const DEFAULT_ARP_ACCENTS_MERENGUE: [f32; 12] = [
+    0.96, 0.55, 0.82, 0.48, 0.90, 0.96, 0.55, 0.82, 0.48, 0.90, 0.75, 0.60,
+];
+
 /// Arpegiador y generador de compases venezolanos en tiempo real (zero-allocation).
 #[derive(Debug, Clone)]
 pub struct TepuiArpeggiator {
@@ -59,8 +73,12 @@ pub struct TepuiArpeggiator {
     held_count: usize,
     step_index: usize,
     samples_until_step: usize,
+    gate_samples_remaining: usize,
     last_sounding_note: Option<u8>,
     steps_triggered_count: u32,
+    custom_step_accents: [f32; 16],
+    has_custom_accents: bool,
+    last_step_velocity: f32,
 }
 
 impl Default for TepuiArpeggiator {
@@ -80,8 +98,70 @@ impl TepuiArpeggiator {
             held_count: 0,
             step_index: 0,
             samples_until_step: 0,
+            gate_samples_remaining: 0,
             last_sounding_note: None,
             steps_triggered_count: 0,
+            custom_step_accents: [1.0; 16],
+            has_custom_accents: false,
+            last_step_velocity: 0.90,
+        }
+    }
+
+    /// Configura el acento/velocidad personalizado (`0.05..=1.0`) de un paso individual (`0..16`) desde el visor OLED.
+    #[inline]
+    pub fn set_step_accent(&mut self, step_idx: usize, accent: f32) {
+        if step_idx < 16 && accent.is_finite() {
+            if !self.has_custom_accents {
+                // Inicializar los 12 pasos con el patrón por defecto del modo actual antes de aplicar la edición
+                let defaults = Self::default_accents_for_mode(self.mode);
+                self.custom_step_accents[..12].copy_from_slice(defaults);
+            }
+            self.custom_step_accents[step_idx] = accent.clamp(0.05, 1.0);
+            self.has_custom_accents = true;
+        }
+    }
+
+    /// Sincroniza la tabla completa de 16 acentos de pasos desde el almacén lock-free.
+    #[inline]
+    pub fn set_step_accents(&mut self, accents: &[f32; 16], active: bool) {
+        self.has_custom_accents = active;
+        if active {
+            for (dst, &src) in self.custom_step_accents.iter_mut().zip(accents.iter()) {
+                *dst = if src.is_finite() {
+                    src.clamp(0.05, 1.0)
+                } else {
+                    1.0
+                };
+            }
+        }
+    }
+
+    /// Actualiza en vivo la velocidad base de todas las notas actualmente retenidas en el arpegiador.
+    #[inline]
+    pub fn set_live_velocity(&mut self, velocity: f32) {
+        if velocity.is_finite() {
+            let v = velocity.clamp(0.05, 1.0);
+            for (note_idx, &held) in self.held_notes.iter().enumerate() {
+                if held {
+                    self.held_velocities[note_idx] = v;
+                }
+            }
+        }
+    }
+
+    /// Retorna la velocidad efectiva del último paso disparado por el arpegiador (`0.05..=1.0`).
+    #[inline]
+    pub fn last_step_velocity(&self) -> f32 {
+        self.last_step_velocity
+    }
+
+    #[inline]
+    pub fn default_accents_for_mode(mode: ArpMode) -> &'static [f32; 12] {
+        match mode {
+            ArpMode::Off | ArpMode::Up => &DEFAULT_ARP_ACCENTS_UP,
+            ArpMode::Down => &DEFAULT_ARP_ACCENTS_DOWN,
+            ArpMode::Joropo => &DEFAULT_ARP_ACCENTS_JOROPO,
+            ArpMode::Merengue => &DEFAULT_ARP_ACCENTS_MERENGUE,
         }
     }
 
@@ -219,19 +299,19 @@ impl TepuiArpeggiator {
         } else {
             0.90
         };
-        let vel_scale = (chord_vel / 0.90).clamp(0.08, 1.12);
+        let vel_scale = (chord_vel / 0.90).clamp(0.06, 1.12);
 
-        match self.mode {
+        let (note_out, note_vel_scale) = match self.mode {
             ArpMode::Off | ArpMode::Up => {
                 let n = sorted[step % count];
                 let nv = self.held_velocities[(n as usize).min(127)].clamp(0.05, 1.0);
-                (n, nv)
+                (n, (nv / 0.95).clamp(0.06, 1.08))
             }
             ArpMode::Down => {
                 let idx = (count - 1) - (step % count);
                 let n = sorted[idx];
                 let nv = self.held_velocities[(n as usize).min(127)].clamp(0.05, 1.0);
-                (n, nv)
+                (n, (nv / 0.95).clamp(0.06, 1.08))
             }
             ArpMode::Joropo => {
                 // Compás de 6 pulsos de Joropo Llanero (Bordón -> Tiple -> Medio -> Trancao -> Tiple -> Bordón)
@@ -243,15 +323,21 @@ impl TepuiArpeggiator {
                 } else {
                     (root + 7).min(108)
                 };
-                let (note, accent) = match step % 6 {
-                    0 => (if root >= 24 { root - 12 } else { root }, 0.98), // Bordón grave acentuado
-                    1 => (high, 0.78),                                      // Floreo agudo
-                    2 => (mid, 0.84),                                       // Cuerda media
-                    3 => (fifth, 0.95), // Acento de Trancao (pulso 4)
-                    4 => ((high + 12).min(108), 0.80), // Tiple octavado
-                    _ => (root, 0.88),  // Cierre de bordón
+                let note = match step % 6 {
+                    0 => {
+                        if root >= 24 {
+                            root - 12
+                        } else {
+                            root
+                        }
+                    } // Bordón grave acentuado
+                    1 => high,                 // Floreo agudo
+                    2 => mid,                  // Cuerda media
+                    3 => fifth,                // Acento de Trancao (pulso 4)
+                    4 => (high + 12).min(108), // Tiple octavado
+                    _ => root,                 // Cierre de bordón
                 };
-                (note, (accent * vel_scale).clamp(0.05, 1.0))
+                (note, vel_scale)
             }
             ArpMode::Merengue => {
                 // Compás de 5/8 Merengue Venezolano (1-2-3-4-5 con síncopa caraqueña en 1, 3 y 5)
@@ -263,16 +349,41 @@ impl TepuiArpeggiator {
                 } else {
                     (root + 4).min(108)
                 };
-                let (note, accent) = match step % 5 {
-                    0 => (root, 0.98),                 // Pulso 1 (Fuerte)
-                    1 => (second, 0.74),               // Pulso 2
-                    2 => (mid, 0.92),                  // Pulso 3 (Acento interno)
-                    3 => (high, 0.76),                 // Pulso 4
-                    _ => ((high + 12).min(108), 0.96), // Pulso 5 (Quinto asincopado venezolano)
+                let note = match step % 5 {
+                    0 => root,                 // Pulso 1 (Fuerte)
+                    1 => second,               // Pulso 2
+                    2 => mid,                  // Pulso 3 (Acento interno)
+                    3 => high,                 // Pulso 4
+                    _ => (high + 12).min(108), // Pulso 5 (Quinto asincopado venezolano)
                 };
-                (note, (accent * vel_scale).clamp(0.05, 1.0))
+                (note, vel_scale)
             }
+        };
+
+        let bar_idx = step % 12;
+        let bar_accent = if self.has_custom_accents {
+            self.custom_step_accents[bar_idx].clamp(0.05, 1.0)
+        } else {
+            Self::default_accents_for_mode(self.mode)[bar_idx]
+        };
+
+        let final_vel = (bar_accent * note_vel_scale).clamp(0.05, 1.0);
+        self.last_step_velocity = final_vel;
+        (note_out, final_vel)
+    }
+
+    /// Avanza el temporizador de Gate del paso actual y retorna `Some(note)` cuando debe liberarse la nota antes del siguiente paso.
+    #[inline]
+    pub fn advance_gate_off(&mut self, frames: usize) -> Option<u8> {
+        if self.mode == ArpMode::Off || self.gate_samples_remaining == 0 || frames == 0 {
+            return None;
         }
+        if frames >= self.gate_samples_remaining {
+            self.gate_samples_remaining = 0;
+            return self.last_sounding_note.take();
+        }
+        self.gate_samples_remaining -= frames;
+        None
     }
 
     /// Avanza el reloj del arpegiador por `frames` muestras y retorna un `ArpStepEvent` si corresponde disparar un paso.
@@ -290,7 +401,13 @@ impl TepuiArpeggiator {
             }
             let (note_on, velocity) = self.compute_step_note(&sorted, count);
             let prev_note_off = self.last_sounding_note.replace(note_on);
-            self.samples_until_step = self.step_duration_samples();
+            let step_dur = self.step_duration_samples();
+            let consumed = if frames > 1 { frames } else { 0 };
+            self.samples_until_step = step_dur.saturating_sub(consumed);
+            // Gate musical del 76% de la duración del paso para articulación rítmica nítida
+            self.gate_samples_remaining = ((step_dur as f32 * 0.76).round() as usize)
+                .saturating_sub(consumed)
+                .max(32);
             self.steps_triggered_count = self.steps_triggered_count.wrapping_add(1);
             return Some(ArpStepEvent {
                 note_on,
