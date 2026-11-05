@@ -4371,21 +4371,11 @@ function initAudioSettingsModal() {
         });
       }
 
-      // Populate Input Devices
+      // Populate Input Devices (Sintetizador puro: siempre desactivado para evitar error WASAPI 0-ch)
       const selectIn = document.getElementById('select-input-device');
       if (selectIn) {
-        selectIn.innerHTML = '<option value="">Desactivado (Recomendado)</option>';
-        if (data.input_devices) {
-          data.input_devices.forEach((dev) => {
-            const opt = document.createElement('option');
-            opt.value = dev.name;
-            opt.innerText = `${dev.name} (${dev.channels}ch)`;
-            if (data.active_input_device && data.active_input_device === dev.name) {
-              opt.selected = true;
-            }
-            selectIn.appendChild(opt);
-          });
-        }
+        selectIn.innerHTML = '<option value="" selected>Desactivado (Sintetizador — 0 canales de entrada)</option>';
+        selectIn.value = '';
       }
 
       // Dynamic Sample Rate based on selected output device hardware capabilities
@@ -4417,7 +4407,7 @@ function initAudioSettingsModal() {
       function getModalConfig() {
         return {
           output_device: selectOut && selectOut.value ? selectOut.value : null,
-          input_device: selectIn && selectIn.value ? selectIn.value : null,
+          input_device: null,
           sample_rate: selectSr ? parseInt(selectSr.value, 10) : 48000,
           period_size: selectBuf ? parseInt(selectBuf.value, 10) : 1056,
           midi_input: selectMidi && selectMidi.value ? selectMidi.value : null,

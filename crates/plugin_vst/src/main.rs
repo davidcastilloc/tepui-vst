@@ -167,33 +167,31 @@ fn main() {
         args.push("wasapi".to_string());
     }
 
-    // 7. Dispositivo de entrada de audio
-    let has_input_arg = args.iter().any(|a| a == "--input-device");
-    if !has_input_arg {
-        if let Some(ref saved_in) = saved_config.input_device {
-            println!(
-                "[TEPUI AUDIO] Usando dispositivo de entrada configurado: {}",
-                saved_in
-            );
-            args.push("--input-device".to_string());
-            args.push(saved_in.clone());
+    // 7. Protección anti-crash WASAPI: AiSamplerPlugin es un sintetizador/instrumento puro
+    //    con `main_input_channels: None` (0 canales de entrada). Si se pasa `--input-device`
+    //    a `nih_plug`, CPAL intenta abrir el dispositivo de entrada con 0 canales y WASAPI
+    //    aborta con: "The audio input device does not support 0 audio channels".
+    //    Por tanto, jamás pasamos `--input-device` y filtramos cualquier flag residual.
+    let mut sanitized_args = Vec::with_capacity(args.len());
+    let mut skip_next = false;
+    for arg in args {
+        if skip_next {
+            skip_next = false;
+            continue;
         }
-    }
-
-    // 8. Dispositivo de entrada MIDI
-    let has_midi_arg = args.iter().any(|a| a == "--midi-input");
-    if !has_midi_arg {
-        if let Some(ref saved_midi) = saved_config.midi_input {
-            println!(
-                "[TEPUI AUDIO] Usando dispositivo MIDI configurado: {}",
-                saved_midi
-            );
-            args.push("--midi-input".to_string());
-            args.push(saved_midi.clone());
+        if arg == "--input-device" {
+            skip_next = true;
+            continue;
         }
+        if arg.starts_with("--input-device=") {
+            continue;
+        }
+        sanitized_args.push(arg);
     }
+    let args = sanitized_args;
 
-    // 9. Pre-calentar caché de estado de dispositivos de audio/MIDI antes de abrir la ventana GUI
+    // 8. Pre-calentar caché de estado de dispositivos de audio/MIDI antes de abrir la ventana GUI
+    //    (El enrutador MIDI USB en caliente `init_hardware_midi_router` ya gestiona la entrada MIDI con fallback seguro).
     let _ = audio_devices::enumerate_audio_system(&saved_config);
 
     nih_plug::wrapper::standalone::nih_export_standalone_with_args::<AiSamplerPlugin, _>(args);

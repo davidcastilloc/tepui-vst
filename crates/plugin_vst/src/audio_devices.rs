@@ -234,20 +234,28 @@ pub fn get_config_path() -> PathBuf {
 
 /// Carga la configuración guardada de audio o devuelve la configuración por defecto.
 pub fn load_config() -> StandaloneAudioConfig {
-    // 1. Intentar cargar del directorio local
-    let local = PathBuf::from("standalone_config.json");
-    if local.exists() {
-        if let Ok(content) = fs::read_to_string(&local) {
-            if let Ok(cfg) = serde_json::from_str::<StandaloneAudioConfig>(&content) {
+    // 1. Intentar cargar de %LOCALAPPDATA%\Tepui\standalone_config.json (ruta canónica)
+    let appdata = get_config_path();
+    if appdata.exists() {
+        if let Ok(content) = fs::read_to_string(&appdata) {
+            if let Ok(mut cfg) = serde_json::from_str::<StandaloneAudioConfig>(&content) {
+                if cfg.input_device.is_some() {
+                    cfg.input_device = None;
+                    let _ = save_config(&cfg);
+                }
                 return cfg;
             }
         }
     }
-    // 2. Intentar cargar de %LOCALAPPDATA%\Tepui\standalone_config.json
-    let appdata = get_config_path();
-    if appdata.exists() {
-        if let Ok(content) = fs::read_to_string(&appdata) {
-            if let Ok(cfg) = serde_json::from_str::<StandaloneAudioConfig>(&content) {
+    // 2. Fallback: intentar cargar del directorio local
+    let local = PathBuf::from("standalone_config.json");
+    if local.exists() {
+        if let Ok(content) = fs::read_to_string(&local) {
+            if let Ok(mut cfg) = serde_json::from_str::<StandaloneAudioConfig>(&content) {
+                if cfg.input_device.is_some() {
+                    cfg.input_device = None;
+                    let _ = save_config(&cfg);
+                }
                 return cfg;
             }
         }
@@ -257,7 +265,10 @@ pub fn load_config() -> StandaloneAudioConfig {
 
 /// Guarda la configuración de audio seleccionada en disco garantizando sincronización total.
 pub fn save_config(config: &StandaloneAudioConfig) -> std::io::Result<()> {
-    let json = serde_json::to_string_pretty(config)?;
+    let mut clean_cfg = config.clone();
+    // Sintetizador puro (0 canales de entrada): nunca persistir dispositivo de entrada de audio
+    clean_cfg.input_device = None;
+    let json = serde_json::to_string_pretty(&clean_cfg)?;
 
     // 1. Guardar en %LOCALAPPDATA%\Tepui\standalone_config.json
     let appdata_path = get_config_path();
@@ -266,13 +277,15 @@ pub fn save_config(config: &StandaloneAudioConfig) -> std::io::Result<()> {
     }
     let _ = fs::write(&appdata_path, &json);
 
-    // 2. Guardar también en el directorio local
+    // 2. Guardar también en el directorio local si ya existe
     let local_path = PathBuf::from("standalone_config.json");
-    let _ = fs::write(&local_path, &json);
+    if local_path.exists() {
+        let _ = fs::write(&local_path, &json);
+    }
 
     println!(
         "[TEPUI CONFIG] Configuración guardada en disco exitosamente: {:?}",
-        config
+        clean_cfg
     );
     Ok(())
 }
@@ -389,7 +402,8 @@ pub fn enumerate_audio_system(active_config: &StandaloneAudioConfig) -> AudioSys
     }
 
     let active_out = active_config.output_device.clone().or(default_output);
-    let active_in = active_config.input_device.clone().or(default_input);
+    // Sintetizador puro (main_input_channels: None): nunca activar un dispositivo de entrada por defecto
+    let active_in: Option<String> = None;
     let active_midi = active_config
         .midi_input
         .clone()
@@ -514,5 +528,22 @@ mod tests {
         } else {
             panic!("Expected PitchBend");
         }
+    }
+
+    #[test]
+    fn test_standalone_config_strips_input_device_to_prevent_wasapi_0ch_crash() {
+        let dirty_cfg = StandaloneAudioConfig {
+            output_device: None,
+            input_device: Some("CABLE Output (VB-Audio Virtual Cable)".to_string()),
+            sample_rate: 48000,
+            period_size: 1056,
+            midi_input: None,
+        };
+        save_config(&dirty_cfg).expect("save_config should succeed");
+        let loaded = load_config();
+        assert!(
+            loaded.input_device.is_none(),
+            "load_config/save_config must strip input_device so 0-input WASAPI never crashes"
+        );
     }
 }
