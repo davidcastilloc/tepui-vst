@@ -2,6 +2,16 @@
 
 Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
 
+## [1.16.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.15.1...v1.16.0) (2026-11-05)
+
+### Nuevas Funcionalidades (Features)
+
+* **dsp,ui:** primitivas lock-free RT, automatizacion DAW completa, arpegiador de 12 pasos y contrato exhaustivo UI-DSP ([d4a5086](https://github.com/davidcastilloc/tepui-vst/commit/d4a50864f7c6cca5fe7592db8fc837176ecc9985))
+
+# Changelog
+
+Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
+
 ## [1.15.1](https://github.com/davidcastilloc/tepui-vst/compare/v1.15.0...v1.15.1) (2026-11-04)
 
 ### Correcciones de Errores (Bug Fixes)
