@@ -110,6 +110,7 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=3 -o Acquire::http::Timeout=15 update
           sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=3 -o Acquire::http::Timeout=15 install -y --no-install-recommends \
             libasound2-dev \
+            libjack-jackd2-dev \
             libwebkit2gtk-4.1-dev \
             libgtk-3-dev \
             libxdo-dev \
