@@ -2,6 +2,16 @@
 
 Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
 
+## [1.17.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.16.1...v1.17.0) (2026-11-06)
+
+### Nuevas Funcionalidades (Features)
+
+* **synth:** add glide/MPE, mod env2, 16-step ratchet arp, granular/ladder/comb/formant filters, and MIDI learn ([ec040f2](https://github.com/davidcastilloc/tepui-vst/commit/ec040f2e245c65b29c8df6c6e031e613e8433c73))
+
+# Changelog
+
+Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
+
 ## [1.16.1](https://github.com/davidcastilloc/tepui-vst/compare/v1.16.0...v1.16.1) (2026-11-05)
 
 ### Correcciones de Errores (Bug Fixes)
