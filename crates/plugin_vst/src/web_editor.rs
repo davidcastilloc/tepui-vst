@@ -118,6 +118,14 @@ struct ParamValues {
     filter_keytrack: f32,
     arp_step_accents: [f32; 16],
     macros: [f32; 4],
+    glide_mode: u8,
+    env2_target: u8,
+    env2_depth: f32,
+    env_curve: f32,
+    arp_rate_div: u8,
+    arp_step_count: u8,
+    granular_mode: u8,
+    midi_cc_map: Vec<(u8, i32)>,
 }
 
 #[derive(Debug, Serialize)]
@@ -200,6 +208,16 @@ struct OddMetrics {
     custom_wt_draws: u32,
     custom_wt_active: bool,
     hardware_midi_events: u32,
+    glide_transitions: u32,
+    mpe_poly_events: u32,
+    env2_dsp_frames: u32,
+    arp_ratchet_hits: u32,
+    granular_dsp_frames: u32,
+    advanced_filter_frames: u32,
+    midi_learn_armed_param: i32,
+    midi_learn_bindings_count: u32,
+    last_learned_cc: i32,
+    wav_drag_exports_count: u32,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -806,6 +824,16 @@ pub fn build_init_state_json(
         custom_wt_draws: live_params.get_custom_wavetable_draws(),
         custom_wt_active: live_params.is_custom_wavetable_active(),
         hardware_midi_events: crate::audio_devices::hardware_midi_events_count(),
+        glide_transitions: live_params.get_glide_transitions(),
+        mpe_poly_events: live_params.get_mpe_poly_events(),
+        env2_dsp_frames: live_params.get_env2_dsp_frames(),
+        arp_ratchet_hits: live_params.get_arp_ratchet_hits(),
+        granular_dsp_frames: live_params.get_granular_dsp_frames(),
+        advanced_filter_frames: live_params.get_advanced_filter_frames(),
+        midi_learn_armed_param: live_params.get_midi_learn_armed_param(),
+        midi_learn_bindings_count: live_params.get_midi_learn_bindings_count(),
+        last_learned_cc: live_params.get_last_learned_cc(),
+        wav_drag_exports_count: live_params.get_wav_drag_exports(),
     };
     let preset_store = load_persisted_preset_store();
 
@@ -818,12 +846,7 @@ pub fn build_init_state_json(
             release: live_params.get_release(),
             cutoff: live_params.get_cutoff(),
             resonance: live_params.get_resonance(),
-            filter_mode: match live_params.get_filter_mode() {
-                synth_core::FilterMode::Lowpass => 0,
-                synth_core::FilterMode::Highpass => 1,
-                synth_core::FilterMode::Bandpass => 2,
-                synth_core::FilterMode::Bypass => 3,
-            },
+            filter_mode: live_params.get_filter_mode().to_index() as i32,
             gain: live_params.get_gain(),
             space_mix: live_params.get_space_mix(),
             root_note: effective_root,
@@ -845,6 +868,14 @@ pub fn build_init_state_json(
             filter_keytrack: live_params.get_filter_keytrack(),
             arp_step_accents: live_params.get_arp_step_accents(),
             macros: live_params.get_macros(),
+            glide_mode: live_params.get_glide_mode(),
+            env2_target: live_params.get_env2_target(),
+            env2_depth: live_params.get_env2_depth(),
+            env_curve: live_params.get_env_curve(),
+            arp_rate_div: live_params.get_arp_rate_div(),
+            arp_step_count: live_params.get_arp_step_count(),
+            granular_mode: live_params.get_granular_mode(),
+            midi_cc_map: live_params.export_midi_cc_map(),
         },
         normalized: ParamNormalized {
             attack: params.attack.preview_normalized(live_params.get_attack()),
@@ -908,12 +939,7 @@ pub fn build_telemetry_json(
             release: live_params.get_release(),
             cutoff: live_params.get_cutoff(),
             resonance: live_params.get_resonance(),
-            filter_mode: match live_params.get_filter_mode() {
-                synth_core::FilterMode::Lowpass => 0,
-                synth_core::FilterMode::Highpass => 1,
-                synth_core::FilterMode::Bandpass => 2,
-                synth_core::FilterMode::Bypass => 3,
-            },
+            filter_mode: live_params.get_filter_mode().to_index() as i32,
             gain: live_params.get_gain(),
             space_mix: live_params.get_space_mix(),
             root_note: effective_root,
@@ -935,6 +961,14 @@ pub fn build_telemetry_json(
             filter_keytrack: live_params.get_filter_keytrack(),
             arp_step_accents: live_params.get_arp_step_accents(),
             macros: live_params.get_macros(),
+            glide_mode: live_params.get_glide_mode(),
+            env2_target: live_params.get_env2_target(),
+            env2_depth: live_params.get_env2_depth(),
+            env_curve: live_params.get_env_curve(),
+            arp_rate_div: live_params.get_arp_rate_div(),
+            arp_step_count: live_params.get_arp_step_count(),
+            granular_mode: live_params.get_granular_mode(),
+            midi_cc_map: live_params.export_midi_cc_map(),
         },
         normalized: ParamNormalized {
             attack: params.attack.preview_normalized(live_params.get_attack()),
@@ -1019,6 +1053,16 @@ pub fn build_telemetry_json(
             custom_wt_draws: live_params.get_custom_wavetable_draws(),
             custom_wt_active: live_params.is_custom_wavetable_active(),
             hardware_midi_events: crate::audio_devices::hardware_midi_events_count(),
+            glide_transitions: live_params.get_glide_transitions(),
+            mpe_poly_events: live_params.get_mpe_poly_events(),
+            env2_dsp_frames: live_params.get_env2_dsp_frames(),
+            arp_ratchet_hits: live_params.get_arp_ratchet_hits(),
+            granular_dsp_frames: live_params.get_granular_dsp_frames(),
+            advanced_filter_frames: live_params.get_advanced_filter_frames(),
+            midi_learn_armed_param: live_params.get_midi_learn_armed_param(),
+            midi_learn_bindings_count: live_params.get_midi_learn_bindings_count(),
+            last_learned_cc: live_params.get_last_learned_cc(),
+            wav_drag_exports_count: live_params.get_wav_drag_exports(),
         },
     };
     serde_json::to_string(&msg).unwrap_or_else(|_| "{}".to_string())
@@ -1350,7 +1394,7 @@ pub fn set_param_from_client(
             live_params.bump_revision();
         }
         "filter_mode" => {
-            let mode = (norm_val.round() as i32).clamp(0, 3);
+            let mode = (norm_val.round() as i32).clamp(0, 6);
             live_params.set_filter_mode(mode);
             live_params.bump_revision();
             if let Some(tx) = gui_param_tx {
@@ -1824,6 +1868,175 @@ pub(crate) fn handle_native_ipc_message(
         }
     }
 
+    // 4a-glide. Ultra-fast compact path: "glide,<0|1|2>" (Glide / Portamento & Legato mode)
+    let glide_rest = trimmed
+        .strip_prefix("glide,")
+        .or_else(|| trimmed.strip_prefix("glide:"));
+    if let Some(rest) = glide_rest {
+        if let Ok(v) = rest.trim().parse::<u8>() {
+            live_params.set_glide_mode(v.clamp(0, 2));
+            live_params.bump_gui_param_sync();
+            live_params.bump_revision();
+            return;
+        }
+    }
+
+    // 4a-pat. Ultra-fast compact path: "pat,<note>,<pressure>" (MPE Polyphonic Aftertouch)
+    let pat_rest = trimmed
+        .strip_prefix("pat,")
+        .or_else(|| trimmed.strip_prefix("pat:"));
+    if let Some(rest) = pat_rest {
+        let mut parts = rest.split(',');
+        if let (Some(n_str), Some(p_str)) = (parts.next(), parts.next()) {
+            if let (Ok(note), Ok(pressure)) =
+                (n_str.trim().parse::<u8>(), p_str.trim().parse::<f32>())
+            {
+                live_params.bump_midi_cc_events();
+                live_params.bump_revision();
+                let _ = gui_midi_tx
+                    .try_send(GuiMidiEvent::PolyAftertouch(note, pressure.clamp(0.0, 1.0)));
+                return;
+            }
+        }
+    }
+
+    // 4a-npb. Ultra-fast compact path: "npb,<note>,<semitones>" (MPE Per-Note Pitch Bend)
+    let npb_rest = trimmed
+        .strip_prefix("npb,")
+        .or_else(|| trimmed.strip_prefix("npb:"));
+    if let Some(rest) = npb_rest {
+        let mut parts = rest.split(',');
+        if let (Some(n_str), Some(b_str)) = (parts.next(), parts.next()) {
+            if let (Ok(note), Ok(semitones)) =
+                (n_str.trim().parse::<u8>(), b_str.trim().parse::<f32>())
+            {
+                live_params.bump_midi_cc_events();
+                live_params.bump_revision();
+                let _ = gui_midi_tx.try_send(GuiMidiEvent::NotePitchBend(
+                    note,
+                    semitones.clamp(-48.0, 48.0),
+                ));
+                return;
+            }
+        }
+    }
+
+    // 4a-cc. Ultra-fast compact path: "cc,<cc>,<0..1>" (MIDI CC & Live MIDI Learn)
+    let cc_rest = trimmed
+        .strip_prefix("cc,")
+        .or_else(|| trimmed.strip_prefix("cc:"));
+    if let Some(rest) = cc_rest {
+        let mut parts = rest.split(',');
+        if let (Some(c_str), Some(v_str)) = (parts.next(), parts.next()) {
+            if let (Ok(cc), Ok(val)) = (c_str.trim().parse::<u8>(), v_str.trim().parse::<f32>()) {
+                let clamped = val.clamp(0.0, 1.0);
+                live_params.bump_midi_cc_events();
+                let _ = live_params.apply_or_learn_midi_cc(cc & 0x7F, clamped);
+                return;
+            }
+        }
+    }
+
+    // 4a-env2. Ultra-fast compact path: "env2,<target>,<depth>" (Filter / Mod Env 2)
+    let env2_rest = trimmed
+        .strip_prefix("env2,")
+        .or_else(|| trimmed.strip_prefix("env2:"));
+    if let Some(rest) = env2_rest {
+        let mut parts = rest.split(',');
+        if let (Some(t_str), Some(d_str)) = (parts.next(), parts.next()) {
+            if let (Ok(target), Ok(depth)) =
+                (t_str.trim().parse::<u8>(), d_str.trim().parse::<f32>())
+            {
+                live_params.set_env2_params(target.min(2), depth.clamp(-1.0, 1.0));
+                live_params.bump_gui_param_sync();
+                live_params.bump_revision();
+                return;
+            }
+        } else if let Ok(target) = rest.trim().parse::<u8>() {
+            let cur_depth = live_params.get_env2_depth();
+            let next_depth = if cur_depth.abs() < 0.05 {
+                0.75
+            } else {
+                cur_depth
+            };
+            live_params.set_env2_params(target.min(2), next_depth);
+            live_params.bump_gui_param_sync();
+            live_params.bump_revision();
+            return;
+        }
+    }
+
+    // 4a-envcrv. Ultra-fast compact path: "envcrv,<-1..1>" (ADSR Stage Curvature Tension)
+    let envcrv_rest = trimmed
+        .strip_prefix("envcrv,")
+        .or_else(|| trimmed.strip_prefix("envcrv:"));
+    if let Some(rest) = envcrv_rest {
+        if let Ok(tension) = rest.trim().parse::<f32>() {
+            live_params.set_env_curve(tension.clamp(-1.0, 1.0));
+            live_params.bump_gui_param_sync();
+            live_params.bump_revision();
+            return;
+        }
+    }
+
+    // 4a-arprate. Ultra-fast compact path: "arprate,<0..4>" (Arp Rate Subdivision 1/4, 1/8, 1/16, 1/8T, 1/16D)
+    let arprate_rest = trimmed
+        .strip_prefix("arprate,")
+        .or_else(|| trimmed.strip_prefix("arprate:"));
+    if let Some(rest) = arprate_rest {
+        if let Ok(div) = rest.trim().parse::<u8>() {
+            live_params.set_arp_rate_div(div.min(4));
+            live_params.bump_gui_param_sync();
+            live_params.bump_revision();
+            return;
+        }
+    }
+
+    // 4a-arpseq. Ultra-fast compact path: "arpseq,<12|16>" (16-Step MSEG / Ratchet Sequencer Mode)
+    let arpseq_rest = trimmed
+        .strip_prefix("arpseq,")
+        .or_else(|| trimmed.strip_prefix("arpseq:"));
+    if let Some(rest) = arpseq_rest {
+        if let Ok(steps) = rest.trim().parse::<u8>() {
+            live_params.set_arp_step_count(if steps >= 16 { 16 } else { 12 });
+            live_params.bump_gui_param_sync();
+            live_params.bump_revision();
+            return;
+        }
+    }
+
+    // 4a-gran. Ultra-fast compact path: "gran,<0|1|2>" (Sampler Granular Cloud / Freeze Mode)
+    let gran_rest = trimmed
+        .strip_prefix("gran,")
+        .or_else(|| trimmed.strip_prefix("gran:"));
+    if let Some(rest) = gran_rest {
+        if let Ok(mode) = rest.trim().parse::<u8>() {
+            live_params.set_granular_mode(mode.min(2));
+            live_params.bump_gui_param_sync();
+            live_params.bump_revision();
+            return;
+        }
+    }
+
+    // 4a-midilearn. Ultra-fast compact path: "midi_learn:<param_id>" (Right-Click / Button MIDI Learn Arm)
+    let ml_rest = trimmed
+        .strip_prefix("midi_learn:")
+        .or_else(|| trimmed.strip_prefix("midi_learn,"));
+    if let Some(rest) = ml_rest {
+        live_params.arm_midi_learn_by_name(rest.trim());
+        live_params.bump_gui_param_sync();
+        live_params.bump_revision();
+        return;
+    }
+
+    // 4a-dragwav. Ultra-fast compact path: "drag_wav_export" (OLED Drag-and-Drop / Quick Clip Export)
+    if trimmed == "drag_wav_export" || trimmed.starts_with("drag_wav_export:") {
+        live_params.bump_wav_drag_exports();
+        live_params.bump_patch_io_count();
+        live_params.bump_revision();
+        return;
+    }
+
     // 4a-rec. Ultra-fast compact path: "rec,start" | "rec,stop" (Grabadora Master en Vivo)
     let rec_rest = trimmed
         .strip_prefix("rec,")
@@ -1965,7 +2178,7 @@ pub(crate) fn handle_native_ipc_message(
                 live_params.set_resonance(v.clamp(0.1, 10.0));
             }
             if let Some(v) = p.filter_mode {
-                live_params.set_filter_mode(v.clamp(0, 3));
+                live_params.set_filter_mode(v.clamp(0, 6));
             }
             if let Some(v) = p.gain {
                 live_params.set_gain(v.clamp(0.0, 2.0));
@@ -2695,9 +2908,9 @@ impl Editor for WebViewEditor {
                                         .unwrap()
                                 }
                             }
-                        } else if path.ends_with("api/export-wav") {
+                        } else if path.ends_with("api/export-wav") || path.ends_with("api/export-clip") {
                             let sample = ai_worker_proto.get_sample();
-                            let wav_bytes = synth_core::encode_wav_f32(&sample);
+                            let wav_bytes = live_params_proto.export_trimmed_wav_bytes(&sample);
                             Response::builder()
                                 .header(CONTENT_TYPE, "audio/wav")
                                 .header("Access-Control-Allow-Origin", "*")

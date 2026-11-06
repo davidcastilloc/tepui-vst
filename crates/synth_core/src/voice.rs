@@ -78,11 +78,28 @@ pub struct Voice {
     pub base_ratio: f64,
     playback_ratio: f64,
 
+    // Expresividad Musical: Glide / Portamento Exponencial + MPE Per-Note Pitch Bend & Polyphonic Aftertouch
+    pub glide_current_note: f32,
+    pub glide_time_s: f32,
+    pub per_note_bend_semitones: f32,
+    pub poly_aftertouch: f32,
+    pub base_cutoff_hz: f32,
+
     pub adsr: AdsrEnvelope,
+    // Segunda Envolvente Dedicada (Filter / Pitch / Wavetable Mod Env 2)
+    pub env2: AdsrEnvelope,
+    pub env2_depth: f32,
+    pub env2_target: u8, // 0 = Cutoff, 1 = Pitch, 2 = Wavetable Pos
+    pub last_env2_value: f32,
+
     pub filter_l: StateVariableFilter,
     pub filter_r: StateVariableFilter,
     pub quality: ResamplingQuality,
     pub region_override: SampleRegionOverride,
+
+    // Motor Granular / Time-Stretching & Freeze (4 granos solapados con ventana Hann COLA, 0 asignaciones)
+    pub granular_mode: u8, // 0 = Off, 1 = Granular Cloud, 2 = Granular Freeze
+    grain_phases: [f32; 4],
 
     // Motor Wavetable 3D + Super-Unison + Sub-Oscillator + OSC B (FM A<-B) + Custom Drawn Wavetable estilo Vital / Serum (0 asignaciones)
     pub wt_pos: f32,
@@ -103,6 +120,8 @@ pub struct Voice {
 
 impl Voice {
     pub fn new(sample_rate: f32) -> Self {
+        let mut env2 = AdsrEnvelope::new(sample_rate);
+        env2.set_parameters(0.005, 0.24, 0.20, 0.28);
         Self {
             note: 0,
             velocity: 0.0,
@@ -112,11 +131,22 @@ impl Voice {
             playback_pos: 0.0,
             base_ratio: 1.0,
             playback_ratio: 1.0,
+            glide_current_note: 60.0,
+            glide_time_s: 0.0,
+            per_note_bend_semitones: 0.0,
+            poly_aftertouch: 0.0,
+            base_cutoff_hz: 20000.0,
             adsr: AdsrEnvelope::new(sample_rate),
+            env2,
+            env2_depth: 0.0,
+            env2_target: 0,
+            last_env2_value: 0.0,
             filter_l: StateVariableFilter::new(sample_rate),
             filter_r: StateVariableFilter::new(sample_rate),
             quality: ResamplingQuality::HermiteCubic,
             region_override: SampleRegionOverride::default(),
+            granular_mode: 0,
+            grain_phases: [0.0, 0.25, 0.50, 0.75],
             wt_pos: 0.0,
             wt_warp: 0.0,
             unison_voices: 1,
@@ -136,6 +166,7 @@ impl Voice {
     pub fn set_sample_rate(&mut self, sample_rate: f32) {
         self.sample_rate = sample_rate;
         self.adsr.set_sample_rate(sample_rate);
+        self.env2.set_sample_rate(sample_rate);
         self.filter_l.set_sample_rate(sample_rate);
         self.filter_r.set_sample_rate(sample_rate);
     }
@@ -154,11 +185,43 @@ impl Voice {
         root_note: u8,
         time_tag: u64,
     ) {
+        self.note_on_with_root_and_glide(
+            note, velocity, buffer, root_note, time_tag, None, 0.0, false,
+        );
+    }
+
+    /// Inicia una nota MIDI con soporte de Glide/Portamento exponencial y modo Legato (Single-Trigger).
+    #[allow(clippy::too_many_arguments)]
+    pub fn note_on_with_root_and_glide(
+        &mut self,
+        note: u8,
+        velocity: f32,
+        buffer: &SampleBuffer,
+        root_note: u8,
+        time_tag: u64,
+        from_note: Option<u8>,
+        glide_time_s: f32,
+        legato_retrigger: bool,
+    ) {
         self.note = note;
         self.velocity = velocity.clamp(0.0, 1.0);
         self.note_on_time = time_tag;
-        let (eff_start, _, _, _, _) = self.region_override.resolve(buffer);
-        self.playback_pos = eff_start.max(buffer.start_sample) as f64;
+        self.glide_time_s = glide_time_s.max(0.0);
+        self.per_note_bend_semitones = 0.0;
+        self.poly_aftertouch = 0.0;
+
+        if legato_retrigger && self.is_active && self.glide_time_s > 0.0005 {
+            // Preserve self.glide_current_note so mid-glide legato notes continue seamlessly without pitch jump
+        } else if self.glide_time_s > 0.0005 {
+            if let Some(prev_n) = from_note {
+                self.glide_current_note = prev_n as f32;
+            } else {
+                self.glide_current_note = note as f32;
+            }
+        } else {
+            self.glide_current_note = note as f32;
+        }
+
         self.base_ratio = calculate_playback_ratio(
             note,
             root_note,
@@ -168,10 +231,19 @@ impl Voice {
         );
         self.playback_ratio = self.base_ratio;
 
-        self.adsr.note_on();
-        self.filter_l.reset();
-        self.filter_r.reset();
-        self.is_active = true;
+        if legato_retrigger && self.is_active {
+            self.adsr.note_on_legato();
+            self.env2.note_on_legato();
+        } else {
+            let (eff_start, _, _, _, _) = self.region_override.resolve(buffer);
+            self.playback_pos = eff_start.max(buffer.start_sample) as f64;
+            self.grain_phases = [0.0, 0.25, 0.50, 0.75];
+            self.adsr.note_on();
+            self.env2.note_on();
+            self.filter_l.reset();
+            self.filter_r.reset();
+            self.is_active = true;
+        }
     }
 
     /// Recalcula el ratio base ante un cambio de `root_note` en vivo manteniendo el pitch bend actual.
@@ -196,11 +268,13 @@ impl Voice {
     /// Suelta la nota MIDI actual (Note Off)
     pub fn note_off(&mut self) {
         self.adsr.note_off();
+        self.env2.note_off();
     }
 
     /// Corta la nota rápidamente sin clicks para robo de voz
     pub fn kill(&mut self) {
         self.adsr.kill();
+        self.env2.kill();
     }
 
     /// Genera la siguiente muestra estéreo (Left, Right)
@@ -211,16 +285,57 @@ impl Voice {
         }
 
         let env_gain = self.adsr.process_sample();
+        let env2_val = self.env2.process_sample();
+        self.last_env2_value = env2_val;
         if !self.adsr.is_active() {
             self.is_active = false;
             return (0.0, 0.0);
         }
 
+        // 0a. Avance exponencial de Glide / Portamento hacia la nota objetivo
+        let target_note_f = self.note as f32;
+        if (self.glide_current_note - target_note_f).abs() > 1e-4 {
+            let glide_coeff = if self.glide_time_s > 0.0005 {
+                1.0 - (-1.0 / (self.glide_time_s * self.sample_rate.max(8000.0))).exp()
+            } else {
+                1.0
+            };
+            self.glide_current_note += (target_note_f - self.glide_current_note) * glide_coeff;
+        } else {
+            self.glide_current_note = target_note_f;
+        }
+
+        // 0b. Modulación de Pitch y Cutoff desde Glide + MPE Per-Note Bend + Polyphonic Aftertouch + Env 2
+        let env2_pitch_semi = if self.env2_target == 1 {
+            env2_val * self.env2_depth * 12.0
+        } else {
+            0.0
+        };
+        let voice_semi_offset = (self.glide_current_note - target_note_f)
+            + self.per_note_bend_semitones
+            + env2_pitch_semi;
+        let eff_playback_ratio = if voice_semi_offset.abs() > 1e-4 {
+            self.playback_ratio * (2.0_f64).powf((voice_semi_offset as f64) / 12.0)
+        } else {
+            self.playback_ratio
+        };
+
+        if (self.env2_target == 0 && self.env2_depth.abs() > 1e-4) || self.poly_aftertouch > 1e-4 {
+            let cut_octaves = (if self.env2_target == 0 {
+                env2_val * self.env2_depth * 3.0
+            } else {
+                0.0
+            }) + self.poly_aftertouch * 1.6;
+            let dyn_cut = (self.base_cutoff_hz * 2.0_f32.powf(cut_octaves)).clamp(20.0, 20000.0);
+            self.filter_l.set_cutoff(dyn_cut);
+            self.filter_r.set_cutoff(dyn_cut);
+        }
+
         // Manejo de recorte (trim) y bucles (looping) con crossfade suave anti-click
-        let (_, end_limit, loop_enabled, loop_start, loop_end) =
+        let (eff_start, end_limit, loop_enabled, loop_start, loop_end) =
             self.region_override.resolve(buffer);
 
-        let (raw_left, raw_right) = if loop_enabled && loop_end > loop_start {
+        let (mut raw_left, mut raw_right) = if loop_enabled && loop_end > loop_start {
             let loop_len = (loop_end - loop_start) as f64;
             let raw_xfade = if buffer.loop_crossfade > 0 {
                 buffer.loop_crossfade as f64
@@ -266,21 +381,76 @@ impl Voice {
             )
         };
 
-        // Avanzar el puntero de lectura y gestionar reinicio de bucle
-        self.playback_pos += self.playback_ratio;
+        // Síntesis Granular / Time-Stretch & Freeze (4 granos solapados con ventana Hann COLA)
+        if self.granular_mode > 0 && end_limit > eff_start + 64 {
+            let region_span = (end_limit - eff_start) as f64;
+            let grain_len = (0.042 * self.sample_rate.max(8000.0) as f64)
+                .clamp(64.0, (region_span * 0.45).max(64.0));
+            let grain_step = (eff_playback_ratio / grain_len) as f32;
+            let anchor_base = if self.granular_mode == 2 {
+                // Modo Freeze: si la voz ya avanzó dentro de la muestra congela su posición actual;
+                // si acaba de dispararse en el inicio, salta al núcleo armónico (35% de la región).
+                if self.playback_pos > eff_start as f64 + 16.0 {
+                    self.playback_pos
+                } else if loop_enabled && loop_end > loop_start + 32 {
+                    loop_start as f64 + (loop_end - loop_start) as f64 * 0.35
+                } else {
+                    eff_start as f64 + region_span * 0.35
+                }
+            } else {
+                self.playback_pos
+            };
+
+            const GRAIN_OFFSETS: [f64; 4] = [0.0, 0.17, 0.31, 0.47];
+            const GRAIN_PAN_L: [f32; 4] = [0.85, 0.62, 0.78, 0.55];
+            const GRAIN_PAN_R: [f32; 4] = [0.55, 0.78, 0.62, 0.85];
+            let mut gran_l = 0.0_f32;
+            let mut gran_r = 0.0_f32;
+
+            for g in 0..4 {
+                let ph = (self.grain_phases[g] + grain_step * (1.0 + g as f32 * 0.015)).fract();
+                self.grain_phases[g] = ph;
+                // Ventana Hann: w(ph) = 0.5 * (1 - cos(2*pi*ph))
+                let hann = 0.5 * (1.0 - (ph * std::f32::consts::TAU).cos());
+                let rel_offset = (ph as f64) * grain_len + GRAIN_OFFSETS[g] * grain_len;
+                let g_pos = eff_start as f64
+                    + ((anchor_base - eff_start as f64 + rel_offset) % region_span.max(1.0));
+                let gl = read_interpolated_sample(buffer, 0, g_pos, self.quality);
+                let gr = read_interpolated_sample(buffer, 1, g_pos, self.quality);
+                gran_l += gl * hann * GRAIN_PAN_L[g];
+                gran_r += gr * hann * GRAIN_PAN_R[g];
+            }
+            if self.granular_mode == 2 {
+                raw_left = gran_l * 0.82;
+                raw_right = gran_r * 0.82;
+            } else {
+                raw_left = raw_left * 0.32 + gran_l * 0.68;
+                raw_right = raw_right * 0.32 + gran_r * 0.68;
+            }
+        }
+
+        // Avanzar el puntero de lectura (en modo Freeze = 2 el cabezal permanece congelado;
+        // en modo Granular Time-Stretch = 1 el cabezal avanza a tasa temporal constante 0.48x independiente del pitch).
+        let pos_step = match self.granular_mode {
+            2 => 0.0,
+            1 => (buffer.sample_rate as f64 / self.sample_rate.max(8000.0) as f64) * 0.48,
+            _ => eff_playback_ratio,
+        };
+        self.playback_pos += pos_step;
         if loop_enabled && loop_end > loop_start && self.playback_pos >= loop_end as f64 {
             let loop_len = (loop_end - loop_start) as f64;
             self.playback_pos =
                 loop_start as f64 + ((self.playback_pos - loop_end as f64) % loop_len);
         }
 
-        // Aplicar curva dinámica musical exponencial de velocidad (rango dinámico > 30 dB entre ghost-notes y acentos)
+        // Aplicar curva dinámica musical exponencial de velocidad + expresión Polyphonic Aftertouch
         let vel_gain = if self.velocity <= 0.001 {
             0.0
         } else {
             (0.015 + 0.985 * self.velocity.clamp(0.0, 1.0).powf(1.85)).clamp(0.0, 1.0)
         };
-        let gain = env_gain * vel_gain;
+        let poly_at_boost = 1.0 + self.poly_aftertouch.clamp(0.0, 1.0) * 0.22;
+        let gain = env_gain * vel_gain * poly_at_boost;
         let mut sig_left = raw_left;
         let mut sig_right = raw_right;
 
@@ -288,8 +458,14 @@ impl Voice {
         let u_voices = self.unison_voices.clamp(1, 8);
         let fm_amt = self.fm_from_b.clamp(0.0, 1.0);
         let osc_b_lvl = self.osc_b_level.clamp(0.0, 1.0);
+        let env2_wt_mod = if self.env2_target == 2 {
+            env2_val * self.env2_depth * 0.65
+        } else {
+            0.0
+        };
+        let eff_wt_pos = (self.wt_pos + env2_wt_mod).clamp(0.0, 1.0);
         if self.custom_wt_active
-            || self.wt_pos > 0.001
+            || eff_wt_pos > 0.001
             || self.wt_warp > 0.001
             || u_voices > 1
             || self.sub_level > 0.001
@@ -297,7 +473,7 @@ impl Voice {
             || osc_b_lvl > 0.001
         {
             let sr = self.sample_rate.max(8000.0);
-            let bend_factor = (self.playback_ratio / self.base_ratio.max(1e-6)) as f32;
+            let bend_factor = (eff_playback_ratio / self.base_ratio.max(1e-6)) as f32;
             let base_freq = 440.0
                 * 2.0_f32.powf((self.note as f32 - 69.0) / 12.0)
                 * bend_factor.clamp(0.25, 4.0);
@@ -313,7 +489,7 @@ impl Voice {
 
             // 1. Super-Unison + 3D Wavetable Morphing (4 cuadros espectrales: Custom/Sub-Tri -> Saw -> Formant -> Metallic FM)
             if self.custom_wt_active
-                || self.wt_pos > 0.001
+                || eff_wt_pos > 0.001
                 || u_voices > 1
                 || fm_amt > 0.001
                 || osc_b_lvl > 0.001
@@ -322,7 +498,7 @@ impl Voice {
                 let mut uni_r = 0.0_f32;
                 let center = (u_voices as f32 - 1.0) * 0.5;
                 let detune_max_semi = self.unison_detune.clamp(0.0, 1.0) * 0.42; // hasta ±42 cents
-                let pos = self.wt_pos.clamp(0.0, 1.0);
+                let pos = eff_wt_pos;
 
                 for idx in 0..(u_voices as usize) {
                     let spread = if u_voices > 1 {

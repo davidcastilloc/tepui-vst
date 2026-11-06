@@ -87,6 +87,14 @@ const state = {
     sub_level: 0.0,
     drive_amount: 0.0,
     ott_amount: 0.0,
+    glide_time: 0.0,
+    glide_legato: false,
+    env2_depth: 0.35,
+    env2_target: 0,
+    env_curve: -0.65,
+    arp_rate_div: 1,
+    arp_step_count: 16,
+    granular_mode: 0,
     macros: [0.0, 0.0, 0.0, 0.0]
   },
   normalized: {
@@ -133,6 +141,8 @@ const state = {
   lastPlayedVelocity: 0.95,
   localVelocityEvents: 0,
   localWavZoneDrops: 0,
+  midiLearnArmedParam: null,
+  midiCcAssignments: {},
   waveform: []
 };
 
@@ -337,7 +347,13 @@ function refreshFooterOddText() {
     ? odd.last_detected_pitch_hz.toFixed(1)
     : (440.0 * Math.pow(2.0, ((state.params.root_note || 60) - 69) / 12.0)).toFixed(1);
   const aiPresets = odd.ai_presets_synthesized !== undefined ? odd.ai_presets_synthesized : genCnt;
-  footerText.innerText = `ODD // BACKEND: ${backend} • CLOUD: ${cloudCr}CR • SYNTH: ${durUs}µs (#${genCnt}) • AI-PATCH: #${aiPresets} • PITCH: ${pitchHz}Hz • CACHE: ${cacheHits}H/${cacheMiss}M • VEL: ${velPct}% • LFO: ${lfoMod}% • ROUTES: ${routes} • PRESETS: ${presets} • FAVS: ${favs} • MATRIX: ${matrix} • RESIZE: ${resizes} • DSP BLK: ${blk} • LIM: ${lim}`;
+  const glideCnt = odd.glide_transitions !== undefined ? odd.glide_transitions : (odd.glide_transitions_count || 0);
+  const mpeCnt = odd.mpe_poly_events !== undefined ? odd.mpe_poly_events : (odd.mpe_poly_events_count || 0);
+  const granFrames = odd.granular_dsp_frames || 0;
+  const advFlt = odd.advanced_filter_frames || 0;
+  const ratch = odd.arp_ratchet_hits !== undefined ? odd.arp_ratchet_hits : (odd.arp_ratchet_hits_count || 0);
+  const ccMaps = odd.midi_learn_bindings_count !== undefined ? odd.midi_learn_bindings_count : (odd.midi_cc_learned_count || 0);
+  footerText.innerText = `ODD // BACKEND: ${backend} • CLOUD: ${cloudCr}CR • SYNTH: ${durUs}µs (#${genCnt}) • AI-PATCH: #${aiPresets} • PITCH: ${pitchHz}Hz • CACHE: ${cacheHits}H/${cacheMiss}M • VEL: ${velPct}% • LFO: ${lfoMod}% • GLIDE: ${glideCnt} • MPE: ${mpeCnt} • GRAN: ${granFrames}f • FLT+: ${advFlt}f • RATCH: ${ratch} • CC-MAP: ${ccMaps} • ROUTES: ${routes} • PRESETS: ${presets} • FAVS: ${favs} • MATRIX: ${matrix} • RESIZE: ${resizes} • DSP BLK: ${blk} • LIM: ${lim}`;
 }
 
 function syncExpressionWheelsUI() {
@@ -420,6 +436,18 @@ function updateOddMetricsDisplay(odd) {
   const arpStepsEl = document.getElementById('arp-steps-count');
   if (arpStepsEl && odd.arp_steps_triggered !== undefined) {
     arpStepsEl.innerText = String(odd.arp_steps_triggered);
+  }
+
+  if (
+    (odd.midi_learn_armed_param === undefined || odd.midi_learn_armed_param < 0) &&
+    typeof odd.last_learned_cc === 'number' &&
+    odd.last_learned_cc >= 0 &&
+    state.midiLearnArmedParam
+  ) {
+    const learnedParam = state.midiLearnArmedParam;
+    state.midiCcAssignments[learnedParam] = odd.last_learned_cc;
+    state.midiLearnArmedParam = null;
+    syncMidiLearnUI();
   }
 
   if (!state.isDraggingWheel) {
@@ -531,6 +559,24 @@ function syncVitalSerumParamsToUI(p) {
   if (typeof p.unison_voices === 'number') updateUnisonVoicesUI(p.unison_voices);
   if (typeof p.fm_from_b === 'number') updateFmFromBUI(p.fm_from_b);
   if (typeof p.lfo_shape === 'number') updateLfoShapeUI(p.lfo_shape);
+  if (typeof p.granular_mode === 'number') updateGranularModeUI(p.granular_mode);
+  if (typeof p.env2_target === 'number' || typeof p.env2_depth === 'number') {
+    updateEnv2UI(p.env2_target !== undefined ? p.env2_target : state.params.env2_target, p.env2_depth !== undefined ? p.env2_depth : state.params.env2_depth);
+  }
+  if (typeof p.env_curve === 'number') updateEnvCurveUI(p.env_curve);
+  if (typeof p.arp_rate_div === 'number') updateArpRateUI(p.arp_rate_div);
+  if (typeof p.arp_step_count === 'number') updateArpStepsCountUI(p.arp_step_count);
+  if (typeof p.glide_time === 'number' || typeof p.glide_legato === 'boolean') {
+    updateGlideUI(p.glide_time || 0, !!p.glide_legato);
+  } else if (typeof p.glide_mode === 'number') {
+    if (p.glide_mode === 2) {
+      updateGlideUI(0.160, true);
+    } else if (p.glide_mode === 1) {
+      updateGlideUI(0.085, false);
+    } else {
+      updateGlideUI(0, false);
+    }
+  }
   if (typeof p.filter_keytrack === 'number') {
     const ktBtn = document.getElementById('btn-svf-keytrack');
     if (ktBtn) {
@@ -551,10 +597,31 @@ function syncVitalSerumParamsToUI(p) {
   }
   if (p.arp_custom_accents_active && Array.isArray(p.arp_step_accents) && p.arp_step_accents.length >= 12 && !state.isDraggingArpOled) {
     const curMode = state.params.arp_mode || 0;
-    const cleaned = p.arp_step_accents.slice(0, 12).map((v) => Math.max(0.05, Math.min(1.0, Number(v) || 0.85)));
+    const stepLen = state.params.arp_step_count === 16 ? 16 : 12;
+    const cleaned = p.arp_step_accents.slice(0, stepLen).map((v) => Math.max(0.05, Math.min(1.0, Number(v) || 0.85)));
     state.arpCustomBars = cleaned;
     if (!state.arpCustomPatterns) state.arpCustomPatterns = {};
     state.arpCustomPatterns[curMode] = [...cleaned];
+  }
+  if (Array.isArray(p.midi_cc_map)) {
+    const IDX_TO_PARAM = [
+      'cutoff', 'resonance', 'attack', 'decay', 'sustain', 'release',
+      'wt_pos', 'wt_warp', 'unison_detune', 'sub_level', 'lfo_rate', 'lfo_depth',
+      'drive', 'ott', 'space_mix', 'gain', 'macro1', 'macro2', 'macro3', 'macro4'
+    ];
+    const nextMap = {};
+    p.midi_cc_map.forEach((pair) => {
+      if (Array.isArray(pair) && pair.length >= 2) {
+        const cc = Number(pair[0]);
+        const pIdx = Number(pair[1]);
+        const pName = IDX_TO_PARAM[pIdx];
+        if (pName && cc >= 0 && cc < 128) {
+          nextMap[pName] = cc;
+        }
+      }
+    });
+    state.midiCcAssignments = nextMap;
+    syncMidiLearnUI();
   }
 }
 
@@ -787,7 +854,49 @@ function initKnobs() {
       updateKnobUI(paramId, defNorm);
       sendFastParam(paramId, defNorm);
     });
+
+    // Clic derecho (contextmenu): armar/desarmar MIDI Learn directo para este parámetro
+    container.addEventListener('contextmenu', (e) => {
+      if (e.shiftKey) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (state.midiLearnArmedParam === paramId) {
+        state.midiLearnArmedParam = null;
+        sendIpc('midi_learn:off');
+      } else {
+        state.midiLearnArmedParam = paramId;
+        sendIpc(`midi_learn:${paramId}`);
+        showParamHudTooltip(container, `MIDI LEARN → ${paramTitle}`, 'MUEVE UN CC FÍSICO (0..127)');
+        setTimeout(hideParamHudTooltip, 1300);
+      }
+      syncMidiLearnUI();
+    });
   });
+}
+
+function syncMidiLearnUI() {
+  const armed = state.midiLearnArmedParam;
+  document.querySelectorAll('.knob-container').forEach((container) => {
+    const pid = container.dataset.param;
+    container.classList.toggle('midi-learn-armed', armed === pid);
+    let badge = container.querySelector('.midi-cc-badge');
+    const assignedCc = state.midiCcAssignments && state.midiCcAssignments[pid];
+    if (assignedCc !== undefined && assignedCc >= 0) {
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'midi-cc-badge';
+        container.appendChild(badge);
+      }
+      badge.innerText = `CC#${assignedCc}`;
+    } else if (badge) {
+      badge.remove();
+    }
+  });
+  const btnLearn = document.getElementById('btn-midi-learn');
+  if (btnLearn) {
+    btnLearn.classList.toggle('active', !!armed);
+    btnLearn.innerText = armed ? `LEARN: ${armed.toUpperCase()}` : 'MIDI LEARN';
+  }
 }
 
 function getAccentClass(id) {
@@ -876,6 +985,94 @@ function formatKnobValue(id, norm) {
 
 const LFO_TARGET_LABELS = ['LFO → CUTOFF', 'LFO → VIBRATO', 'LFO → TREMOLO', 'LFO → OFF'];
 const LFO_SHAPE_LABELS = ['SINE', 'TRI', 'SAW', 'RAMP', 'SQR', 'S&H'];
+const GRANULAR_MODE_LABELS = ['GRAN:OFF', 'GRAN:CLOUD', 'GRAN:FREEZE'];
+const ARP_RATE_LABELS = ['1/4', '1/8', '1/16', '1/8T', '1/16D'];
+
+function updateGranularModeUI(granMode) {
+  const g = Math.max(0, Math.min(2, Math.round(Number(granMode) || 0)));
+  state.params.granular_mode = g;
+  const btn = document.getElementById('btn-granular-mode');
+  if (btn) {
+    btn.innerText = GRANULAR_MODE_LABELS[g] || 'GRAN:OFF';
+    btn.classList.toggle('active', g > 0);
+  }
+}
+
+function updateEnv2UI(targetInt, depthVal) {
+  const t = Math.max(0, Math.min(3, Math.round(Number(targetInt) || 0)));
+  const d = typeof depthVal === 'number' ? depthVal : (state.params.env2_depth || 0.35);
+  state.params.env2_target = t;
+  state.params.env2_depth = d;
+  const btn = document.getElementById('btn-env2-target');
+  if (btn) {
+    if (Math.abs(d) < 0.02 || t === 3) {
+      btn.innerText = 'ENV2:OFF';
+      btn.classList.remove('active');
+    } else {
+      const names = ['ENV2→CUT', 'ENV2→PIT', 'ENV2→WT'];
+      btn.innerText = names[t] || 'ENV2→CUT';
+      btn.classList.add('active');
+    }
+  }
+}
+
+function updateEnvCurveUI(curveVal) {
+  const c = Math.max(-1.0, Math.min(1.0, Number(curveVal) || 0.0));
+  state.params.env_curve = c;
+  const btn = document.getElementById('btn-env-curve');
+  if (btn) {
+    if (c < -0.2) {
+      btn.innerText = 'CRV:EXP';
+      btn.classList.add('active');
+    } else if (c > 0.2) {
+      btn.innerText = 'CRV:LOG';
+      btn.classList.add('active');
+    } else {
+      btn.innerText = 'CRV:LIN';
+      btn.classList.remove('active');
+    }
+  }
+}
+
+function updateArpRateUI(rateIdx) {
+  const r = Math.max(0, Math.min(4, Math.round(Number(rateIdx) || 1)));
+  state.params.arp_rate_div = r;
+  const btn = document.getElementById('btn-arp-rate');
+  if (btn) {
+    btn.innerText = ARP_RATE_LABELS[r] || '1/8';
+    btn.classList.toggle('active', r !== 1);
+  }
+}
+
+function updateArpStepsCountUI(stepsCount) {
+  const sc = Math.round(Number(stepsCount) || 16) >= 16 ? 16 : 12;
+  state.params.arp_step_count = sc;
+  const btn = document.getElementById('btn-arp-steps');
+  if (btn) {
+    btn.innerText = `${sc} STEPS`;
+    btn.classList.toggle('active', sc === 16);
+  }
+}
+
+function updateGlideUI(glideTimeS, legatoOn) {
+  const gt = Math.max(0.0, Math.min(2.0, Number(glideTimeS) || 0.0));
+  const leg = !!legatoOn;
+  state.params.glide_time = gt;
+  state.params.glide_legato = leg;
+  const btn = document.getElementById('btn-glide-legato');
+  if (btn) {
+    if (gt <= 0.002) {
+      btn.innerText = 'GLIDE:OFF';
+      btn.classList.remove('active');
+    } else if (leg) {
+      btn.innerText = `LEGATO ${Math.round(gt * 1000)}ms`;
+      btn.classList.add('active');
+    } else {
+      btn.innerText = `PORTA ${Math.round(gt * 1000)}ms`;
+      btn.classList.add('active');
+    }
+  }
+}
 
 function updateLfoTargetUI(targetInt) {
   const t = Math.max(0, Math.min(3, Math.round(Number(targetInt) || 0)));
@@ -951,23 +1148,67 @@ function updateLiveKnobModulationRings() {
 }
 
 // -------------------------------------------------------------
-// 5. FILTER MODE SWITCHER
+// 5. FILTER MODE & ADVANCED FILTER MODEL SWITCHER
 // -------------------------------------------------------------
 function initFilterModes() {
   document.querySelectorAll('.mode-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       const mode = parseInt(btn.dataset.mode, 10);
+      state.params.filter_mode = mode;
       updateFilterModeUI(mode);
       sendFastFilterMode(mode);
     });
   });
+
+  const modelBtn = document.getElementById('btn-svf-model');
+  if (modelBtn) {
+    const MODEL_CYCLE = [0, 4, 5, 6];
+    modelBtn.addEventListener('click', () => {
+      const cur = state.params.filter_mode || 0;
+      const curBase = cur >= 4 ? cur : 0;
+      const idx = MODEL_CYCLE.indexOf(curBase);
+      const next = MODEL_CYCLE[(idx + 1) % MODEL_CYCLE.length];
+      state.params.filter_mode = next;
+      updateFilterModeUI(next);
+      sendFastFilterMode(next);
+    });
+  }
 }
 
 function updateFilterModeUI(mode) {
+  const m = Math.max(0, Math.min(6, Math.round(Number(mode) || 0)));
+  state.params.filter_mode = m;
   document.querySelectorAll('.mode-btn').forEach((btn) => {
     const btnMode = parseInt(btn.dataset.mode, 10);
-    btn.classList.toggle('active', btnMode === mode);
+    btn.classList.toggle('active', btnMode === m);
   });
+  const modelBtn = document.getElementById('btn-svf-model');
+  const slopeBadge = document.getElementById('svf-slope-badge');
+  if (modelBtn) {
+    const labels = {
+      0: 'MODEL:SVF',
+      1: 'MODEL:SVF',
+      2: 'MODEL:SVF',
+      3: 'MODEL:BYP',
+      4: 'LADDER 24',
+      5: 'COMB K-S',
+      6: 'FORMANT'
+    };
+    modelBtn.innerText = labels[m] || 'MODEL:SVF';
+    modelBtn.classList.toggle('active', m >= 4);
+  }
+  if (slopeBadge) {
+    const slopes = {
+      0: '12/24 dB',
+      1: '12/24 dB',
+      2: '12 dB BP',
+      3: 'BYPASS',
+      4: 'MOOG 24dB',
+      5: 'COMB DLY',
+      6: 'A-E-I-O-U'
+    };
+    slopeBadge.innerText = slopes[m] || '12/24 dB';
+  }
 }
 
 // -------------------------------------------------------------
@@ -992,6 +1233,51 @@ function initOscilloscope() {
     loopBtn.addEventListener('click', () => {
       state.region.loop_enabled = !state.region.loop_enabled;
       sendFastRegion();
+    });
+  }
+
+  const granBtn = document.getElementById('btn-granular-mode');
+  if (granBtn) {
+    granBtn.addEventListener('click', () => {
+      const nextGran = ((state.params.granular_mode || 0) + 1) % 3;
+      updateGranularModeUI(nextGran);
+      sendIpc(`gran,${nextGran}`);
+      showParamHudTooltip(granBtn, 'GRANULAR ENGINE', GRANULAR_MODE_LABELS[nextGran]);
+      setTimeout(hideParamHudTooltip, 950);
+    });
+  }
+
+  const dragWavBtn = document.getElementById('btn-drag-wav');
+  if (dragWavBtn) {
+    const triggerQuickWavExport = async () => {
+      sendIpc('drag_wav_export');
+      try {
+        const resp = await fetch('/api/export-wav');
+        if (!resp.ok) return;
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const safeName = (state.sampleName || 'tepui_clip').toLowerCase().replace(/[^a-z0-9_-]+/g, '_');
+        a.href = url;
+        a.download = `${safeName}_oled_clip.wav`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+      } catch (_) {}
+    };
+    dragWavBtn.addEventListener('click', () => {
+      triggerQuickWavExport();
+    });
+    dragWavBtn.addEventListener('dragstart', (e) => {
+      sendIpc('drag_wav_export');
+      const safeName = (state.sampleName || 'tepui_clip').toLowerCase().replace(/[^a-z0-9_-]+/g, '_');
+      if (e.dataTransfer) {
+        e.dataTransfer.effectAllowed = 'copy';
+        const wavUrl = `${window.location.origin}/api/export-wav`;
+        e.dataTransfer.setData('DownloadURL', `audio/wav:${safeName}.wav:${wavUrl}`);
+        e.dataTransfer.setData('text/uri-list', wavUrl);
+      }
     });
   }
 
@@ -1322,7 +1608,7 @@ function startVisualizationLoop() {
     }
 
     // 2. Dirty-Flag para #oled-adsr: 0 redibujos redundantes en reposo si los faders no cambian
-    const adsrSig = `${state.oledTheme}|${layoutResizeGeneration}|${(state.normalized.attack || 0).toFixed(4)}|${(state.normalized.decay || 0).toFixed(4)}|${(state.normalized.sustain || 0).toFixed(4)}|${(state.normalized.release || 0).toFixed(4)}|${state.activeAdsrDragNode || ''}`;
+    const adsrSig = `${state.oledTheme}|${layoutResizeGeneration}|${(state.normalized.attack || 0).toFixed(4)}|${(state.normalized.decay || 0).toFixed(4)}|${(state.normalized.sustain || 0).toFixed(4)}|${(state.normalized.release || 0).toFixed(4)}|${state.params.env2_target || 0}|${(state.params.env2_depth || 0).toFixed(3)}|${(state.params.env_curve || 0).toFixed(3)}|${state.activeAdsrDragNode || ''}`;
     if (isPlaying || state.activeAdsrDragNode || adsrSig !== oledDirtyCache.adsrSig) {
       oledDirtyCache.adsrSig = adsrSig;
       drawAdsrOled();
@@ -1332,7 +1618,7 @@ function startVisualizationLoop() {
     drawLfoOled();
     const arpMode = state.params.arp_mode || 0;
     const arpBars = getArpBarsForMode(arpMode);
-    const arpSig = `${state.oledTheme}|${layoutResizeGeneration}|${arpMode}|${state.lastEditedArpStep}|${arpBars.join(',')}`;
+    const arpSig = `${state.oledTheme}|${layoutResizeGeneration}|${arpMode}|${state.params.arp_step_count || 12}|${state.params.arp_rate_div || 2}|${state.lastEditedArpStep}|${arpBars.join(',')}`;
     if (isPlaying || arpMode > 0 || arpSig !== oledDirtyCache.arpSig || (oledDirtyCache.frameTick % 4) === 0) {
       oledDirtyCache.arpSig = arpSig;
       drawArpOled();
@@ -1468,6 +1754,26 @@ function drawSvfOled() {
     const d = (xNorm - cPos) * 7.5;
     const resPeak = peakBoost * extraQ * Math.exp(-(d * d) * 3.8);
     if (m === 3) return 0.50; // Bypass
+    if (m === 4) { // Moog Ladder 24dB/oct 4-pole non-linear saturation
+      const base4 = 1.0 / (1.0 + Math.exp(d * 4.4));
+      const ladderRes = peakBoost * 1.38 * extraQ * Math.exp(-(d * d) * 5.2);
+      return Math.min(0.97, base4 * 0.62 + ladderRes);
+    }
+    if (m === 5) { // Karplus-Strong Tuned Comb Filter (multi-tooth harmonic interference)
+      const combPeriod = 6.0 + (1.0 - cPos) * 14.0;
+      const teeth = 0.5 + 0.5 * Math.cos((xNorm - cPos) * Math.PI * combPeriod);
+      const envDecay = 1.0 / (1.0 + Math.max(0, xNorm - cPos) * 2.4);
+      return Math.min(0.96, (0.18 + teeth * (0.48 + resNorm * 0.34)) * envDecay);
+    }
+    if (m === 6) { // Vocal Formant Filter (A-E-I-O-U 3-peak resonator)
+      const f1 = 0.18 + cPos * 0.22;
+      const f2 = 0.42 + cPos * 0.30;
+      const f3 = 0.72 + cPos * 0.18;
+      const p1 = Math.exp(-Math.pow((xNorm - f1) * 10.5, 2)) * 0.74;
+      const p2 = Math.exp(-Math.pow((xNorm - f2) * 9.5, 2)) * 0.64;
+      const p3 = Math.exp(-Math.pow((xNorm - f3) * 11.0, 2)) * 0.50;
+      return Math.min(0.96, 0.12 + (p1 + p2 + p3) * (0.75 + resNorm * 0.35));
+    }
     if (m === 0) { // Lowpass
       const base = 1.0 / (1.0 + Math.exp(d * 2.5));
       return Math.min(0.96, base * 0.56 + resPeak);
@@ -1581,7 +1887,7 @@ function drawSvfOled() {
   ctx.lineWidth = 1.35 * dpr;
   ctx.stroke();
 
-  // 4. Relleno y trazo principal de la respuesta Cytomic SVF
+  // 4. Relleno y trazo principal de la respuesta Cytomic SVF / Ladder / Comb / Formant
   const grad = ctx.createLinearGradient(0, 0, 0, botPlotY);
   grad.addColorStop(0, getOledPrimaryRgba(0.32));
   grad.addColorStop(0.65, getOledPrimaryRgba(0.08));
@@ -1702,7 +2008,7 @@ function drawSvfOled() {
   });
 
   // HUD telemetría superior izquierda
-  const modeNames = ['LP 24dB', 'HP 24dB', 'BP 12dB', 'BYPASS'];
+  const modeNames = ['LP 24dB', 'HP 24dB', 'BP 12dB', 'BYPASS', 'MOOG LADDER 24', 'COMB K-S', 'FORMANT A-E-I'];
   ctx.fillStyle = primaryHex;
   ctx.font = `bold ${Math.round(7.2 * dpr)}px monospace`;
   ctx.fillText(
@@ -1721,7 +2027,6 @@ function drawAdsrOled() {
   const h = canvas.height;
   if (w <= 0 || h <= 0) return;
 
-  const isAmberTheme = state.oledTheme !== 'emerald';
   const envHex = state.oledTheme === 'emerald' ? '#10b981' : '#ffaa00';
   const envRgba = (a) => state.oledTheme === 'emerald' ? `rgba(16, 185, 129, ${a})` : `rgba(255, 170, 0, ${a})`;
   const accHex = state.oledTheme === 'emerald' ? '#00ebff' : '#ffd166';
@@ -1733,6 +2038,7 @@ function drawAdsrOled() {
   const dNorm = state.normalized.decay !== undefined ? state.normalized.decay : 0.15;
   const sNorm = state.normalized.sustain !== undefined ? state.normalized.sustain : 0.8;
   const rNorm = state.normalized.release !== undefined ? state.normalized.release : 0.15;
+  const curveTension = state.params.env_curve !== undefined ? state.params.env_curve : -0.65;
 
   // Auto-Zoom Dinámico (Serum 2 / Vital Tier): las 4 etapas siempre ocupan el 92% del ancho del OLED
   const wA = 0.16 + aNorm * 0.34;
@@ -1805,13 +2111,14 @@ function drawAdsrOled() {
     }
   });
 
-  // 2. Relleno degradado bajo la envolvente ADSR
-  const c1x = x0 + (x1 - x0) * 0.42;
-  const c1y = topY + (botY - topY) * 0.18;
+  // 2. Relleno degradado bajo la envolvente ADSR con curvatura ajustable (EXP / LIN / LOG)
+  const bowBias = curveTension * 0.28;
+  const c1x = x0 + (x1 - x0) * 0.45;
+  const c1y = topY + (botY - topY) * (0.42 - bowBias);
   const c2x = x1 + (x2 - x1) * 0.38;
-  const c2y = ySus - (ySus - topY) * 0.12;
+  const c2y = ySus - (ySus - topY) * (0.35 + bowBias);
   const c3x = x3 + (x4 - x3) * 0.36;
-  const c3y = botY - (botY - ySus) * 0.12;
+  const c3y = botY - (botY - ySus) * (0.35 + bowBias);
 
   const grad = ctx.createLinearGradient(0, topY, 0, botY);
   grad.addColorStop(0, envRgba(0.36));
@@ -1827,6 +2134,27 @@ function drawAdsrOled() {
   ctx.closePath();
   ctx.fillStyle = grad;
   ctx.fill();
+
+  // 2.5 Overlay de Segunda Envolvente Dedicada (MOD ENV 2) en cian punteado
+  const env2Depth = state.params.env2_depth !== undefined ? state.params.env2_depth : 0.35;
+  if (Math.abs(env2Depth) > 0.02) {
+    const e2Top = topY + (1.0 - Math.min(1.0, Math.abs(env2Depth) * 0.92)) * (botY - topY) * 0.45;
+    const e2Sus = botY - (s * 0.65) * (botY - topY);
+    const e2x1 = x0 + (x1 - x0) * 0.68;
+    const e2x2 = e2x1 + (x2 - x1) * 0.72;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(0, 235, 255, 0.82)';
+    ctx.lineWidth = 1.35 * dpr;
+    ctx.setLineDash([3 * dpr, 2.5 * dpr]);
+    ctx.beginPath();
+    ctx.moveTo(x0, botY);
+    ctx.quadraticCurveTo(x0 + (e2x1 - x0) * 0.4, e2Top + (botY - e2Top) * 0.25, e2x1, e2Top);
+    ctx.quadraticCurveTo(e2x1 + (e2x2 - e2x1) * 0.35, e2Sus, e2x2, e2Sus);
+    ctx.lineTo(x3, e2Sus);
+    ctx.quadraticCurveTo(x3 + (x4 - x3) * 0.35, botY, x4, botY);
+    ctx.stroke();
+    ctx.restore();
+  }
 
   // 3. Trazo principal luminoso de la envolvente
   ctx.beginPath();
@@ -1932,11 +2260,14 @@ function drawAdsrOled() {
   ctx.fillText(`TOT:${fmtSec(totSec)}`, Math.max(x2 + 24 * dpr, w - 46 * dpr), h - 2.8 * dpr);
 
   // HUD Superior
+  const crvLabel = curveTension < -0.2 ? 'EXP' : (curveTension > 0.2 ? 'LOG' : 'LIN');
+  const env2Names = ['CUT', 'PIT', 'WT'];
+  const env2Lbl = Math.abs(env2Depth) > 0.02 ? `ENV2→${env2Names[state.params.env2_target || 0] || 'CUT'}` : 'ENV1 ONLY';
   ctx.fillStyle = accHex;
   ctx.font = `bold ${Math.round(6.8 * dpr)}px monospace`;
-  ctx.fillText(`AUTO-ZOOM ADSR • S:${Math.round(sNorm * 100)}%`, 6 * dpr, 10 * dpr);
-  ctx.fillStyle = envRgba(0.75);
-  ctx.fillText(`EXP CURVE`, w - 46 * dpr, 10 * dpr);
+  ctx.fillText(`ADSR (${crvLabel}) • S:${Math.round(sNorm * 100)}%`, 6 * dpr, 10 * dpr);
+  ctx.fillStyle = 'rgba(0, 235, 255, 0.88)';
+  ctx.fillText(env2Lbl, w - 58 * dpr, 10 * dpr);
 }
 
 function drawLfoOled() {
@@ -2095,19 +2426,30 @@ function drawLfoOled() {
 }
 
 const DEFAULT_ARP_PATTERNS = {
-  0: [0.78, 0.45, 0.62, 0.88, 0.50, 0.70, 0.94, 0.48, 0.66, 0.82, 0.56, 0.90],
-  1: [0.25, 0.40, 0.55, 0.70, 0.85, 1.00, 0.25, 0.40, 0.55, 0.70, 0.85, 1.00],
-  2: [1.00, 0.85, 0.70, 0.55, 0.40, 0.25, 1.00, 0.85, 0.70, 0.55, 0.40, 0.25],
-  3: [0.95, 0.48, 0.78, 0.92, 0.52, 0.86, 0.95, 0.48, 0.78, 0.92, 0.52, 0.86], // 6/8 SYNC
-  4: [0.96, 0.55, 0.82, 0.48, 0.90, 0.96, 0.55, 0.82, 0.48, 0.90, 0.75, 0.60], // 5/8 SYNC
+  0: [0.78, 0.45, 0.62, 0.88, 0.50, 0.70, 0.94, 0.48, 0.66, 0.82, 0.56, 0.90, 0.84, 0.52, 0.74, 0.92],
+  1: [0.25, 0.40, 0.55, 0.70, 0.85, 1.00, 0.25, 0.40, 0.55, 0.70, 0.85, 1.00, 0.35, 0.58, 0.78, 0.96],
+  2: [1.00, 0.85, 0.70, 0.55, 0.40, 0.25, 1.00, 0.85, 0.70, 0.55, 0.40, 0.25, 0.92, 0.72, 0.50, 0.30],
+  3: [0.95, 0.48, 0.78, 0.92, 0.52, 0.86, 0.95, 0.48, 0.78, 0.92, 0.52, 0.86, 0.95, 0.50, 0.82, 0.90], // 6/8 SYNC
+  4: [0.96, 0.55, 0.82, 0.48, 0.90, 0.96, 0.55, 0.82, 0.48, 0.90, 0.75, 0.60, 0.94, 0.54, 0.80, 0.66], // 5/8 SYNC
 };
 
-const ARP_PITCH_OFFSETS = [0, 4, 7, 12, 7, 12, 0, 3, 7, 10, 12, 15];
+const ARP_PITCH_OFFSETS = [0, 4, 7, 12, 7, 12, 0, 3, 7, 10, 12, 15, 0, 7, 12, 19];
 
 function getArpBarsForMode(mode) {
   if (!state.arpCustomPatterns) state.arpCustomPatterns = {};
+  const targetLen = (state.params.arp_step_count === 16) ? 16 : 12;
+  const fullDefault = DEFAULT_ARP_PATTERNS[mode] || DEFAULT_ARP_PATTERNS[3];
   if (!state.arpCustomPatterns[mode]) {
-    state.arpCustomPatterns[mode] = [...(DEFAULT_ARP_PATTERNS[mode] || DEFAULT_ARP_PATTERNS[3])];
+    state.arpCustomPatterns[mode] = fullDefault.slice(0, targetLen);
+  } else if (state.arpCustomPatterns[mode].length !== targetLen) {
+    if (targetLen === 16 && state.arpCustomPatterns[mode].length < 16) {
+      while (state.arpCustomPatterns[mode].length < 16) {
+        const idx = state.arpCustomPatterns[mode].length;
+        state.arpCustomPatterns[mode].push(fullDefault[idx] || 0.80);
+      }
+    } else if (targetLen === 12 && state.arpCustomPatterns[mode].length > 12) {
+      state.arpCustomPatterns[mode] = state.arpCustomPatterns[mode].slice(0, 12);
+    }
   }
   return state.arpCustomPatterns[mode];
 }
@@ -2146,9 +2488,9 @@ function drawArpOled() {
   const maxBarH = botY - topPlotY;
   const availW = w - padX * 2;
   const slotW = availW / numBars;
-  const barW = Math.max(4 * dpr, slotW * 0.64);
+  const barW = Math.max(3.2 * dpr, slotW * 0.64);
 
-  // 1. Grilla horizontal de velocidad (25%, 50%, 75%, 100%) y divisores de compás (6/8 o 4/4)
+  // 1. Grilla horizontal de velocidad (25%, 50%, 75%, 100%) y divisores de compás (6/8, 5/8 o 16-step 4/4)
   ctx.lineWidth = 1;
   [0.25, 0.5, 0.75, 1.0].forEach((lvl) => {
     const gy = botY - lvl * maxBarH;
@@ -2156,14 +2498,14 @@ function drawArpOled() {
     ctx.beginPath(); ctx.moveTo(padX, gy); ctx.lineTo(w - padX, gy); ctx.stroke();
   });
 
-  const groupSize = mode === 4 ? 5 : 3;
+  const groupSize = numBars === 16 ? 4 : (mode === 4 ? 5 : 3);
   for (let i = 0; i <= numBars; i += groupSize) {
     const gx = padX + i * slotW;
     ctx.strokeStyle = 'rgba(255, 170, 0, 0.18)';
     ctx.beginPath(); ctx.moveTo(gx, topPlotY - 2 * dpr); ctx.lineTo(gx, botY); ctx.stroke();
   }
 
-  // 2. Columnas LED segmentadas + Línea de Gate + Nodos de Transposición por paso
+  // 2. Columnas LED segmentadas + Línea de Gate + Ratchet sub-ticks + Nodos de Transposición por paso
   const pitchPts = [];
   const numSegs = 10;
 
@@ -2174,6 +2516,7 @@ function drawArpOled() {
     const by = botY - bh;
     const isHit = i === activeStep || i === state.lastEditedArpStep;
     const isAccentBeat = (i % groupSize) === 0;
+    const hasRatchet = numBars === 16 && (i === 3 || i === 7 || i === 11 || i === 15);
 
     // Halo de columna activa (Playhead Laser)
     if (isHit) {
@@ -2201,9 +2544,15 @@ function drawArpOled() {
       ctx.fillRect(bx, sy, barW, sh);
     }
 
-    // Tapa Peak-Hold luminosa en la cima del paso
-    ctx.fillStyle = isHit ? '#ffffff' : arpAccHex;
-    ctx.fillRect(bx, by, barW, Math.max(1.6 * dpr, 2.0 * dpr));
+    // Tapa Peak-Hold luminosa en la cima del paso (dividida en 2 sub-pulsos si tiene Ratchet 2x)
+    ctx.fillStyle = isHit ? '#ffffff' : (hasRatchet ? arpCyanHex : arpAccHex);
+    if (hasRatchet) {
+      const subW = Math.max(1 * dpr, (barW - 1.2 * dpr) * 0.5);
+      ctx.fillRect(bx, by, subW, Math.max(1.8 * dpr, 2.2 * dpr));
+      ctx.fillRect(bx + subW + 1.2 * dpr, by, subW, Math.max(1.8 * dpr, 2.2 * dpr));
+    } else {
+      ctx.fillRect(bx, by, barW, Math.max(1.6 * dpr, 2.0 * dpr));
+    }
 
     // Sub-barra horizontal de Gate Length en la base del paso
     const gateW = barW * (isAccentBeat ? 0.92 : 0.68);
@@ -2219,7 +2568,7 @@ function drawArpOled() {
     });
   }
 
-  // 3. Curva de trayectoria melódica conectando las cimas de los 12 pasos
+  // 3. Curva de trayectoria melódica conectando las cimas de los 12/16 pasos
   ctx.beginPath();
   pitchPts.forEach((pt, idx) => {
     if (idx === 0) ctx.moveTo(pt.x, pt.y);
@@ -2236,28 +2585,29 @@ function drawArpOled() {
     ctx.fill();
   });
 
-  // 4. Regla inferior numerada (01..12) y HUD superior
+  // 4. Regla inferior numerada (01..12 o 01..16) y HUD superior
   ctx.fillStyle = 'rgba(6, 4, 2, 0.94)';
   ctx.fillRect(0, h - rulerH, w, rulerH);
   ctx.strokeStyle = 'rgba(255, 170, 0, 0.25)';
   ctx.beginPath(); ctx.moveTo(0, h - rulerH); ctx.lineTo(w, h - rulerH); ctx.stroke();
 
-  ctx.font = `bold ${Math.round(5.6 * dpr)}px monospace`;
+  ctx.font = `bold ${Math.round(5.3 * dpr)}px monospace`;
   for (let i = 0; i < numBars; i++) {
-    const bx = padX + i * slotW + slotW * 0.5 - 3.5 * dpr;
+    const bx = padX + i * slotW + slotW * 0.5 - 3.2 * dpr;
     const isHit = i === activeStep;
     ctx.fillStyle = isHit ? '#ffffff' : (i % groupSize === 0 ? arpAccHex : 'rgba(217, 119, 6, 0.75)');
     const numStr = (i + 1) < 10 ? `0${i + 1}` : `${i + 1}`;
     ctx.fillText(numStr, bx, h - 2.8 * dpr);
   }
 
-  const titleMap = ['4/4 MANUAL', 'ARP UP • 12-STEP', 'ARP DOWN • 12-STEP', 'JOROPO 6/8 SYNC', 'MERENGUE 5/8 SYNC'];
+  const rateLbl = ARP_RATE_LABELS[state.params.arp_rate_div || 1] || '1/8';
+  const titleMap = ['4/4 MANUAL', `ARP UP • ${numBars}ST`, `ARP DOWN • ${numBars}ST`, 'JOROPO 6/8 SYNC', 'MERENGUE 5/8 SYNC'];
   ctx.fillStyle = arpHex;
-  ctx.font = `bold ${Math.round(6.8 * dpr)}px monospace`;
-  ctx.fillText(titleMap[mode] || 'JOROPO 6/8 SYNC', 6 * dpr, 10 * dpr);
+  ctx.font = `bold ${Math.round(6.6 * dpr)}px monospace`;
+  ctx.fillText(`${titleMap[mode] || 'JOROPO 6/8'} (${rateLbl})`, 6 * dpr, 10 * dpr);
   ctx.fillStyle = arpCyanHex;
   const stepVelPct = Math.round((bars[activeStep] !== undefined ? bars[activeStep] : 0.85) * 100);
-  ctx.fillText(`STEP ${activeStep + 1 < 10 ? '0' + (activeStep + 1) : activeStep + 1}/12 • VEL ${stepVelPct}%`, w - 88 * dpr, 10 * dpr);
+  ctx.fillText(`STEP ${activeStep + 1 < 10 ? '0' + (activeStep + 1) : activeStep + 1}/${numBars} • VEL ${stepVelPct}%`, w - 92 * dpr, 10 * dpr);
 }
 
 function drawReverbOled() {
@@ -2660,11 +3010,27 @@ function drawOscilloscope() {
       ctx.shadowBlur = 0;
     }
 
-    // HUD 3D Superior Derecho indicando Frame Activo y Morfología (sin rozar Z-LOW / Z-MID / Z-HIGH abajo)
+    // HUD 3D Superior Derecho indicando Frame Activo, Granular Mode y Morfología
     const activeFrameNum = Math.min(16, Math.max(1, Math.round(wtPos * 15) + 1));
+    const granMode = state.params.granular_mode || 0;
+    if (granMode > 0) {
+      const anchorNorm = Math.max(0.1, Math.min(0.9, wtPos));
+      for (let g = 0; g < 4; g++) {
+        const gPhase = ((animPhase * (granMode === 2 ? 0.55 : 0.35) + g * 0.25) % 1.0 + 1.0) % 1.0;
+        const hannWin = 0.5 * (1.0 - Math.cos(gPhase * Math.PI * 2));
+        const gx = Math.max(0.05, Math.min(0.95, anchorNorm + (gPhase - 0.5) * (granMode === 2 ? 0.08 : 0.24)));
+        const gz = 0.20 + (g / 3) * 0.60;
+        const gpt = isoProject(gx, gz, 0.35 + hannWin * 0.38);
+        ctx.fillStyle = granMode === 2 ? `rgba(56, 189, 248, ${(0.25 + hannWin * 0.65).toFixed(2)})` : `rgba(255, 170, 0, ${(0.25 + hannWin * 0.65).toFixed(2)})`;
+        ctx.beginPath();
+        ctx.arc(gpt.x, gpt.y, (2.2 + hannWin * 3.8) * dpr, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
     ctx.fillStyle = secondaryHex;
     ctx.font = `bold ${Math.round(6.4 * dpr)}px monospace`;
-    ctx.fillText(`3D TEPUI MESA • FRM ${activeFrameNum}/16`, w - 108 * dpr, 20 * dpr);
+    const granTag = granMode === 2 ? ' • FREEZE' : (granMode === 1 ? ' • 4-GRAIN' : '');
+    ctx.fillText(`3D TEPUI MESA • FRM ${activeFrameNum}/16${granTag}`, w - 126 * dpr, 20 * dpr);
     ctx.restore();
     return;
   }
@@ -2905,6 +3271,64 @@ function initInteractiveOleds() {
       const step = KEY_STEPS[keyIdx];
       btnSvfKey.innerText = step.label;
       sendIpc('kt,' + step.val.toFixed(2));
+    });
+  }
+
+  // Botones de Segunda Envolvente Dedicada (MOD ENV 2) y Curvatura de Etapas (EXP/LIN/LOG)
+  const btnEnv2 = document.getElementById('btn-env2-target');
+  if (btnEnv2) {
+    const ENV2_PRESETS = [
+      { target: 0, depth: 0.65 },
+      { target: 1, depth: 0.55 },
+      { target: 2, depth: 0.72 },
+      { target: 0, depth: 0.00 }
+    ];
+    let env2StepIdx = 0;
+    btnEnv2.addEventListener('click', () => {
+      env2StepIdx = (env2StepIdx + 1) % ENV2_PRESETS.length;
+      const p = ENV2_PRESETS[env2StepIdx];
+      updateEnv2UI(p.target, p.depth);
+      sendIpc(`env2,${p.target},${p.depth.toFixed(2)}`);
+      oledDirtyCache.adsrSig = '';
+      drawAdsrOled();
+    });
+  }
+
+  const btnEnvCurve = document.getElementById('btn-env-curve');
+  if (btnEnvCurve) {
+    const CURVE_STEPS = [-0.65, 0.00, 0.65];
+    let curveIdx = 0;
+    btnEnvCurve.addEventListener('click', () => {
+      curveIdx = (curveIdx + 1) % CURVE_STEPS.length;
+      const nextCrv = CURVE_STEPS[curveIdx];
+      updateEnvCurveUI(nextCrv);
+      sendIpc(`envcrv,${nextCrv.toFixed(2)}`);
+      oledDirtyCache.adsrSig = '';
+      drawAdsrOled();
+    });
+  }
+
+  // Botones de Subdivisión Rítmica (1/4, 1/8, 1/16, 1/8T, 1/16D) y 12/16 Pasos del Secuenciador
+  const btnArpRate = document.getElementById('btn-arp-rate');
+  if (btnArpRate) {
+    btnArpRate.addEventListener('click', () => {
+      const nextRate = ((state.params.arp_rate_div !== undefined ? state.params.arp_rate_div : 1) + 1) % 5;
+      updateArpRateUI(nextRate);
+      sendIpc(`arprate,${nextRate}`);
+      oledDirtyCache.arpSig = '';
+      drawArpOled();
+    });
+  }
+
+  const btnArpSteps = document.getElementById('btn-arp-steps');
+  if (btnArpSteps) {
+    btnArpSteps.addEventListener('click', () => {
+      const nextSteps = (state.params.arp_step_count === 16) ? 12 : 16;
+      updateArpStepsCountUI(nextSteps);
+      sendIpc(`arpseq,${nextSteps}`);
+      syncArpPatternToDsp(state.params.arp_mode || 0);
+      oledDirtyCache.arpSig = '';
+      drawArpOled();
     });
   }
 
@@ -3500,6 +3924,44 @@ function initKeyboardEvents() {
     });
   }
 
+  // Botón Glide / Portamento Exponencial y Modo Legato
+  const glideBtn = document.getElementById('btn-glide-legato');
+  if (glideBtn) {
+    const GLIDE_MODES = [
+      { modeIdx: 0, time: 0.000, legato: false },
+      { modeIdx: 1, time: 0.085, legato: false },
+      { modeIdx: 2, time: 0.140, legato: true }
+    ];
+    let glideStep = 0;
+    glideBtn.addEventListener('click', () => {
+      glideStep = (glideStep + 1) % GLIDE_MODES.length;
+      const g = GLIDE_MODES[glideStep];
+      updateGlideUI(g.time, g.legato);
+      sendIpc(`glide,${g.modeIdx}`);
+      refreshFooterOddText();
+    });
+  }
+
+  // Botón MIDI Learn directo en la barra de teclado
+  const midiLearnBtn = document.getElementById('btn-midi-learn');
+  if (midiLearnBtn) {
+    const LEARN_CYCLE_PARAMS = ['cutoff', 'resonance', 'wt_pos', 'wt_warp', 'drive', 'ott', 'macro1', null];
+    let learnIdx = -1;
+    midiLearnBtn.addEventListener('click', () => {
+      learnIdx = (learnIdx + 1) % LEARN_CYCLE_PARAMS.length;
+      const targetParam = LEARN_CYCLE_PARAMS[learnIdx];
+      state.midiLearnArmedParam = targetParam;
+      if (targetParam) {
+        sendIpc(`midi_learn:${targetParam}`);
+        showParamHudTooltip(midiLearnBtn, `MIDI LEARN → ${targetParam.toUpperCase()}`, 'CLIC DERECHO EN CUALQUIER PERILLA O MUEVE CC');
+        setTimeout(hideParamHudTooltip, 1300);
+      } else {
+        sendIpc('midi_learn:off');
+      }
+      syncMidiLearnUI();
+    });
+  }
+
   // Arrastre vertical y rueda de ratón en #vel-badge para ajuste continuo de Velocity
   const velBadge = document.getElementById('vel-badge');
   if (velBadge) {
@@ -3695,17 +4157,31 @@ function handlePointerNote(e) {
 
   if (keyEl && keyEl.dataset.midi) {
     const note = parseInt(keyEl.dataset.midi, 10);
-    // Calcular velocidad interactiva de rango completo según altura del clic (Top=15%, Bottom=100%)
+    // Calcular velocidad y expresión MPE Poly Aftertouch / Per-Note Pitch Bend según posición en la tecla
     const rect = keyEl.getBoundingClientRect();
     const relY = rect.height > 0
       ? Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height))
       : 0.9;
+    const relX = rect.width > 0
+      ? Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+      : 0.5;
     const vel = Math.max(0.15, Math.min(1.0, 0.15 + relY * 0.85));
 
     if (note !== activeMouseNote) {
-      if (activeMouseNote !== null) releaseNote(activeMouseNote);
+      if (activeMouseNote !== null && !state.params.glide_legato) {
+        releaseNote(activeMouseNote);
+      }
+      const prevNote = activeMouseNote;
       activeMouseNote = note;
       pressNote(note, vel);
+      if (prevNote !== null && state.params.glide_legato) {
+        releaseNote(prevNote);
+      }
+    } else if (e.shiftKey || Math.abs(relX - 0.5) > 0.18) {
+      // MPE Expression en vivo al deslizar dentro de la tecla activa: Aftertouch vertical + Per-Note Bend horizontal
+      const noteBend = (relX - 0.5) * 2.0;
+      sendIpc(`pat,${note},${vel.toFixed(3)}`);
+      sendIpc(`npb,${note},${noteBend.toFixed(3)}`);
     }
   } else if (activeMouseNote !== null) {
     releaseNote(activeMouseNote);

@@ -19,7 +19,7 @@ pub mod voice;
 pub mod voice_manager;
 pub mod wav;
 
-pub use arp::{ArpMode, ArpStepEvent, TepuiArpeggiator};
+pub use arp::{ArpMode, ArpRateDivision, ArpStepEvent, TepuiArpeggiator};
 pub use buffer::{PianoRollPrepReport, SampleBuffer, SharedSampleBuffer};
 pub use envelope::{AdsrEnvelope, AdsrStage};
 pub use filter::{FilterMode, StateVariableFilter};

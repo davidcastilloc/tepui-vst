@@ -69,6 +69,11 @@ pub fn parse_hardware_midi_packet(bytes: &[u8]) -> Option<GuiMidiEvent> {
             let note = bytes[1] & 0x7F;
             Some(GuiMidiEvent::NoteOff(note))
         }
+        0xA0 if bytes.len() >= 3 => {
+            let note = bytes[1] & 0x7F;
+            let pressure = ((bytes[2] & 0x7F) as f32 / 127.0).clamp(0.0, 1.0);
+            Some(GuiMidiEvent::PolyAftertouch(note, pressure))
+        }
         0xB0 if bytes.len() >= 3 => {
             let cc = bytes[1] & 0x7F;
             let raw_val = bytes[2] & 0x7F;
@@ -78,7 +83,7 @@ pub fn parse_hardware_midi_packet(bytes: &[u8]) -> Option<GuiMidiEvent> {
                 11 | 74 => Some(GuiMidiEvent::BrightnessCC74(norm)),
                 64 => Some(GuiMidiEvent::SustainPedal(raw_val >= 64)),
                 120 | 123 => Some(GuiMidiEvent::AllNotesOff),
-                _ => None,
+                _ => Some(GuiMidiEvent::MidiCC(cc, norm)),
             }
         }
         0xD0 if bytes.len() >= 2 => {
@@ -513,6 +518,24 @@ mod tests {
             assert!((b - (64.0 / 127.0)).abs() < 1e-3);
         } else {
             panic!("Expected BrightnessCC74");
+        }
+
+        // General CC (e.g. CC#21 for MIDI Learn / Hardware Knob)
+        if let Some(GuiMidiEvent::MidiCC(cc, val)) = parse_hardware_midi_packet(&[0xB0, 21, 96]) {
+            assert_eq!(cc, 21);
+            assert!((val - (96.0 / 127.0)).abs() < 1e-3);
+        } else {
+            panic!("Expected MidiCC(21, ..)");
+        }
+
+        // Polyphonic Aftertouch (0xA0)
+        if let Some(GuiMidiEvent::PolyAftertouch(note, pat)) =
+            parse_hardware_midi_packet(&[0xA0, 60, 110])
+        {
+            assert_eq!(note, 60);
+            assert!((pat - (110.0 / 127.0)).abs() < 1e-3);
+        } else {
+            panic!("Expected PolyAftertouch");
         }
 
         // Channel Pressure / Aftertouch

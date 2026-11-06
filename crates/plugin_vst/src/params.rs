@@ -9,8 +9,8 @@ use nih_plug::params::persist::PersistentField;
 use nih_plug::prelude::*;
 use serde::{Deserialize, Serialize};
 use synth_core::{
-    base64_decode, base64_encode, encode_wav_f32, ArpMode, FilterMode, LfoShape, LfoTarget,
-    SampleBuffer, SampleRegionOverride, SeqLockArray, StereoFxRack, VoiceManager,
+    base64_decode, base64_encode, encode_wav_f32, ArpMode, ArpRateDivision, FilterMode, LfoShape,
+    LfoTarget, SampleBuffer, SampleRegionOverride, SeqLockArray, StereoFxRack, VoiceManager,
 };
 
 /// Capacidad máxima prealocada para grabación Master en vivo (~15 segundos a 48 kHz estéreo).
@@ -133,6 +133,12 @@ fn default_filter_keytrack() -> f32 {
 fn default_arp_step_accents() -> [f32; 16] {
     [1.0; 16]
 }
+fn default_arp_rate_div() -> u8 {
+    2
+}
+fn default_arp_step_count() -> u8 {
+    12
+}
 
 /// Formato de archivo de Patch autocontenido `.tepui` para guardar y compartir instrumentos completos.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -200,6 +206,22 @@ pub struct TepuiPatch {
     pub arp_custom_accents_active: bool,
     #[serde(default = "default_arp_step_accents")]
     pub arp_step_accents: [f32; 16],
+    #[serde(default)]
+    pub glide_mode: u8,
+    #[serde(default)]
+    pub env2_target: u8,
+    #[serde(default)]
+    pub env2_depth: f32,
+    #[serde(default)]
+    pub env_curve: f32,
+    #[serde(default = "default_arp_rate_div")]
+    pub arp_rate_div: u8,
+    #[serde(default = "default_arp_step_count")]
+    pub arp_step_count: u8,
+    #[serde(default)]
+    pub granular_mode: u8,
+    #[serde(default)]
+    pub midi_cc_map: Vec<(u8, i32)>,
 }
 
 impl TepuiPatch {
@@ -263,6 +285,14 @@ impl TepuiPatch {
             custom_wt_cycle,
             arp_custom_accents_active: live_params.is_arp_custom_accents_active(),
             arp_step_accents: live_params.get_arp_step_accents(),
+            glide_mode: live_params.get_glide_mode(),
+            env2_target: live_params.get_env2_target(),
+            env2_depth: live_params.get_env2_depth(),
+            env_curve: live_params.get_env_curve(),
+            arp_rate_div: live_params.get_arp_rate_div(),
+            arp_step_count: live_params.get_arp_step_count(),
+            granular_mode: live_params.get_granular_mode(),
+            midi_cc_map: live_params.export_midi_cc_map(),
         }
     }
 
@@ -330,6 +360,13 @@ impl TepuiPatch {
         } else {
             live_params.clear_arp_custom_accents();
         }
+        live_params.set_glide_mode(self.glide_mode);
+        live_params.set_env2_params(self.env2_target, self.env2_depth);
+        live_params.set_env_curve(self.env_curve);
+        live_params.set_arp_rate_div(self.arp_rate_div);
+        live_params.set_arp_step_count(self.arp_step_count);
+        live_params.set_granular_mode(self.granular_mode);
+        live_params.restore_midi_cc_map(&self.midi_cc_map);
         live_params.bump_patch_io_count();
         live_params.bump_revision();
         Ok(())
@@ -387,6 +424,22 @@ pub struct PersistedSamplerSession {
     pub arp_custom_accents_active: bool,
     #[serde(default = "default_arp_step_accents")]
     pub arp_step_accents: [f32; 16],
+    #[serde(default)]
+    pub glide_mode: u8,
+    #[serde(default)]
+    pub env2_target: u8,
+    #[serde(default)]
+    pub env2_depth: f32,
+    #[serde(default)]
+    pub env_curve: f32,
+    #[serde(default = "default_arp_rate_div")]
+    pub arp_rate_div: u8,
+    #[serde(default = "default_arp_step_count")]
+    pub arp_step_count: u8,
+    #[serde(default)]
+    pub granular_mode: u8,
+    #[serde(default)]
+    pub midi_cc_map: Vec<(u8, i32)>,
 }
 
 impl Default for PersistedSamplerSession {
@@ -420,6 +473,14 @@ impl Default for PersistedSamplerSession {
             custom_wt_cycle: Vec::new(),
             arp_custom_accents_active: false,
             arp_step_accents: [1.0; 16],
+            glide_mode: 0,
+            env2_target: 0,
+            env2_depth: 0.0,
+            env_curve: 0.0,
+            arp_rate_div: 2,
+            arp_step_count: 12,
+            granular_mode: 0,
+            midi_cc_map: Vec::new(),
         }
     }
 }
@@ -484,6 +545,14 @@ impl SessionPersistField {
             };
             guard.arp_custom_accents_active = self.live_params.is_arp_custom_accents_active();
             guard.arp_step_accents = self.live_params.get_arp_step_accents();
+            guard.glide_mode = self.live_params.get_glide_mode();
+            guard.env2_target = self.live_params.get_env2_target();
+            guard.env2_depth = self.live_params.get_env2_depth();
+            guard.env_curve = self.live_params.get_env_curve();
+            guard.arp_rate_div = self.live_params.get_arp_rate_div();
+            guard.arp_step_count = self.live_params.get_arp_step_count();
+            guard.granular_mode = self.live_params.get_granular_mode();
+            guard.midi_cc_map = self.live_params.export_midi_cc_map();
         }
     }
 }
@@ -530,6 +599,15 @@ impl<'a> PersistentField<'a, PersistedSamplerSession> for SessionPersistField {
         } else {
             self.live_params.clear_arp_custom_accents();
         }
+        self.live_params.set_glide_mode(new_value.glide_mode);
+        self.live_params
+            .set_env2_params(new_value.env2_target, new_value.env2_depth);
+        self.live_params.set_env_curve(new_value.env_curve);
+        self.live_params.set_arp_rate_div(new_value.arp_rate_div);
+        self.live_params
+            .set_arp_step_count(new_value.arp_step_count);
+        self.live_params.set_granular_mode(new_value.granular_mode);
+        self.live_params.restore_midi_cc_map(&new_value.midi_cc_map);
         self.live_params.bump_persistence_restores();
         self.live_params.bump_revision();
 
@@ -767,7 +845,7 @@ impl SamplerParams {
             filter_mode: IntParam::new(
                 "Filter Mode",
                 0, // 0 = Lowpass
-                IntRange::Linear { min: 0, max: 3 },
+                IntRange::Linear { min: 0, max: 6 },
             ),
 
             gain: FloatParam::new(
@@ -927,12 +1005,7 @@ impl SamplerParams {
     }
 
     pub fn get_filter_mode(&self) -> FilterMode {
-        match self.filter_mode.value() {
-            0 => FilterMode::Lowpass,
-            1 => FilterMode::Highpass,
-            2 => FilterMode::Bandpass,
-            _ => FilterMode::Bypass,
-        }
+        FilterMode::from_index(self.filter_mode.value().clamp(0, 6) as u8)
     }
 }
 
@@ -1012,6 +1085,31 @@ pub struct LiveParamStore {
     pub arp_custom_accents_active: AtomicI32,
     pub arp_step_accents: SeqLockArray<16>,
 
+    // Suite 5 Mejoras Pro:
+    // 1. Glide / Portamento & MPE Per-Note Expression
+    pub glide_mode: AtomicU32,
+    pub glide_transitions: AtomicU32,
+    pub mpe_poly_events: AtomicU32,
+    // 2. Segunda Envolvente Dedicada (Env 2) & Curvatura ADSR
+    pub env2_target: AtomicU32,
+    pub env2_depth: AtomicU32,
+    pub env_curve: AtomicU32,
+    pub env2_dsp_frames: AtomicU32,
+    // 3. Secuenciador de 16 Pasos con Subdivisión Rítmica y Ratchet
+    pub arp_rate_div: AtomicU32,
+    pub arp_step_count: AtomicU32,
+    pub arp_ratchet_hits: AtomicU32,
+    // 4. Síntesis Granular Hann-Windowed / Freeze y Filtros Avanzados (Ladder/Comb/Formant)
+    pub granular_mode: AtomicU32,
+    pub granular_dsp_frames: AtomicU32,
+    pub advanced_filter_frames: AtomicU32,
+    // 5. MIDI Learn Directo (CC 0..127 -> Param 0..19) y Drag-and-Drop WAV Clip Export
+    pub midi_learn_armed_param: AtomicI32,
+    pub midi_cc_map: [AtomicI32; 128],
+    pub midi_learn_bindings_count: AtomicU32,
+    pub last_learned_cc: AtomicI32,
+    pub wav_drag_exports_count: AtomicU32,
+
     pub active_keyzones_mask: AtomicU32,
     pub lfo_mod_value: AtomicU32,
     pub playhead_norm: AtomicU32,
@@ -1090,6 +1188,24 @@ impl Default for LiveParamStore {
             filter_keytrack: AtomicU32::new(0.50_f32.to_bits()),
             arp_custom_accents_active: AtomicI32::new(0),
             arp_step_accents: SeqLockArray::new(1.0),
+            glide_mode: AtomicU32::new(0),
+            glide_transitions: AtomicU32::new(0),
+            mpe_poly_events: AtomicU32::new(0),
+            env2_target: AtomicU32::new(0),
+            env2_depth: AtomicU32::new(0.0_f32.to_bits()),
+            env_curve: AtomicU32::new(0.0_f32.to_bits()),
+            env2_dsp_frames: AtomicU32::new(0),
+            arp_rate_div: AtomicU32::new(2),
+            arp_step_count: AtomicU32::new(12),
+            arp_ratchet_hits: AtomicU32::new(0),
+            granular_mode: AtomicU32::new(0),
+            granular_dsp_frames: AtomicU32::new(0),
+            advanced_filter_frames: AtomicU32::new(0),
+            midi_learn_armed_param: AtomicI32::new(-1),
+            midi_cc_map: std::array::from_fn(|_| AtomicI32::new(-1)),
+            midi_learn_bindings_count: AtomicU32::new(0),
+            last_learned_cc: AtomicI32::new(-1),
+            wav_drag_exports_count: AtomicU32::new(0),
             active_keyzones_mask: AtomicU32::new(0),
             lfo_mod_value: AtomicU32::new(0.0_f32.to_bits()),
             playhead_norm: AtomicU32::new(0.0_f32.to_bits()),
@@ -1247,16 +1363,11 @@ impl LiveParamStore {
 
     #[inline]
     pub fn set_filter_mode(&self, val: i32) {
-        self.filter_mode.store(val, Ordering::Relaxed);
+        self.filter_mode.store(val.clamp(0, 6), Ordering::Relaxed);
     }
     #[inline]
     pub fn get_filter_mode(&self) -> FilterMode {
-        match self.filter_mode.load(Ordering::Relaxed) {
-            0 => FilterMode::Lowpass,
-            1 => FilterMode::Highpass,
-            2 => FilterMode::Bandpass,
-            _ => FilterMode::Bypass,
-        }
+        FilterMode::from_index(self.filter_mode.load(Ordering::Relaxed).clamp(0, 6) as u8)
     }
 
     #[inline]
@@ -1950,6 +2061,339 @@ impl LiveParamStore {
         self.arp_step_accents.read_snapshot()
     }
 
+    // --- SUITE 5 MEJORAS PRO: GETTERS, SETTERS & MIDI LEARN ---
+
+    #[inline]
+    pub fn set_glide_mode(&self, mode: u8) {
+        self.glide_mode
+            .store((mode.min(2)) as u32, Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_glide_mode(&self) -> u8 {
+        (self.glide_mode.load(Ordering::Relaxed).min(2)) as u8
+    }
+
+    #[inline]
+    pub fn set_glide_transitions(&self, count: u32) {
+        self.glide_transitions.store(count, Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_glide_transitions(&self) -> u32 {
+        self.glide_transitions.load(Ordering::Relaxed)
+    }
+
+    #[inline]
+    pub fn set_mpe_poly_events(&self, count: u32) {
+        self.mpe_poly_events.store(count, Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_mpe_poly_events(&self) -> u32 {
+        self.mpe_poly_events.load(Ordering::Relaxed)
+    }
+
+    #[inline]
+    pub fn set_env2_params(&self, target: u8, depth: f32) {
+        self.env2_target
+            .store((target.min(2)) as u32, Ordering::Relaxed);
+        let d = if depth.is_finite() {
+            depth.clamp(-1.0, 1.0)
+        } else {
+            0.0
+        };
+        self.env2_depth.store(d.to_bits(), Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_env2_target(&self) -> u8 {
+        (self.env2_target.load(Ordering::Relaxed).min(2)) as u8
+    }
+    #[inline]
+    pub fn get_env2_depth(&self) -> f32 {
+        f32::from_bits(self.env2_depth.load(Ordering::Relaxed))
+    }
+
+    #[inline]
+    pub fn set_env_curve(&self, tension: f32) {
+        let t = if tension.is_finite() {
+            tension.clamp(-1.0, 1.0)
+        } else {
+            0.0
+        };
+        self.env_curve.store(t.to_bits(), Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_env_curve(&self) -> f32 {
+        f32::from_bits(self.env_curve.load(Ordering::Relaxed))
+    }
+
+    #[inline]
+    pub fn set_env2_dsp_frames(&self, count: u32) {
+        self.env2_dsp_frames.store(count, Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_env2_dsp_frames(&self) -> u32 {
+        self.env2_dsp_frames.load(Ordering::Relaxed)
+    }
+
+    #[inline]
+    pub fn set_arp_rate_div(&self, div: u8) {
+        self.arp_rate_div
+            .store((div.min(4)) as u32, Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_arp_rate_div(&self) -> u8 {
+        (self.arp_rate_div.load(Ordering::Relaxed).min(4)) as u8
+    }
+
+    #[inline]
+    pub fn set_arp_step_count(&self, count: u8) {
+        self.arp_step_count
+            .store((count.clamp(4, 16)) as u32, Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_arp_step_count(&self) -> u8 {
+        (self.arp_step_count.load(Ordering::Relaxed).clamp(4, 16)) as u8
+    }
+
+    #[inline]
+    pub fn set_arp_ratchet_hits(&self, count: u32) {
+        self.arp_ratchet_hits.store(count, Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_arp_ratchet_hits(&self) -> u32 {
+        self.arp_ratchet_hits.load(Ordering::Relaxed)
+    }
+
+    #[inline]
+    pub fn set_granular_mode(&self, mode: u8) {
+        self.granular_mode
+            .store((mode.min(2)) as u32, Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_granular_mode(&self) -> u8 {
+        (self.granular_mode.load(Ordering::Relaxed).min(2)) as u8
+    }
+
+    #[inline]
+    pub fn set_granular_dsp_frames(&self, count: u32) {
+        self.granular_dsp_frames.store(count, Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_granular_dsp_frames(&self) -> u32 {
+        self.granular_dsp_frames.load(Ordering::Relaxed)
+    }
+
+    #[inline]
+    pub fn set_advanced_filter_frames(&self, count: u32) {
+        self.advanced_filter_frames.store(count, Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_advanced_filter_frames(&self) -> u32 {
+        self.advanced_filter_frames.load(Ordering::Relaxed)
+    }
+
+    #[inline]
+    pub fn bump_wav_drag_exports(&self) {
+        self.wav_drag_exports_count.fetch_add(1, Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_wav_drag_exports(&self) -> u32 {
+        self.wav_drag_exports_count.load(Ordering::Relaxed)
+    }
+
+    /// Exporta el `SampleBuffer` recortado a los marcadores activos de región OLED (`trim_start_norm..trim_end_norm`) en formato WAV IEEE Float 32-bit.
+    pub fn export_trimmed_wav_bytes(&self, sample: &SampleBuffer) -> Vec<u8> {
+        self.bump_wav_drag_exports();
+        let len = sample.len();
+        if len == 0 {
+            return synth_core::encode_wav_f32(sample);
+        }
+        let s_norm = self.get_trim_start_norm().clamp(0.0, 0.99);
+        let e_norm = self.get_trim_end_norm().clamp(s_norm + 0.01, 1.0);
+        if s_norm <= 0.001 && e_norm >= 0.999 {
+            return synth_core::encode_wav_f32(sample);
+        }
+        let start_idx = ((s_norm * len as f32).floor() as usize).min(len.saturating_sub(1));
+        let end_idx = ((e_norm * len as f32).ceil() as usize).clamp(start_idx + 1, len);
+        let mut trimmed = SampleBuffer::new_stereo(
+            sample.left[start_idx..end_idx].to_vec(),
+            sample.right[start_idx..end_idx].to_vec(),
+            sample.sample_rate,
+            self.get_root_note().clamp(0, 127) as u8,
+        );
+        trimmed.name = sample.name.clone();
+        synth_core::encode_wav_f32(&trimmed)
+    }
+
+    /// Convierte un identificador de parámetro de UI en su índice de tabla MIDI Learn (`0..=19`).
+    #[inline]
+    pub fn param_name_to_learn_idx(name: &str) -> Option<i32> {
+        match name.trim() {
+            "cutoff" => Some(0),
+            "resonance" => Some(1),
+            "attack" => Some(2),
+            "decay" => Some(3),
+            "sustain" => Some(4),
+            "release" => Some(5),
+            "wt_pos" => Some(6),
+            "wt_warp" => Some(7),
+            "unison_detune" => Some(8),
+            "sub_level" => Some(9),
+            "lfo_rate" => Some(10),
+            "lfo_depth" => Some(11),
+            "drive" | "drive_amount" => Some(12),
+            "ott" | "ott_amount" => Some(13),
+            "space_mix" => Some(14),
+            "gain" => Some(15),
+            "macro1" => Some(16),
+            "macro2" => Some(17),
+            "macro3" => Some(18),
+            "macro4" => Some(19),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn arm_midi_learn_by_name(&self, name: &str) {
+        let clean = name.trim();
+        if clean.eq_ignore_ascii_case("off") {
+            self.midi_learn_armed_param.store(-1, Ordering::Release);
+            self.last_learned_cc.store(-1, Ordering::Relaxed);
+            return;
+        }
+        if clean.eq_ignore_ascii_case("clear") {
+            self.midi_learn_armed_param.store(-1, Ordering::Release);
+            self.last_learned_cc.store(-1, Ordering::Relaxed);
+            for slot in &self.midi_cc_map {
+                slot.store(-1, Ordering::Release);
+            }
+            self.midi_learn_bindings_count.store(0, Ordering::Relaxed);
+            self.bump_revision();
+            return;
+        }
+        let idx = Self::param_name_to_learn_idx(clean).unwrap_or(0);
+        self.last_learned_cc.store(-1, Ordering::Relaxed);
+        self.midi_learn_armed_param.store(idx, Ordering::Release);
+    }
+
+    #[inline]
+    fn recount_midi_cc_bindings(&self) -> u32 {
+        let mut count = 0u32;
+        for slot in &self.midi_cc_map {
+            let param_idx = slot.load(Ordering::Acquire);
+            if (0..=19).contains(&param_idx) {
+                count += 1;
+            }
+        }
+        count
+    }
+
+    /// Exporta todos los mapeos activos de `MIDI Learn` como pares `(cc, param_idx)`.
+    #[inline]
+    pub fn export_midi_cc_map(&self) -> Vec<(u8, i32)> {
+        let mut out = Vec::new();
+        for (cc, slot) in self.midi_cc_map.iter().enumerate() {
+            let param_idx = slot.load(Ordering::Acquire);
+            if (0..=19).contains(&param_idx) {
+                out.push((cc as u8, param_idx));
+            }
+        }
+        out
+    }
+
+    /// Restaura los mapeos aprendidos de `MIDI Learn` (`(cc, param_idx)`) desde un preset `.tepui` o sesión DAW.
+    #[inline]
+    pub fn restore_midi_cc_map(&self, bindings: &[(u8, i32)]) {
+        self.midi_learn_armed_param.store(-1, Ordering::Release);
+        for slot in &self.midi_cc_map {
+            slot.store(-1, Ordering::Release);
+        }
+        let mut last_cc = -1i32;
+        for &(cc, param_idx) in bindings {
+            let cc_idx = cc as usize;
+            if cc_idx < 128 && (0..=19).contains(&param_idx) {
+                for slot in &self.midi_cc_map {
+                    if slot.load(Ordering::Acquire) == param_idx {
+                        slot.store(-1, Ordering::Release);
+                    }
+                }
+                self.midi_cc_map[cc_idx].store(param_idx, Ordering::Release);
+                last_cc = cc_idx as i32;
+            }
+        }
+        let count = self.recount_midi_cc_bindings();
+        self.midi_learn_bindings_count
+            .store(count, Ordering::Relaxed);
+        self.last_learned_cc.store(last_cc, Ordering::Relaxed);
+    }
+
+    #[inline]
+    pub fn get_midi_learn_armed_param(&self) -> i32 {
+        self.midi_learn_armed_param.load(Ordering::Acquire)
+    }
+
+    #[inline]
+    pub fn get_midi_learn_bindings_count(&self) -> u32 {
+        self.midi_learn_bindings_count.load(Ordering::Relaxed)
+    }
+
+    #[inline]
+    pub fn get_last_learned_cc(&self) -> i32 {
+        self.last_learned_cc.load(Ordering::Relaxed)
+    }
+
+    /// Aplica o aprende un evento `MIDI CC 0..127` en tiempo real con `0` asignaciones dinámicas.
+    #[inline]
+    pub fn apply_or_learn_midi_cc(&self, cc: u8, norm_val: f32) -> bool {
+        let cc_idx = (cc & 0x7F) as usize;
+        let armed = self.midi_learn_armed_param.swap(-1, Ordering::AcqRel);
+        if (0..=19).contains(&armed) {
+            for slot in &self.midi_cc_map {
+                if slot.load(Ordering::Acquire) == armed {
+                    slot.store(-1, Ordering::Release);
+                }
+            }
+            self.midi_cc_map[cc_idx].store(armed, Ordering::Release);
+            self.last_learned_cc.store(cc_idx as i32, Ordering::Relaxed);
+            let count = self.recount_midi_cc_bindings();
+            self.midi_learn_bindings_count
+                .store(count, Ordering::Relaxed);
+        }
+        let mapped = self.midi_cc_map[cc_idx].load(Ordering::Acquire);
+        if mapped < 0 {
+            return false;
+        }
+        let v = if norm_val.is_finite() {
+            norm_val.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        match mapped {
+            0 => self.set_cutoff(20.0 * (1000.0_f32).powf(v)),
+            1 => self.set_resonance(0.1 + v * 9.9),
+            2 => self.set_attack(0.001 + v * v * 4.999),
+            3 => self.set_decay(0.001 + v * v * 4.999),
+            4 => self.set_sustain(v),
+            5 => self.set_release(0.001 + v * v * 9.999),
+            6 => self.set_wt_pos(v),
+            7 => self.set_wt_warp(v),
+            8 => self.set_unison_detune(v),
+            9 => self.set_sub_level(v),
+            10 => self.set_lfo_rate(0.1 + v * v * 19.9),
+            11 => self.set_lfo_depth(v),
+            12 => self.set_drive_amount(v),
+            13 => self.set_ott_amount(v),
+            14 => self.set_space_mix(v),
+            15 => self.set_gain(v * 1.5),
+            16 => self.set_macro(0, v),
+            17 => self.set_macro(1, v),
+            18 => self.set_macro(2, v),
+            19 => self.set_macro(3, v),
+            _ => return false,
+        }
+        self.bump_revision();
+        true
+    }
+
     /// Captura una instantánea atómica completa del estado de síntesis (`Canonical State Snapshot Pattern`).
     pub fn capture_snapshot(&self) -> SynthStateSnapshot {
         SynthStateSnapshot {
@@ -1990,6 +2434,14 @@ impl LiveParamStore {
             loop_end_norm: self.get_loop_end_norm(),
             custom_wt_active: self.is_custom_wavetable_active(),
             custom_wt_cycle: self.get_custom_wavetable_cycle().to_vec(),
+            glide_mode: self.get_glide_mode(),
+            env2_target: self.get_env2_target(),
+            env2_depth: self.get_env2_depth(),
+            env_curve: self.get_env_curve(),
+            arp_rate_div: self.get_arp_rate_div(),
+            arp_step_count: self.get_arp_step_count(),
+            granular_mode: self.get_granular_mode(),
+            midi_cc_map: self.export_midi_cc_map(),
         }
     }
 
@@ -2040,6 +2492,13 @@ impl LiveParamStore {
         } else {
             self.clear_arp_custom_accents();
         }
+        self.set_glide_mode(snap.glide_mode);
+        self.set_env2_params(snap.env2_target, snap.env2_depth);
+        self.set_env_curve(snap.env_curve);
+        self.set_arp_rate_div(snap.arp_rate_div);
+        self.set_arp_step_count(snap.arp_step_count);
+        self.set_granular_mode(snap.granular_mode);
+        self.restore_midi_cc_map(&snap.midi_cc_map);
         self.bump_revision();
     }
 
@@ -2086,6 +2545,14 @@ impl LiveParamStore {
             self.get_macros(),
         );
         voice_manager.set_osc_b_fm_params(self.get_fm_from_b(), self.get_osc_b_level());
+
+        // Proyectar Suite 5 Mejoras Pro hacia VoiceManager
+        voice_manager.set_glide_mode(self.get_glide_mode());
+        voice_manager.set_env2_params(self.get_env2_target(), self.get_env2_depth());
+        voice_manager.set_env_curve_tension(self.get_env_curve());
+        voice_manager.set_arp_rate_division(ArpRateDivision::from_u8(self.get_arp_rate_div()));
+        voice_manager.set_arp_step_count(self.get_arp_step_count() as usize);
+        voice_manager.set_granular_mode(self.get_granular_mode());
 
         if self.is_custom_wavetable_active() {
             let rev = self.get_custom_wavetable_revision();
@@ -2160,4 +2627,13 @@ pub struct SynthStateSnapshot {
     pub loop_end_norm: f32,
     pub custom_wt_active: bool,
     pub custom_wt_cycle: Vec<f32>,
+    pub glide_mode: u8,
+    pub env2_target: u8,
+    pub env2_depth: f32,
+    pub env_curve: f32,
+    pub arp_rate_div: u8,
+    pub arp_step_count: u8,
+    pub granular_mode: u8,
+    #[serde(default)]
+    pub midi_cc_map: Vec<(u8, i32)>,
 }

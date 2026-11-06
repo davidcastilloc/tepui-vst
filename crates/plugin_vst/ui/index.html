@@ -183,6 +183,8 @@
             <button id="btn-wav-to-wt" class="oled-pill-btn green" title="Resintetizar ciclo armónico de 64 puntos desde la muestra activa (Vital/Serum Audio-to-Wavetable)" type="button">WAV→WT</button>
             <button id="btn-wtdraw-toggle" class="oled-pill-btn cyan" title="Dibujar tu propia tabla de ondas con el mouse sobre el OLED (Doble clic para limpiar)" type="button">WT DRAW</button>
             <button id="btn-wt3d-toggle" class="oled-pill-btn amber active" title="Alternar vista 3D Wavetable / Osciloscopio 2D" type="button">3D WT</button>
+            <button id="btn-granular-mode" class="oled-pill-btn cyan" title="Motor Granular &amp; Time-Stretch (OFF / CLOUD 4-GRAIN HANN / FREEZE)" type="button">GRAN:OFF</button>
+            <button id="btn-drag-wav" class="oled-pill-btn amber" draggable="true" title="Arrastra o haz clic para exportar clip WAV renderizado directo a la pista del DAW" type="button">DRAG WAV ↗</button>
             <button id="btn-unison-voices" class="oled-pill-btn green" title="Voces de Super-Unison Estéreo (1V..8V)" type="button">UNI:1V</button>
             <button id="btn-loop-toggle" class="oled-pill-btn active" title="Activar/Desactivar Loop Sostenido" type="button">LOOP:ON</button>
           </div>
@@ -256,10 +258,10 @@
       <div class="eurorack-module mod-filter" id="mod-filter">
         <i class="hex-screw tl"></i><i class="hex-screw tr"></i><i class="hex-screw bl"></i><i class="hex-screw br"></i>
         <div class="mod-header">
-          <span class="mod-title">SVF FILTER</span>
+          <span class="mod-title">SVF &amp; LADDER FILTER</span>
           <div class="mod-header-pills">
+            <button id="btn-svf-model" class="oled-pill-btn amber" title="Ciclar Topología de Filtro: Cytomic SVF / Moog Ladder 24dB / Karplus Comb / Formant Vocal A-E-I-O-U" type="button">MODEL:SVF</button>
             <button id="btn-svf-fft-toggle" class="oled-pill-btn cyan active" title="Analizador Espectral FFT de 64 Bandas en Tiempo Real Post-Filtro" type="button">FFT 64B</button>
-            <span class="mod-sub-tag">CYTOMIC TPT</span>
           </div>
         </div>
 
@@ -298,8 +300,11 @@
       <div class="eurorack-module mod-adsr" id="mod-adsr">
         <i class="hex-screw tl"></i><i class="hex-screw tr"></i><i class="hex-screw bl"></i><i class="hex-screw br"></i>
         <div class="mod-header">
-          <span class="mod-title">ADSR FADER BANK</span>
-          <span class="mod-sub-tag amber">ENVELOPE</span>
+          <span class="mod-title">ADSR &amp; MOD ENV 2</span>
+          <div class="mod-header-pills">
+            <button id="btn-env2-target" class="oled-pill-btn cyan" title="Segunda Envolvente Dedicada (Env 2 Depth → Filter Cutoff / Pitch / Wavetable Pos)" type="button">ENV2→CUT</button>
+            <button id="btn-env-curve" class="oled-pill-btn amber" title="Curvatura / Tensión de etapas ADSR (Exponencial Punchy / Lineal / Logarítmica)" type="button">CRV:EXP</button>
+          </div>
         </div>
 
         <div class="oled-bezel amber-bezel">
@@ -392,12 +397,16 @@
         </div>
       </div>
 
-      <!-- MODULE 5: POLY ARPEGGIATOR (Bottom-Center) -->
+      <!-- MODULE 5: POLY ARPEGGIATOR & 16-STEP MSEG SEQUENCER (Bottom-Center) -->
       <div class="eurorack-module mod-arp" id="mod-arp">
         <i class="hex-screw tl"></i><i class="hex-screw tr"></i><i class="hex-screw bl"></i><i class="hex-screw br"></i>
         <div class="mod-header">
-          <span class="mod-title">POLY ARPEGGIATOR</span>
-          <button id="btn-arp-mode" class="oled-pill-btn amber" title="Ciclar modo del Arpegiador Polifónico" type="button">ARP: OFF</button>
+          <span class="mod-title">ARP &amp; 16-STEP SEQ</span>
+          <div class="mod-header-pills">
+            <button id="btn-arp-rate" class="oled-pill-btn cyan" title="Sincronización Rítmica al Transporte del DAW (1/4, 1/8, 1/16, 1/8T Tresillo, 1/16D Puntillo)" type="button">RATE:1/16</button>
+            <button id="btn-arp-steps" class="oled-pill-btn green" title="Alternar Secuenciador de 12 Pasos (6/8) o 16 Pasos con Ratchet Sub-Repeats" type="button">16 STEPS</button>
+            <button id="btn-arp-mode" class="oled-pill-btn amber" title="Ciclar modo del Arpegiador Polifónico" type="button">ARP: OFF</button>
+          </div>
         </div>
 
         <div class="oled-bezel amber-bezel">
@@ -576,6 +585,8 @@
           <span id="vel-badge" class="tb-badge" title="Arrastra verticalmente o gira la rueda para ajustar Velocity">95%</span>
           <button id="btn-vel-up" class="tb-btn" title="Subir velocidad (Tecla V)" type="button">+ [V]</button>
           <button id="btn-sustain-pedal" class="tb-btn" title="Pedal Sustain CC#64 (Mantener notas)" type="button">SUS</button>
+          <button id="btn-glide-legato" class="tb-btn" title="Portamento Exponencial / Modo Legato &amp; MPE Per-Note Expression (OFF / PORTA 85ms / LEGATO 140ms)" type="button">GLIDE:OFF</button>
+          <button id="btn-midi-learn" class="tb-btn" title="MIDI Learn Directo (o haz Clic Derecho sobre cualquier perilla/fader y mueve un CC físico)" type="button">MIDI LEARN</button>
         </div>
       </div>
 

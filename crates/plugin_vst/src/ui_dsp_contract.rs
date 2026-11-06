@@ -66,11 +66,13 @@ pub enum SynthControlId {
     BtnAbCompare,
     GroupPackPills,
 
-    // --- MÓDULO 1: WAVETABLE, 3D MORPH, UNISON & SAMPLER ---
+    // --- MÓDULO 1: WAVETABLE, 3D MORPH, UNISON, SAMPLER & GRANULAR ---
     OledOscilloscope,
     BtnWavToWt,
     BtnWtDrawToggle,
     BtnWt3dToggle,
+    BtnGranularMode,
+    BtnDragWav,
     BtnUnisonVoices,
     BtnLoopToggle,
     BtnZoneLow,
@@ -85,15 +87,18 @@ pub enum SynthControlId {
     KnobUnisonDetune,
     KnobSubLevel,
 
-    // --- MÓDULO 2: CYTOMIC TPT SVF FILTER + KEYTRACK ---
+    // --- MÓDULO 2: CYTOMIC TPT SVF + LADDER/COMB/FORMANT + KEYTRACK ---
     OledSvfFilter,
     GroupFilterModeButtons,
+    BtnSvfModel,
     BtnSvfKeytrack,
     KnobCutoff,
     KnobResonance,
 
-    // --- MÓDULO 3: ADSR FADER BANK ---
+    // --- MÓDULO 3: ADSR FADER BANK + ENV 2 + CURVE TENSION ---
     OledAdsrEnvelope,
+    BtnEnv2Target,
+    BtnEnvCurve,
     FaderAttack,
     FaderDecay,
     FaderSustain,
@@ -107,9 +112,11 @@ pub enum SynthControlId {
     KnobLfoRate,
     KnobLfoDepth,
 
-    // --- MÓDULO 5: POLY ARPEGGIATOR ---
+    // --- MÓDULO 5: POLY ARPEGGIATOR & 16-STEP MSEG/RATCHET SEQUENCER ---
     OledArpSteps,
     BtnArpModeCycle,
+    BtnArpRate,
+    BtnArpSeqSteps,
     GroupArpModeButtons,
 
     // --- MÓDULO 6: OTT, DRIVE, CANYON REVERB & MASTER RECORDER ---
@@ -121,7 +128,7 @@ pub enum SynthControlId {
     BtnLiveRec,
     BtnPanic,
 
-    // --- BARRA MACRO VITAL/SERUM & DECK DE EXPRESIÓN/TECLADO ---
+    // --- BARRA MACRO VITAL/SERUM & DECK DE EXPRESIÓN/MPE/GLIDE/MIDI LEARN ---
     KnobMacro1Timbre,
     KnobMacro2Warp,
     KnobMacro3Unison,
@@ -132,6 +139,8 @@ pub enum SynthControlId {
     BtnVelocityDown,
     BtnVelocityUp,
     BtnSustainPedal,
+    BtnGlideLegato,
+    BtnMidiLearn,
     WheelPitchBend,
     WheelModulation,
 }
@@ -148,6 +157,8 @@ impl SynthControlId {
         Self::BtnWavToWt,
         Self::BtnWtDrawToggle,
         Self::BtnWt3dToggle,
+        Self::BtnGranularMode,
+        Self::BtnDragWav,
         Self::BtnUnisonVoices,
         Self::BtnLoopToggle,
         Self::BtnZoneLow,
@@ -163,10 +174,13 @@ impl SynthControlId {
         Self::KnobSubLevel,
         Self::OledSvfFilter,
         Self::GroupFilterModeButtons,
+        Self::BtnSvfModel,
         Self::BtnSvfKeytrack,
         Self::KnobCutoff,
         Self::KnobResonance,
         Self::OledAdsrEnvelope,
+        Self::BtnEnv2Target,
+        Self::BtnEnvCurve,
         Self::FaderAttack,
         Self::FaderDecay,
         Self::FaderSustain,
@@ -179,6 +193,8 @@ impl SynthControlId {
         Self::KnobLfoDepth,
         Self::OledArpSteps,
         Self::BtnArpModeCycle,
+        Self::BtnArpRate,
+        Self::BtnArpSeqSteps,
         Self::GroupArpModeButtons,
         Self::OledReverbFx,
         Self::KnobDrive,
@@ -197,6 +213,8 @@ impl SynthControlId {
         Self::BtnVelocityDown,
         Self::BtnVelocityUp,
         Self::BtnSustainPedal,
+        Self::BtnGlideLegato,
+        Self::BtnMidiLearn,
         Self::WheelPitchBend,
         Self::WheelModulation,
     ];
@@ -238,7 +256,7 @@ impl SynthControlId {
                 impact: DspImpactProof::ParamStoreMutates,
             },
 
-            // --- MÓDULO 1: WAVETABLE, 3D MORPH, UNISON & SAMPLER ---
+            // --- MÓDULO 1: WAVETABLE, 3D MORPH, UNISON, SAMPLER & GRANULAR ---
             Self::OledOscilloscope => SynthControlSpec {
                 dom_token: "oscilloscope",
                 ipc_prefix: "p,",
@@ -262,6 +280,18 @@ impl SynthControlId {
                 ipc_prefix: "wt3d,",
                 stimulus_ipc: "wt3d,1",
                 impact: DspImpactProof::WaveformMutates,
+            },
+            Self::BtnGranularMode => SynthControlSpec {
+                dom_token: "btn-granular-mode",
+                ipc_prefix: "gran,",
+                stimulus_ipc: "gran,1",
+                impact: DspImpactProof::WaveformMutates,
+            },
+            Self::BtnDragWav => SynthControlSpec {
+                dom_token: "btn-drag-wav",
+                ipc_prefix: "drag_wav_export",
+                stimulus_ipc: "drag_wav_export",
+                impact: DspImpactProof::ParamStoreMutates,
             },
             Self::BtnUnisonVoices => SynthControlSpec {
                 dom_token: "btn-unison-voices",
@@ -342,7 +372,7 @@ impl SynthControlId {
                 impact: DspImpactProof::WaveformMutates,
             },
 
-            // --- MÓDULO 2: CYTOMIC TPT SVF FILTER + KEYTRACK ---
+            // --- MÓDULO 2: CYTOMIC TPT SVF + LADDER/COMB/FORMANT + KEYTRACK ---
             Self::OledSvfFilter => SynthControlSpec {
                 dom_token: "oled-svf",
                 ipc_prefix: "p,",
@@ -353,6 +383,12 @@ impl SynthControlId {
                 dom_token: "data-mode",
                 ipc_prefix: "m,",
                 stimulus_ipc: "m,1",
+                impact: DspImpactProof::WaveformMutates,
+            },
+            Self::BtnSvfModel => SynthControlSpec {
+                dom_token: "btn-svf-model",
+                ipc_prefix: "m,",
+                stimulus_ipc: "m,4",
                 impact: DspImpactProof::WaveformMutates,
             },
             Self::BtnSvfKeytrack => SynthControlSpec {
@@ -374,12 +410,24 @@ impl SynthControlId {
                 impact: DspImpactProof::WaveformMutates,
             },
 
-            // --- MÓDULO 3: ADSR FADER BANK ---
+            // --- MÓDULO 3: ADSR FADER BANK + ENV 2 + CURVE TENSION ---
             Self::OledAdsrEnvelope => SynthControlSpec {
                 dom_token: "oled-adsr",
                 ipc_prefix: "p,",
                 stimulus_ipc: "p,attack,0.85",
                 impact: DspImpactProof::AttackSlopeChanges,
+            },
+            Self::BtnEnv2Target => SynthControlSpec {
+                dom_token: "btn-env2-target",
+                ipc_prefix: "env2,",
+                stimulus_ipc: "env2,0,0.85",
+                impact: DspImpactProof::WaveformMutates,
+            },
+            Self::BtnEnvCurve => SynthControlSpec {
+                dom_token: "btn-env-curve",
+                ipc_prefix: "envcrv,",
+                stimulus_ipc: "envcrv,-0.85",
+                impact: DspImpactProof::WaveformMutates,
             },
             Self::FaderAttack => SynthControlSpec {
                 dom_token: "attack",
@@ -444,7 +492,7 @@ impl SynthControlId {
                 impact: DspImpactProof::WaveformMutates,
             },
 
-            // --- MÓDULO 5: POLY ARPEGGIATOR ---
+            // --- MÓDULO 5: POLY ARPEGGIATOR & 16-STEP MSEG/RATCHET SEQUENCER ---
             Self::OledArpSteps => SynthControlSpec {
                 dom_token: "oled-arp",
                 ipc_prefix: "arpstep,",
@@ -455,6 +503,18 @@ impl SynthControlId {
                 dom_token: "btn-arp-mode",
                 ipc_prefix: "arp,",
                 stimulus_ipc: "arp,3",
+                impact: DspImpactProof::ParamStoreMutates,
+            },
+            Self::BtnArpRate => SynthControlSpec {
+                dom_token: "btn-arp-rate",
+                ipc_prefix: "arprate,",
+                stimulus_ipc: "arprate,3",
+                impact: DspImpactProof::ParamStoreMutates,
+            },
+            Self::BtnArpSeqSteps => SynthControlSpec {
+                dom_token: "btn-arp-steps",
+                ipc_prefix: "arpseq,",
+                stimulus_ipc: "arpseq,16",
                 impact: DspImpactProof::ParamStoreMutates,
             },
             Self::GroupArpModeButtons => SynthControlSpec {
@@ -508,7 +568,7 @@ impl SynthControlId {
                 impact: DspImpactProof::MidiQueueEmits,
             },
 
-            // --- BARRA MACRO VITAL/SERUM & DECK DE EXPRESIÓN/TECLADO ---
+            // --- BARRA MACRO VITAL/SERUM & DECK DE EXPRESIÓN/MPE/GLIDE/MIDI LEARN ---
             Self::KnobMacro1Timbre => SynthControlSpec {
                 dom_token: "macro1",
                 ipc_prefix: "p,",
@@ -567,6 +627,18 @@ impl SynthControlId {
                 dom_token: "btn-sustain-pedal",
                 ipc_prefix: "sus,",
                 stimulus_ipc: "sus,1",
+                impact: DspImpactProof::ParamStoreMutates,
+            },
+            Self::BtnGlideLegato => SynthControlSpec {
+                dom_token: "btn-glide-legato",
+                ipc_prefix: "glide,",
+                stimulus_ipc: "glide,2",
+                impact: DspImpactProof::ParamStoreMutates,
+            },
+            Self::BtnMidiLearn => SynthControlSpec {
+                dom_token: "btn-midi-learn",
+                ipc_prefix: "midi_learn:",
+                stimulus_ipc: "midi_learn:cutoff",
                 impact: DspImpactProof::ParamStoreMutates,
             },
             Self::WheelPitchBend => SynthControlSpec {
@@ -638,6 +710,14 @@ pub const CANONICAL_IPC_PREFIXES: &[&str] = &[
     "sus,",
     "sus:",
     "sustain:",
+    "glide,",
+    "glide:",
+    "pat,",
+    "pat:",
+    "npb,",
+    "npb:",
+    "cc,",
+    "cc:",
     "0,",
     "0:",
     "o:",
@@ -650,12 +730,25 @@ pub const CANONICAL_IPC_PREFIXES: &[&str] = &[
     "lt:",
     "arp,",
     "arp:",
+    "arprate,",
+    "arprate:",
+    "arpseq,",
+    "arpseq:",
     "uv,",
     "uv:",
     "uni,",
     "uni:",
     "kt,",
     "kt:",
+    "env2,",
+    "env2:",
+    "envcrv,",
+    "envcrv:",
+    "gran,",
+    "gran:",
+    "midi_learn:",
+    "midi_learn,",
+    "drag_wav_export",
     "arpstep,",
     "arpstep:",
     "arpsteps,",
@@ -708,6 +801,19 @@ pub enum IpcCommand {
     PitchBend(f32),
     ModWheel(f32),
     SustainPedal(bool),
+    SetGlideMode(u8),
+    PolyAftertouch {
+        note: u8,
+        pressure: f32,
+    },
+    NotePitchBend {
+        note: u8,
+        semitones: f32,
+    },
+    MidiCc {
+        cc: u8,
+        value: f32,
+    },
     SetParam {
         id: String,
         value: f32,
@@ -715,8 +821,18 @@ pub enum IpcCommand {
     SetFilterMode(f32),
     SetLfoTarget(f32),
     SetArpMode(f32),
+    SetArpRateDiv(u8),
+    SetArpStepCount(u8),
     SetUnisonVoices(u8),
     SetFilterKeytrack(f32),
+    SetEnv2 {
+        target: u8,
+        depth: f32,
+    },
+    SetEnvCurve(f32),
+    SetGranularMode(u8),
+    ArmMidiLearn(String),
+    DragWavExport,
     SetArpSteps(Vec<f32>),
     SetArpStep {
         index: usize,
@@ -764,6 +880,116 @@ impl IpcCommand {
         }
         if trimmed == "panic" || trimmed == "all_notes_off" {
             return Some(Self::Panic);
+        }
+        if trimmed == "drag_wav_export" || trimmed.starts_with("drag_wav_export:") {
+            return Some(Self::DragWavExport);
+        }
+        if let Some(rest) = trimmed
+            .strip_prefix("midi_learn:")
+            .or_else(|| trimmed.strip_prefix("midi_learn,"))
+        {
+            return Some(Self::ArmMidiLearn(rest.trim().to_string()));
+        }
+        if let Some(rest) = trimmed
+            .strip_prefix("glide,")
+            .or_else(|| trimmed.strip_prefix("glide:"))
+        {
+            if let Ok(v) = rest.trim().parse::<u8>() {
+                return Some(Self::SetGlideMode(v.clamp(0, 2)));
+            }
+        }
+        if let Some(rest) = trimmed
+            .strip_prefix("pat,")
+            .or_else(|| trimmed.strip_prefix("pat:"))
+        {
+            let mut parts = rest.split(',');
+            if let (Some(n), Some(p)) = (parts.next(), parts.next()) {
+                if let (Ok(note), Ok(pr)) = (n.trim().parse::<u8>(), p.trim().parse::<f32>()) {
+                    return Some(Self::PolyAftertouch {
+                        note,
+                        pressure: pr.clamp(0.0, 1.0),
+                    });
+                }
+            }
+        }
+        if let Some(rest) = trimmed
+            .strip_prefix("npb,")
+            .or_else(|| trimmed.strip_prefix("npb:"))
+        {
+            let mut parts = rest.split(',');
+            if let (Some(n), Some(b)) = (parts.next(), parts.next()) {
+                if let (Ok(note), Ok(semi)) = (n.trim().parse::<u8>(), b.trim().parse::<f32>()) {
+                    return Some(Self::NotePitchBend {
+                        note,
+                        semitones: semi.clamp(-48.0, 48.0),
+                    });
+                }
+            }
+        }
+        if let Some(rest) = trimmed
+            .strip_prefix("cc,")
+            .or_else(|| trimmed.strip_prefix("cc:"))
+        {
+            let mut parts = rest.split(',');
+            if let (Some(c), Some(v)) = (parts.next(), parts.next()) {
+                if let (Ok(cc), Ok(val)) = (c.trim().parse::<u8>(), v.trim().parse::<f32>()) {
+                    return Some(Self::MidiCc {
+                        cc: cc & 0x7F,
+                        value: val.clamp(0.0, 1.0),
+                    });
+                }
+            }
+        }
+        if let Some(rest) = trimmed
+            .strip_prefix("env2,")
+            .or_else(|| trimmed.strip_prefix("env2:"))
+        {
+            let mut parts = rest.split(',');
+            if let (Some(t), Some(d)) = (parts.next(), parts.next()) {
+                if let (Ok(target), Ok(depth)) = (t.trim().parse::<u8>(), d.trim().parse::<f32>()) {
+                    return Some(Self::SetEnv2 {
+                        target: target.min(2),
+                        depth: depth.clamp(-1.0, 1.0),
+                    });
+                }
+            } else if let Ok(target) = rest.trim().parse::<u8>() {
+                return Some(Self::SetEnv2 {
+                    target: target.min(2),
+                    depth: 0.75,
+                });
+            }
+        }
+        if let Some(rest) = trimmed
+            .strip_prefix("envcrv,")
+            .or_else(|| trimmed.strip_prefix("envcrv:"))
+        {
+            if let Ok(v) = rest.trim().parse::<f32>() {
+                return Some(Self::SetEnvCurve(v.clamp(-1.0, 1.0)));
+            }
+        }
+        if let Some(rest) = trimmed
+            .strip_prefix("arprate,")
+            .or_else(|| trimmed.strip_prefix("arprate:"))
+        {
+            if let Ok(v) = rest.trim().parse::<u8>() {
+                return Some(Self::SetArpRateDiv(v.min(4)));
+            }
+        }
+        if let Some(rest) = trimmed
+            .strip_prefix("arpseq,")
+            .or_else(|| trimmed.strip_prefix("arpseq:"))
+        {
+            if let Ok(v) = rest.trim().parse::<u8>() {
+                return Some(Self::SetArpStepCount(if v >= 16 { 16 } else { 12 }));
+            }
+        }
+        if let Some(rest) = trimmed
+            .strip_prefix("gran,")
+            .or_else(|| trimmed.strip_prefix("gran:"))
+        {
+            if let Ok(v) = rest.trim().parse::<u8>() {
+                return Some(Self::SetGranularMode(v.min(2)));
+            }
         }
         if let Some(rest) = trimmed.strip_prefix("wtdraw:") {
             let cmd = rest.trim();
@@ -1287,8 +1513,19 @@ mod tests {
 
             // Desactivar reverb espacial base cuando probamos mutación pura de oscilador/filtro
             live_params.set_space_mix(0.0);
-            if matches!(ctrl, SynthControlId::KnobResonance) {
+            if matches!(
+                ctrl,
+                SynthControlId::KnobResonance | SynthControlId::BtnSvfModel
+            ) {
                 live_params.set_cutoff(1200.0);
+                live_params.set_resonance(2.8);
+            }
+            if matches!(ctrl, SynthControlId::BtnEnv2Target) {
+                live_params.set_cutoff(850.0);
+                live_params.set_sustain(0.35);
+            }
+            if matches!(ctrl, SynthControlId::BtnEnvCurve) {
+                live_params.set_attack(0.35);
             }
             if matches!(ctrl, SynthControlId::BtnSvfKeytrack) {
                 live_params.set_cutoff(850.0);
@@ -1451,9 +1688,14 @@ mod tests {
         live_src.set_custom_wavetable(&[0.8, -0.8, 0.5, -0.5, 0.9, -0.9, 0.2, -0.2]);
         live_src.set_arp_step_accent(0, 0.22);
         live_src.set_arp_step_accent(7, 0.64);
+        live_src.arm_midi_learn_by_name("cutoff");
+        assert!(live_src.apply_or_learn_midi_cc(74, 0.65));
+        live_src.arm_midi_learn_by_name("resonance");
+        assert!(live_src.apply_or_learn_midi_cc(21, 0.45));
 
         // 1. Roundtrip completo de archivo .tepui (TepuiPatch)
         let patch = TepuiPatch::export_from_live(&live_src, &worker_src);
+        assert_eq!(patch.midi_cc_map, vec![(21, 1), (74, 0)]);
         let patch_json = serde_json::to_string(&patch).expect("serialize TepuiPatch");
         let decoded_patch: TepuiPatch =
             serde_json::from_str(&patch_json).expect("deserialize TepuiPatch");
@@ -1478,6 +1720,8 @@ mod tests {
         assert!(live_dst.is_arp_custom_accents_active());
         assert!((live_dst.get_arp_step_accents()[0] - 0.22).abs() < 1e-4);
         assert!((live_dst.get_arp_step_accents()[7] - 0.64).abs() < 1e-4);
+        assert_eq!(live_dst.export_midi_cc_map(), vec![(21, 1), (74, 0)]);
+        assert_eq!(live_dst.get_midi_learn_bindings_count(), 2);
 
         // 2. Roundtrip completo de sesión DAW (SessionPersistField / PersistedSamplerSession)
         let persist_src = SessionPersistField::new(
@@ -1504,6 +1748,8 @@ mod tests {
         assert!(live_daw_dst.is_custom_wavetable_active());
         assert!(live_daw_dst.is_arp_custom_accents_active());
         assert!((live_daw_dst.get_arp_step_accents()[0] - 0.22).abs() < 1e-4);
+        assert_eq!(live_daw_dst.export_midi_cc_map(), vec![(21, 1), (74, 0)]);
+        assert_eq!(live_daw_dst.get_midi_learn_bindings_count(), 2);
 
         // 3. Retrocompatibilidad 100% con sesiones DAW antiguas sin los campos nuevos (Zero Data Contract Regressions)
         let legacy_json = r#"{
@@ -1521,6 +1767,7 @@ mod tests {
         assert_eq!(legacy_session.unison_voices, 1);
         assert!((legacy_session.filter_keytrack - 0.50).abs() < 1e-4);
         assert_eq!(legacy_session.arp_step_accents, [1.0; 16]);
+        assert!(legacy_session.midi_cc_map.is_empty());
     }
 
     #[test]
@@ -1730,5 +1977,304 @@ mod tests {
         fx2.process_block(&mut l2, &mut r2);
         assert_eq!(l1, l2);
         assert_eq!(r1, r2);
+    }
+
+    #[test]
+    fn test_odd_all_five_enhancements_glide_mpe_env2_arp16_granular_filters_midilearn() {
+        let sr = 48000.0_f32;
+        let samples: Vec<f32> = (0..12000)
+            .map(|i| {
+                let t = i as f32 / sr;
+                let w = std::f32::consts::TAU * 220.0 * t;
+                (0.55 * w.sin() + 0.25 * (w * 2.0).sin() + 0.15 * (w * 3.0).sin()) * 0.7
+            })
+            .collect();
+        let mut sample_buf = SampleBuffer::new_mono(samples, sr, 60);
+        sample_buf.loop_enabled = true;
+        sample_buf.loop_start = 480;
+        sample_buf.loop_end = 9600;
+
+        let (gui_midi_tx, gui_midi_rx) = crossbeam_channel::bounded(64);
+        let live_params = Arc::new(LiveParamStore::default());
+        let ai_worker = Arc::new(AiWorker::new(sr));
+        let sample_rate = Arc::new(AtomicU32::new(sr.to_bits()));
+        let params = Arc::new(SamplerParams::new_linked(
+            live_params.clone(),
+            Some(ai_worker.clone()),
+            Some(sample_rate.clone()),
+        ));
+
+        // 1. Área 1 (Expresividad Musical: Glide Legato + MPE Poly Aftertouch & Per-Note Pitch Bend)
+        handle_native_ipc_message(
+            "glide,2",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        assert_eq!(live_params.get_glide_mode(), 2);
+
+        handle_native_ipc_message(
+            "pat,60,0.85",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        assert!(matches!(
+            gui_midi_rx.try_recv(),
+            Ok(GuiMidiEvent::PolyAftertouch(60, p)) if (p - 0.85).abs() < 1e-4
+        ));
+
+        handle_native_ipc_message(
+            "npb,60,7.0",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        assert!(matches!(
+            gui_midi_rx.try_recv(),
+            Ok(GuiMidiEvent::NotePitchBend(60, b)) if (b - 7.0).abs() < 1e-4
+        ));
+
+        // 2. Área 2 (Segunda Envolvente Env 2 + Curvatura de etapas ADSR)
+        handle_native_ipc_message(
+            "env2,0,0.90",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        handle_native_ipc_message(
+            "envcrv,-0.75",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        assert_eq!(live_params.get_env2_target(), 0);
+        assert!((live_params.get_env2_depth() - 0.90).abs() < 1e-4);
+        assert!((live_params.get_env_curve() + 0.75).abs() < 1e-4);
+
+        // 3. Área 3 (Secuenciador de 16 pasos + Subdivisiones de Tempo 1/8T, 1/16D)
+        handle_native_ipc_message(
+            "arpseq,16",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        handle_native_ipc_message(
+            "arprate,3",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        assert_eq!(live_params.get_arp_step_count(), 16);
+        assert_eq!(live_params.get_arp_rate_div(), 3);
+
+        // 4. Área 4 (Motor Granular Cloud/Freeze + Filtros Ladder 24dB, Comb y Formant)
+        handle_native_ipc_message(
+            "gran,1",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        handle_native_ipc_message(
+            "m,4",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        assert_eq!(live_params.get_granular_mode(), 1);
+        assert_eq!(
+            live_params.get_filter_mode(),
+            synth_core::FilterMode::Ladder24dB
+        );
+
+        let mut vm = VoiceManager::new(sr, 16);
+        let mut fx = StereoFxRack::new(sr);
+        let mut rev = 0u32;
+        live_params.project_to_dsp(&mut vm, &mut fx, Some(120.0), &sample_buf, &mut rev);
+        vm.note_on(60, 0.9, &sample_buf);
+        vm.note_on(67, 0.9, &sample_buf);
+        vm.set_poly_aftertouch(67, 0.8);
+        vm.set_note_pitch_bend(67, 3.0);
+
+        let mut l = vec![0.0_f32; 512];
+        let mut r = vec![0.0_f32; 512];
+        vm.process_block(&sample_buf, &mut l, &mut r);
+
+        assert!(vm.glide_transitions_count() >= 1);
+        assert!(vm.mpe_poly_events_count() >= 2);
+        assert!(vm.env2_dsp_frames() >= 512);
+        assert!(vm.granular_dsp_frames() >= 512);
+        assert!(vm.advanced_filter_frames() >= 512);
+
+        // 5. Área 5 (MIDI Learn en tiempo real + Drag-and-Drop WAV Export)
+        handle_native_ipc_message(
+            "midi_learn:cutoff",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        assert_eq!(live_params.get_midi_learn_armed_param(), 0);
+
+        handle_native_ipc_message(
+            "cc,74,0.80",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        assert_eq!(live_params.get_midi_learn_armed_param(), -1);
+        assert_eq!(live_params.get_last_learned_cc(), 74);
+        assert_eq!(live_params.get_midi_learn_bindings_count(), 1);
+        assert!(live_params.get_cutoff() > 5000.0);
+
+        // Mover CC 74 nuevamente actualiza el Cutoff en tiempo real sin re-armar
+        handle_native_ipc_message(
+            "cc,74,0.10",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        assert!(live_params.get_cutoff() < 3000.0);
+
+        // Armar un segundo parámetro limpia last_learned_cc (-1) para evitar auto-desarme prematuro en UI
+        handle_native_ipc_message(
+            "midi_learn:resonance",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        assert_eq!(live_params.get_midi_learn_armed_param(), 1);
+        assert_eq!(live_params.get_last_learned_cc(), -1);
+        assert_eq!(live_params.get_midi_learn_bindings_count(), 1);
+
+        handle_native_ipc_message(
+            "cc,21,0.80",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        assert_eq!(live_params.get_midi_learn_armed_param(), -1);
+        assert_eq!(live_params.get_last_learned_cc(), 21);
+        assert_eq!(live_params.get_midi_learn_bindings_count(), 2);
+        assert!(live_params.get_resonance() > 7.5);
+
+        // Re-aprender cutoff (0) a un nuevo CC (71) debe desasociar el CC anterior (74) y mantener conteo exacto (1:1)
+        live_params.arm_midi_learn_by_name("cutoff");
+        assert!(live_params.apply_or_learn_midi_cc(71, 0.50));
+        assert_eq!(live_params.export_midi_cc_map(), vec![(21, 1), (71, 0)]);
+        assert_eq!(live_params.get_midi_learn_bindings_count(), 2);
+        assert!(
+            !live_params.apply_or_learn_midi_cc(74, 0.99),
+            "Old CC 74 must be unbound after cutoff is re-learned to CC 71"
+        );
+        // Re-asociar cutoff de vuelta a CC 74 limpia CC 71
+        live_params.arm_midi_learn_by_name("cutoff");
+        assert!(live_params.apply_or_learn_midi_cc(74, 0.80));
+        assert_eq!(live_params.export_midi_cc_map(), vec![(21, 1), (74, 0)]);
+        assert_eq!(live_params.get_midi_learn_bindings_count(), 2);
+
+        // Persistencia de bindings MIDI Learn en TepuiPatch (.tepui), PersistedSamplerSession (DAW) e hidratación UI JSON
+        let patch = crate::params::TepuiPatch::export_from_live(&live_params, &ai_worker);
+        assert_eq!(patch.midi_cc_map, vec![(21, 1), (74, 0)]);
+        let patch_json =
+            serde_json::to_string(&patch).expect("serialize TepuiPatch with midi_cc_map");
+        let restored_patch: crate::params::TepuiPatch =
+            serde_json::from_str(&patch_json).expect("deserialize TepuiPatch with midi_cc_map");
+        let restored_live = Arc::new(LiveParamStore::default());
+        let restored_worker = Arc::new(AiWorker::new(sr));
+        let restored_params = Arc::new(SamplerParams::new_linked(
+            restored_live.clone(),
+            Some(restored_worker.clone()),
+            Some(sample_rate.clone()),
+        ));
+        restored_patch
+            .apply_to_live(&restored_live, &restored_worker)
+            .expect("apply_to_live with midi_cc_map");
+        assert_eq!(restored_live.export_midi_cc_map(), vec![(21, 1), (74, 0)]);
+        assert_eq!(restored_live.get_midi_learn_bindings_count(), 2);
+        assert!(restored_live.apply_or_learn_midi_cc(74, 0.90));
+        assert!(restored_live.get_cutoff() > 9000.0);
+
+        let init_json = crate::web_editor::build_init_state_json(
+            &restored_params,
+            &restored_live,
+            &restored_worker,
+        );
+        assert!(
+            init_json.contains(r#""midi_cc_map":[[21,1],[74,0]]"#),
+            "build_init_state_json must expose restored midi_cc_map for WebView UI badge hydration"
+        );
+        let telem_json = crate::web_editor::build_telemetry_json(
+            &restored_params,
+            &restored_live,
+            &restored_worker,
+        );
+        assert!(
+            telem_json.contains(r#""midi_cc_map":[[21,1],[74,0]]"#),
+            "build_telemetry_json must expose restored midi_cc_map for WebView UI badge hydration"
+        );
+
+        handle_native_ipc_message(
+            "drag_wav_export",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        assert_eq!(live_params.get_wav_drag_exports(), 1);
+
+        // Exportación de clip recortado según marcadores OLED (trim_start_norm..trim_end_norm)
+        let full_wav = synth_core::encode_wav_f32(&sample_buf);
+        live_params.set_trim_start_norm(0.25);
+        live_params.set_trim_end_norm(0.75);
+        let trimmed_wav = live_params.export_trimmed_wav_bytes(&sample_buf);
+        assert!(
+            trimmed_wav.len() < full_wav.len() * 3 / 4 && trimmed_wav.len() > 44,
+            "Trimmed WAV export must respect active OLED trim markers"
+        );
+        assert_eq!(live_params.get_wav_drag_exports(), 2);
     }
 }

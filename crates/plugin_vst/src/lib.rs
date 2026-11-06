@@ -31,6 +31,9 @@ pub enum GuiMidiEvent {
     ModWheel(f32),
     SustainPedal(bool),
     Aftertouch(f32),
+    PolyAftertouch(u8, f32),
+    NotePitchBend(u8, f32),
+    MidiCC(u8, f32),
     BrightnessCC74(f32),
     SetVelocity(f32),
     AllNotesOff,
@@ -211,7 +214,7 @@ impl AiSamplerPlugin {
                         self.last_daw.resonance = self.params.resonance.value();
                     }
                     GuiParamId::FilterMode => {
-                        let mode = (normalized.round() as i32).clamp(0, 3);
+                        let mode = (normalized.round() as i32).clamp(0, 6);
                         self.live_params.set_filter_mode(mode);
                         self.last_daw.filter_mode = self.params.filter_mode.value();
                     }
@@ -630,6 +633,15 @@ impl Plugin for AiSamplerPlugin {
                     self.voice_manager.set_mod_wheel(val);
                     self.live_params.set_mod_wheel(val);
                     self.live_params.bump_midi_cc_events();
+                    if self.live_params.apply_or_learn_midi_cc(1, val) {
+                        self.live_params.project_to_dsp(
+                            &mut self.voice_manager,
+                            &mut self.fx_rack,
+                            host_bpm_opt,
+                            active_sample,
+                            &mut self.last_custom_wt_rev,
+                        );
+                    }
                 }
                 GuiMidiEvent::SustainPedal(down) => {
                     self.voice_manager.set_sustain_pedal(down);
@@ -640,9 +652,38 @@ impl Plugin for AiSamplerPlugin {
                     self.voice_manager.set_aftertouch(pressure);
                     self.live_params.bump_midi_cc_events();
                 }
+                GuiMidiEvent::PolyAftertouch(note, pressure) => {
+                    self.voice_manager.set_poly_aftertouch(note, pressure);
+                    self.live_params.bump_midi_cc_events();
+                }
+                GuiMidiEvent::NotePitchBend(note, semitones) => {
+                    self.voice_manager.set_note_pitch_bend(note, semitones);
+                    self.live_params.bump_midi_cc_events();
+                }
+                GuiMidiEvent::MidiCC(cc, value) => {
+                    self.live_params.bump_midi_cc_events();
+                    if self.live_params.apply_or_learn_midi_cc(cc, value) {
+                        self.live_params.project_to_dsp(
+                            &mut self.voice_manager,
+                            &mut self.fx_rack,
+                            host_bpm_opt,
+                            active_sample,
+                            &mut self.last_custom_wt_rev,
+                        );
+                    }
+                }
                 GuiMidiEvent::BrightnessCC74(val) => {
                     self.voice_manager.set_brightness_cc74(val);
                     self.live_params.bump_midi_cc_events();
+                    if self.live_params.apply_or_learn_midi_cc(74, val) {
+                        self.live_params.project_to_dsp(
+                            &mut self.voice_manager,
+                            &mut self.fx_rack,
+                            host_bpm_opt,
+                            active_sample,
+                            &mut self.last_custom_wt_rev,
+                        );
+                    }
                 }
                 GuiMidiEvent::SetVelocity(vel) => {
                     self.voice_manager.set_arp_live_velocity(vel);
@@ -675,7 +716,7 @@ impl Plugin for AiSamplerPlugin {
             (scratch, false)
         };
 
-        // 6. Renderizar con precisiÃ³n de muestra exacta (Sample-Accurate MIDI)
+        // 6. Renderizar con precisión de muestra exacta (Sample-Accurate MIDI)
         let mut next_event = context.next_event();
         let mut block_start = 0;
 
@@ -697,6 +738,15 @@ impl Plugin for AiSamplerPlugin {
                         }
                         NoteEvent::MidiCC { cc, value, .. } => {
                             self.live_params.bump_midi_cc_events();
+                            if self.live_params.apply_or_learn_midi_cc(cc, value) {
+                                self.live_params.project_to_dsp(
+                                    &mut self.voice_manager,
+                                    &mut self.fx_rack,
+                                    host_bpm_opt,
+                                    active_sample,
+                                    &mut self.last_custom_wt_rev,
+                                );
+                            }
                             match cc {
                                 1 => self.voice_manager.set_mod_wheel(value),
                                 11 | 74 => self.voice_manager.set_brightness_cc74(value),
@@ -705,8 +755,16 @@ impl Plugin for AiSamplerPlugin {
                                 _ => {}
                             }
                         }
-                        NoteEvent::PolyPressure { pressure, .. }
-                        | NoteEvent::MidiChannelPressure { pressure, .. } => {
+                        NoteEvent::PolyPressure { note, pressure, .. } => {
+                            self.live_params.bump_midi_cc_events();
+                            self.voice_manager.set_poly_aftertouch(note, pressure);
+                        }
+                        NoteEvent::PolyTuning { note, tuning, .. } => {
+                            self.live_params.bump_midi_cc_events();
+                            self.voice_manager
+                                .set_note_pitch_bend(note, tuning.clamp(-48.0, 48.0));
+                        }
+                        NoteEvent::MidiChannelPressure { pressure, .. } => {
                             self.live_params.bump_midi_cc_events();
                             self.voice_manager.set_aftertouch(pressure);
                         }
@@ -763,11 +821,14 @@ impl Plugin for AiSamplerPlugin {
                 NoteEvent::NoteOff { note, .. } => {
                     self.voice_manager.note_off(note);
                 }
-                NoteEvent::MidiCC { cc, value, .. } => match cc {
-                    64 => self.voice_manager.set_sustain_pedal(value >= 0.5),
-                    120 | 123 => self.voice_manager.kill_all(),
-                    _ => {}
-                },
+                NoteEvent::MidiCC { cc, value, .. } => {
+                    let _ = self.live_params.apply_or_learn_midi_cc(cc, value);
+                    match cc {
+                        64 => self.voice_manager.set_sustain_pedal(value >= 0.5),
+                        120 | 123 => self.voice_manager.kill_all(),
+                        _ => {}
+                    }
+                }
                 NoteEvent::MidiPitchBend { value, .. } => {
                     self.voice_manager.set_pitch_bend(value * 2.0);
                 }
@@ -872,6 +933,18 @@ impl Plugin for AiSamplerPlugin {
                 .vital_serum_dsp_frames()
                 .wrapping_add(self.fx_rack.vital_fx_frames()),
         );
+        self.live_params
+            .set_glide_transitions(self.voice_manager.glide_transitions_count());
+        self.live_params
+            .set_mpe_poly_events(self.voice_manager.mpe_poly_events_count());
+        self.live_params
+            .set_env2_dsp_frames(self.voice_manager.env2_dsp_frames());
+        self.live_params
+            .set_arp_ratchet_hits(self.voice_manager.arp_ratchet_hits_count());
+        self.live_params
+            .set_granular_dsp_frames(self.voice_manager.granular_dsp_frames());
+        self.live_params
+            .set_advanced_filter_frames(self.voice_manager.advanced_filter_frames());
         self.live_params
             .set_last_velocity(self.voice_manager.last_velocity());
         self.live_params
@@ -1025,6 +1098,15 @@ mod tests {
                 GuiMidiEvent::SetVelocity(vel) => {
                     plugin.voice_manager.set_arp_live_velocity(vel);
                 }
+                GuiMidiEvent::PolyAftertouch(note, pressure) => {
+                    plugin.voice_manager.set_poly_aftertouch(note, pressure);
+                }
+                GuiMidiEvent::NotePitchBend(note, semi) => {
+                    plugin.voice_manager.set_note_pitch_bend(note, semi);
+                }
+                GuiMidiEvent::MidiCC(cc, norm) => {
+                    plugin.live_params.apply_or_learn_midi_cc(cc, norm);
+                }
                 GuiMidiEvent::AllNotesOff => {
                     plugin.voice_manager.kill_all();
                 }
@@ -1064,6 +1146,15 @@ mod tests {
                 GuiMidiEvent::SetVelocity(vel) => {
                     plugin.voice_manager.set_arp_live_velocity(vel);
                 }
+                GuiMidiEvent::PolyAftertouch(note, pressure) => {
+                    plugin.voice_manager.set_poly_aftertouch(note, pressure);
+                }
+                GuiMidiEvent::NotePitchBend(note, semi) => {
+                    plugin.voice_manager.set_note_pitch_bend(note, semi);
+                }
+                GuiMidiEvent::MidiCC(cc, norm) => {
+                    plugin.live_params.apply_or_learn_midi_cc(cc, norm);
+                }
                 GuiMidiEvent::AllNotesOff => {
                     plugin.voice_manager.kill_all();
                 }
@@ -1088,7 +1179,7 @@ mod tests {
         let mut plugin = AiSamplerPlugin::default();
         let active_sample = plugin.ai_worker.get_sample();
 
-        // Tocar varias notas simultÃ¡neas
+        // Tocar varias notas simultáneas
         plugin
             .gui_midi_tx
             .send(GuiMidiEvent::NoteOn(60, 0.8))
@@ -1114,12 +1205,21 @@ mod tests {
                 GuiMidiEvent::Aftertouch(p) => plugin.voice_manager.set_aftertouch(p),
                 GuiMidiEvent::BrightnessCC74(b) => plugin.voice_manager.set_brightness_cc74(b),
                 GuiMidiEvent::SetVelocity(v) => plugin.voice_manager.set_arp_live_velocity(v),
+                GuiMidiEvent::PolyAftertouch(note, p) => {
+                    plugin.voice_manager.set_poly_aftertouch(note, p)
+                }
+                GuiMidiEvent::NotePitchBend(note, s) => {
+                    plugin.voice_manager.set_note_pitch_bend(note, s)
+                }
+                GuiMidiEvent::MidiCC(cc, n) => {
+                    plugin.live_params.apply_or_learn_midi_cc(cc, n);
+                }
                 GuiMidiEvent::AllNotesOff => plugin.voice_manager.kill_all(),
             }
         }
         assert_eq!(plugin.voice_manager.active_voice_count(), 3);
 
-        // Enviar evento de PÃ¡nico
+        // Enviar evento de Pánico
         plugin.gui_midi_tx.send(GuiMidiEvent::AllNotesOff).unwrap();
         while let Ok(gui_event) = plugin.gui_midi_rx.try_recv() {
             match gui_event {
@@ -1133,6 +1233,15 @@ mod tests {
                 GuiMidiEvent::Aftertouch(p) => plugin.voice_manager.set_aftertouch(p),
                 GuiMidiEvent::BrightnessCC74(b) => plugin.voice_manager.set_brightness_cc74(b),
                 GuiMidiEvent::SetVelocity(v) => plugin.voice_manager.set_arp_live_velocity(v),
+                GuiMidiEvent::PolyAftertouch(note, p) => {
+                    plugin.voice_manager.set_poly_aftertouch(note, p)
+                }
+                GuiMidiEvent::NotePitchBend(note, s) => {
+                    plugin.voice_manager.set_note_pitch_bend(note, s)
+                }
+                GuiMidiEvent::MidiCC(cc, n) => {
+                    plugin.live_params.apply_or_learn_midi_cc(cc, n);
+                }
                 GuiMidiEvent::AllNotesOff => plugin.voice_manager.kill_all(),
             }
         }

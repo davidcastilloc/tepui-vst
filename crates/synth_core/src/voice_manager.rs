@@ -1,7 +1,7 @@
 //! Gestor de voces polifónicas con pool prealocado, política inteligente de voice stealing,
 //! modulación LFO en tiempo real y ruteo Multi-Sample por Keyzones (`Low / Mid / High`).
 
-use crate::arp::{ArpMode, TepuiArpeggiator};
+use crate::arp::{ArpMode, ArpRateDivision, TepuiArpeggiator};
 use crate::buffer::SampleBuffer;
 use crate::envelope::AdsrStage;
 use crate::filter::FilterMode;
@@ -48,6 +48,27 @@ pub struct VoiceManager {
     last_velocity: f32,
     velocity_events_count: u32,
     arp: TepuiArpeggiator,
+    arp_step_count_configured: usize,
+
+    // Expresividad Musical: Glide / Portamento, Legato y MPE (Per-Note Pitch Bend & Poly Aftertouch)
+    glide_mode: u8,
+    glide_time_s: f32,
+    legato_mode: bool,
+    legato_held_notes: [bool; 128],
+    last_triggered_note: Option<u8>,
+    glide_transitions_count: u32,
+    mpe_poly_events_count: u32,
+
+    // Segunda Envolvente Dedicada (Env 2) y Curvatura de Etapas ADSR
+    env2_target: u8,
+    env2_depth: f32,
+    env_curve_tension: f32,
+    env2_dsp_frames: u32,
+
+    // Motor Granular / Freeze y Modelos de Filtro Avanzados (Ladder 24dB, Comb, Formant)
+    granular_mode: u8,
+    granular_dsp_frames: u32,
+    advanced_filter_frames: u32,
 
     // Motor Vital / Serum: Wavetable 3D + Super-Unison + Sub-Oscillator + OSC B (FM A<-B) + 4 Macros + LFO Shape + Custom Drawn WT
     wt_pos: f32,
@@ -116,6 +137,21 @@ impl VoiceManager {
             last_velocity: 0.95,
             velocity_events_count: 0,
             arp: TepuiArpeggiator::new(sample_rate),
+            arp_step_count_configured: 0,
+            glide_mode: 0,
+            glide_time_s: 0.0,
+            legato_mode: false,
+            legato_held_notes: [false; 128],
+            last_triggered_note: None,
+            glide_transitions_count: 0,
+            mpe_poly_events_count: 0,
+            env2_target: 0,
+            env2_depth: 0.0,
+            env_curve_tension: 0.0,
+            env2_dsp_frames: 0,
+            granular_mode: 0,
+            granular_dsp_frames: 0,
+            advanced_filter_frames: 0,
             wt_pos: 0.0,
             wt_warp: 0.0,
             unison_voices: 1,
@@ -610,6 +646,217 @@ impl VoiceManager {
         }
     }
 
+    /// Configura el modo de Glide / Portamento y Legato (`0` = OFF, `1` = GLIDE 85ms, `2` = LEGATO 160ms).
+    #[inline]
+    pub fn set_glide_mode(&mut self, mode: u8) {
+        let m = mode.min(2);
+        self.glide_mode = m;
+        match m {
+            1 => {
+                self.glide_time_s = 0.085;
+                self.legato_mode = false;
+            }
+            2 => {
+                self.glide_time_s = 0.160;
+                self.legato_mode = true;
+            }
+            _ => {
+                self.glide_time_s = 0.0;
+                self.legato_mode = false;
+            }
+        }
+        for voice in &mut self.voices {
+            voice.glide_time_s = self.glide_time_s;
+        }
+    }
+
+    #[inline]
+    pub fn set_glide_params(&mut self, glide_time_s: f32, legato_mode: bool) {
+        self.glide_time_s = glide_time_s.clamp(0.0, 2.0);
+        self.legato_mode = legato_mode;
+        self.glide_mode = if self.glide_time_s <= 0.0005 {
+            0
+        } else if legato_mode {
+            2
+        } else {
+            1
+        };
+        for voice in &mut self.voices {
+            voice.glide_time_s = self.glide_time_s;
+        }
+    }
+
+    #[inline]
+    pub fn glide_mode(&self) -> u8 {
+        self.glide_mode
+    }
+
+    #[inline]
+    pub fn glide_time_s(&self) -> f32 {
+        self.glide_time_s
+    }
+
+    #[inline]
+    pub fn legato_mode(&self) -> bool {
+        self.legato_mode
+    }
+
+    #[inline]
+    pub fn glide_transitions_count(&self) -> u32 {
+        self.glide_transitions_count
+    }
+
+    /// Aplica presión polifónica MPE / Polyphonic Aftertouch (`0.0..=1.0`) a la nota indicada (o a todas si `note == 255`).
+    #[inline]
+    pub fn set_poly_aftertouch(&mut self, note: u8, pressure: f32) {
+        let p = if pressure.is_finite() {
+            pressure.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        self.mpe_poly_events_count = self.mpe_poly_events_count.wrapping_add(1);
+        for voice in &mut self.voices {
+            if voice.is_active() && (note == 255 || voice.note == note) {
+                voice.poly_aftertouch = p;
+            }
+        }
+    }
+
+    /// Aplica Pitch Bend por nota individual (MPE Per-Note Pitch Bend, `-24.0..=24.0` semitonos).
+    #[inline]
+    pub fn set_note_pitch_bend(&mut self, note: u8, semitones: f32) {
+        let s = if semitones.is_finite() {
+            semitones.clamp(-24.0, 24.0)
+        } else {
+            0.0
+        };
+        self.mpe_poly_events_count = self.mpe_poly_events_count.wrapping_add(1);
+        for voice in &mut self.voices {
+            if voice.is_active() && (note == 255 || voice.note == note) {
+                voice.per_note_bend_semitones = s;
+            }
+        }
+    }
+
+    #[inline]
+    pub fn mpe_poly_events_count(&self) -> u32 {
+        self.mpe_poly_events_count
+    }
+
+    /// Configura el destino (`0`: Cutoff, `1`: Pitch, `2`: Wavetable Pos) y profundidad (`-1.0..=1.0`) de la Envolvente 2.
+    #[inline]
+    pub fn set_env2_params(&mut self, target: u8, depth: f32) {
+        self.env2_target = target.min(2);
+        self.env2_depth = if depth.is_finite() {
+            depth.clamp(-1.0, 1.0)
+        } else {
+            0.0
+        };
+        for voice in &mut self.voices {
+            voice.env2_target = self.env2_target;
+            voice.env2_depth = self.env2_depth;
+        }
+    }
+
+    #[inline]
+    pub fn env2_params(&self) -> (u8, f32) {
+        (self.env2_target, self.env2_depth)
+    }
+
+    /// Configura la curvatura / tensión de las etapas ADSR (`-1.0` Exponencial Punchy .. `0.0` Estándar .. `+1.0` Logarítmica Swell).
+    #[inline]
+    pub fn set_env_curve_tension(&mut self, tension: f32) {
+        let t = if tension.is_finite() {
+            tension.clamp(-1.0, 1.0)
+        } else {
+            0.0
+        };
+        self.env_curve_tension = t;
+        for voice in &mut self.voices {
+            voice.adsr.set_curve_tension(t);
+            voice.env2.set_curve_tension(t);
+        }
+    }
+
+    #[inline]
+    pub fn env_curve_tension(&self) -> f32 {
+        self.env_curve_tension
+    }
+
+    #[inline]
+    pub fn env2_dsp_frames(&self) -> u32 {
+        self.env2_dsp_frames
+    }
+
+    /// Configura la subdivisión rítmica sincronizada al DAW del Arpegiador / Secuenciador (`1/4`, `1/8`, `1/16`, `1/8T`, `1/16D`).
+    #[inline]
+    pub fn set_arp_rate_division(&mut self, div: ArpRateDivision) {
+        self.arp.set_rate_division(div);
+    }
+
+    #[inline]
+    pub fn arp_rate_division(&self) -> ArpRateDivision {
+        self.arp.rate_division()
+    }
+
+    /// Configura la longitud del secuenciador de pasos (`8`, `12` o `16`) y activa Ratchet rítmico cuando cambia a `16`.
+    #[inline]
+    pub fn set_arp_step_count(&mut self, count: usize) {
+        let c = count.clamp(4, 16);
+        self.arp.set_step_count(c);
+        if self.arp_step_count_configured != c {
+            self.arp_step_count_configured = c;
+            if c == 16 {
+                self.arp.set_step_ratchet(3, 2);
+                self.arp.set_step_ratchet(7, 2);
+                self.arp.set_step_ratchet(11, 2);
+                self.arp.set_step_ratchet(15, 3);
+                self.arp.set_step_octave(4, 1);
+                self.arp.set_step_octave(12, 1);
+            } else {
+                for idx in 0..16 {
+                    self.arp.set_step_ratchet(idx, 1);
+                    self.arp.set_step_octave(idx, 0);
+                }
+            }
+        }
+    }
+
+    #[inline]
+    pub fn arp_step_count(&self) -> usize {
+        self.arp.step_count()
+    }
+
+    #[inline]
+    pub fn arp_ratchet_hits_count(&self) -> u32 {
+        self.arp.ratchet_hits_count()
+    }
+
+    /// Configura el modo Granular / Time-Stretch & Freeze (`0` = Off, `1` = Granular Cloud, `2` = Granular Freeze).
+    #[inline]
+    pub fn set_granular_mode(&mut self, mode: u8) {
+        let m = mode.min(2);
+        self.granular_mode = m;
+        for voice in &mut self.voices {
+            voice.granular_mode = m;
+        }
+    }
+
+    #[inline]
+    pub fn granular_mode(&self) -> u8 {
+        self.granular_mode
+    }
+
+    #[inline]
+    pub fn granular_dsp_frames(&self) -> u32 {
+        self.granular_dsp_frames
+    }
+
+    #[inline]
+    pub fn advanced_filter_frames(&self) -> u32 {
+        self.advanced_filter_frames
+    }
+
     /// Actualiza los parámetros de envolvente de todas las voces
     pub fn update_envelope_params(
         &mut self,
@@ -627,6 +874,14 @@ impl VoiceManager {
             voice
                 .adsr
                 .set_parameters(attack_s, decay_s, sustain, release_s);
+            voice.adsr.set_curve_tension(self.env_curve_tension);
+            voice.env2.set_parameters(
+                (attack_s * 0.65).max(0.002),
+                (decay_s * 0.85).max(0.02),
+                (sustain * 0.45).clamp(0.05, 0.90),
+                (release_s * 0.85).max(0.02),
+            );
+            voice.env2.set_curve_tension(self.env_curve_tension);
         }
     }
 
@@ -655,6 +910,7 @@ impl VoiceManager {
             } else {
                 eff_cut
             };
+            voice.base_cutoff_hz = voice_cut;
             voice.filter_l.set_cutoff(voice_cut);
             voice.filter_l.set_resonance(cur_reso);
             voice.filter_l.mode = mode;
@@ -718,6 +974,7 @@ impl VoiceManager {
 
         if (note as usize) < 128 {
             self.sustained_notes[note as usize] = false;
+            self.legato_held_notes[note as usize] = true;
         }
 
         if self.arp.is_active() {
@@ -752,12 +1009,29 @@ impl VoiceManager {
         self.time_counter = self.time_counter.wrapping_add(1);
         let time = self.time_counter;
 
-        // 0. Si la misma nota ya está sonando en una voz activa, re-dispararla (retrigger limpio)
         let mut target_idx = None;
-        for (i, voice) in self.voices.iter().enumerate() {
-            if voice.is_active() && voice.note == note {
-                target_idx = Some(i);
-                break;
+        // 0a. En modo Legato (Single-Trigger), reutilizar la voz activa principal para deslizar pitch sin reiniciar envolvente
+        if self.legato_mode {
+            for (i, voice) in self.voices.iter().enumerate() {
+                if voice.is_active()
+                    && matches!(
+                        voice.adsr.stage,
+                        AdsrStage::Attack | AdsrStage::Decay | AdsrStage::Sustain
+                    )
+                {
+                    target_idx = Some(i);
+                    break;
+                }
+            }
+        }
+
+        // 0b. Si la misma nota ya está sonando en una voz activa, re-dispararla (retrigger limpio)
+        if target_idx.is_none() {
+            for (i, voice) in self.voices.iter().enumerate() {
+                if voice.is_active() && voice.note == note {
+                    target_idx = Some(i);
+                    break;
+                }
             }
         }
 
@@ -813,8 +1087,13 @@ impl VoiceManager {
             ),
         };
 
-        // 4. Asignar la nota a la voz elegida con sensibilidad tímbrica de filtro por velocity + keytrack
+        // 4. Asignar la nota a la voz elegida con sensibilidad tímbrica de filtro por velocity + keytrack + Glide
         if let Some(idx) = target_idx {
+            let prev_note = self.last_triggered_note;
+            if self.glide_time_s > 0.0005 && prev_note.is_some() && prev_note != Some(note) {
+                self.glide_transitions_count = self.glide_transitions_count.wrapping_add(1);
+            }
+            self.last_triggered_note = Some(note);
             self.last_velocity = velocity.clamp(0.01, 1.0);
             let eff_cut = self.effective_cutoff_hz();
             let vel_oct = (velocity.clamp(0.02, 1.0) - 0.92) * 3.6;
@@ -822,9 +1101,21 @@ impl VoiceManager {
             let voice_cut = (eff_cut * 2.0_f32.powf(vel_oct + key_oct)).clamp(20.0, 20000.0);
             let voice = &mut self.voices[idx];
             voice.zone_slot = zone_slot;
+            voice.base_cutoff_hz = voice_cut;
             voice
                 .adsr
                 .set_parameters(self.attack_s, self.decay_s, self.sustain, self.release_s);
+            voice.adsr.set_curve_tension(self.env_curve_tension);
+            voice.env2.set_parameters(
+                (self.attack_s * 0.65).max(0.002),
+                (self.decay_s * 0.85).max(0.02),
+                (self.sustain * 0.45).clamp(0.05, 0.90),
+                (self.release_s * 0.85).max(0.02),
+            );
+            voice.env2.set_curve_tension(self.env_curve_tension);
+            voice.env2_target = self.env2_target;
+            voice.env2_depth = self.env2_depth;
+            voice.granular_mode = self.granular_mode;
             voice.filter_l.set_cutoff(voice_cut);
             voice.filter_l.set_resonance(self.resonance);
             voice.filter_l.mode = self.filter_mode;
@@ -848,7 +1139,16 @@ impl VoiceManager {
                 0.0
             };
             voice.osc_b_level = self.osc_b_level;
-            voice.note_on_with_root(note, velocity, target_buf, eff_root, time);
+            voice.note_on_with_root_and_glide(
+                note,
+                velocity,
+                target_buf,
+                eff_root,
+                time,
+                prev_note,
+                self.glide_time_s,
+                self.legato_mode,
+            );
             voice.update_pitch_bend(self.pitch_bend_multiplier);
         }
     }
@@ -862,6 +1162,10 @@ impl VoiceManager {
             return;
         }
 
+        if (note as usize) < 128 {
+            self.legato_held_notes[note as usize] = false;
+        }
+
         if self.arp.is_active() {
             if let Some(last) = self.arp.release_note(note) {
                 self.trigger_voice_note_off(last);
@@ -873,6 +1177,32 @@ impl VoiceManager {
     }
 
     fn trigger_voice_note_off(&mut self, note: u8) {
+        if self.legato_mode && !self.arp.is_active() {
+            let mut fallback_held: Option<u8> = None;
+            for n in (0..128).rev() {
+                if self.legato_held_notes[n] && (n as u8) != note {
+                    fallback_held = Some(n as u8);
+                    break;
+                }
+            }
+            if let Some(held_note) = fallback_held {
+                let mut glided_back = false;
+                for voice in &mut self.voices {
+                    if voice.is_active() && voice.note == note {
+                        voice.note = held_note;
+                        glided_back = true;
+                    }
+                }
+                if glided_back {
+                    if self.glide_time_s > 0.0005 && self.last_triggered_note != Some(held_note) {
+                        self.glide_transitions_count = self.glide_transitions_count.wrapping_add(1);
+                    }
+                    self.last_triggered_note = Some(held_note);
+                    return;
+                }
+            }
+        }
+
         for voice in &mut self.voices {
             if voice.is_active() && voice.note == note {
                 voice.note_off();
@@ -883,6 +1213,7 @@ impl VoiceManager {
     /// Silencia todas las voces inmediatamente
     pub fn kill_all(&mut self) {
         self.sustained_notes = [false; 128];
+        self.legato_held_notes = [false; 128];
         let _ = self.arp.clear();
         self.lfo.reset();
         for voice in &mut self.voices {
@@ -972,6 +1303,7 @@ impl VoiceManager {
                             let key_oct = ((voice.note as f32 - 60.0) / 12.0) * keytrack;
                             let v_cut =
                                 (eff_cut * 2.0_f32.powf(vel_oct + key_oct)).clamp(20.0, 20000.0);
+                            voice.base_cutoff_hz = v_cut;
                             voice.filter_l.set_cutoff(v_cut);
                             voice.filter_l.set_resonance(cur_reso);
                             voice.filter_r.set_cutoff(v_cut);
@@ -995,7 +1327,7 @@ impl VoiceManager {
                 let mut active_cnt = 0u32;
                 for v in &self.voices {
                     if v.is_active() {
-                        env_acc += v.adsr.current_value();
+                        env_acc += v.env2.current_value();
                         vel_acc += v.velocity;
                         active_cnt += 1;
                     }
@@ -1078,6 +1410,7 @@ impl VoiceManager {
                                 ((voice.note as f32 - 60.0) / 12.0) * self.filter_keytrack;
                             let v_cut = (mod_cutoff * 2.0_f32.powf(per_voice_vel_oct + key_oct))
                                 .clamp(20.0, 20000.0);
+                            voice.base_cutoff_hz = v_cut;
                             voice.filter_l.set_cutoff(v_cut);
                             voice.filter_l.set_resonance(mod_reso);
                             voice.filter_r.set_cutoff(v_cut);
@@ -1107,6 +1440,7 @@ impl VoiceManager {
                                 let v_cut = (mod_cutoff
                                     * 2.0_f32.powf(per_voice_vel_oct + key_oct))
                                 .clamp(20.0, 20000.0);
+                                voice.base_cutoff_hz = v_cut;
                                 voice.filter_l.set_cutoff(v_cut);
                                 voice.filter_r.set_cutoff(v_cut);
                             }
@@ -1151,6 +1485,17 @@ impl VoiceManager {
                 {
                     self.vital_serum_dsp_frames =
                         self.vital_serum_dsp_frames.wrapping_add(chunk_len as u32);
+                }
+                if voice.env2_depth.abs() > 1e-4 || self.env_curve_tension.abs() > 1e-4 {
+                    self.env2_dsp_frames = self.env2_dsp_frames.wrapping_add(chunk_len as u32);
+                }
+                if voice.granular_mode > 0 {
+                    self.granular_dsp_frames =
+                        self.granular_dsp_frames.wrapping_add(chunk_len as u32);
+                }
+                if voice.filter_l.mode.is_advanced_model() {
+                    self.advanced_filter_frames =
+                        self.advanced_filter_frames.wrapping_add(chunk_len as u32);
                 }
 
                 for i in offset..chunk_end {
@@ -1201,5 +1546,149 @@ impl VoiceManager {
             }
         }
         playhead
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_test_sample() -> SampleBuffer {
+        let sr = 44100.0;
+        let len = 44100;
+        let mut left = Vec::with_capacity(len);
+        let mut right = Vec::with_capacity(len);
+        for i in 0..len {
+            let t = i as f32 / sr;
+            let s = (t * 440.0 * std::f32::consts::TAU).sin() * 0.5
+                + (t * 880.0 * std::f32::consts::TAU).sin() * 0.25;
+            left.push(s);
+            right.push(s);
+        }
+        let mut buf = SampleBuffer::new_stereo(left, right, sr, 60);
+        buf.loop_enabled = true;
+        buf.loop_start = 4410;
+        buf.loop_end = 39690;
+        buf
+    }
+
+    #[test]
+    fn test_odd_glide_legato_and_mpe_per_note_expression() {
+        let buf = make_test_sample();
+        let mut vm = VoiceManager::new(44100.0, 16);
+        vm.set_glide_mode(2); // Legato 160ms
+        assert!(vm.legato_mode());
+        assert!((vm.glide_time_s() - 0.160).abs() < 1e-4);
+
+        vm.note_on(60, 0.9, &buf);
+        let mut l = vec![0.0; 256];
+        let mut r = vec![0.0; 256];
+        vm.process_block(&buf, &mut l, &mut r);
+        assert_eq!(vm.active_voice_count(), 1);
+
+        // Disparar segunda nota en modo Legato: reutiliza la misma voz y registra transición Glide ODD
+        vm.note_on(67, 0.95, &buf);
+        assert_eq!(vm.active_voice_count(), 1);
+        assert_eq!(vm.glide_transitions_count(), 1);
+
+        // Enviar Polyphonic Aftertouch y Per-Note Pitch Bend MPE
+        vm.set_poly_aftertouch(67, 0.85);
+        vm.set_note_pitch_bend(67, 2.0);
+        assert_eq!(vm.mpe_poly_events_count(), 2);
+
+        l.fill(0.0);
+        r.fill(0.0);
+        vm.process_block(&buf, &mut l, &mut r);
+        let energy: f32 = l.iter().map(|x| x.abs()).sum();
+        assert!(energy > 1.0);
+    }
+
+    #[test]
+    fn test_odd_env2_granular_freeze_and_advanced_filters() {
+        let buf = make_test_sample();
+        let mut vm = VoiceManager::new(44100.0, 16);
+        vm.update_filter_params(1400.0, 2.2, FilterMode::Ladder24dB);
+        vm.set_env2_params(0, 0.75);
+        vm.set_env_curve_tension(-0.65);
+        vm.set_granular_mode(2); // Freeze
+
+        vm.note_on(60, 0.9, &buf);
+        let mut l = vec![0.0; 512];
+        let mut r = vec![0.0; 512];
+        vm.process_block(&buf, &mut l, &mut r);
+
+        assert!(vm.env2_dsp_frames() >= 512);
+        assert!(vm.granular_dsp_frames() >= 512);
+        assert!(vm.advanced_filter_frames() >= 512);
+    }
+
+    #[test]
+    fn test_legato_trill_note_off_and_mid_glide_continuity() {
+        let buf = make_test_sample();
+        let mut vm = VoiceManager::new(44100.0, 16);
+        vm.set_glide_mode(2); // Legato 160ms
+
+        vm.note_on(60, 0.9, &buf);
+        let mut l = vec![0.0; 256];
+        let mut r = vec![0.0; 256];
+        vm.process_block(&buf, &mut l, &mut r);
+
+        // Tocar segunda nota ligada (60 -> 72) y avanzar a mitad del glide
+        vm.note_on(72, 0.95, &buf);
+        vm.process_block(&buf, &mut l, &mut r);
+        let mid_glide_note = vm.voices[0].glide_current_note;
+        assert!(
+            mid_glide_note > 60.1 && mid_glide_note < 71.0,
+            "Mid-glide current note should be between 60 and 72, got {mid_glide_note}"
+        );
+
+        // Tocar tercera nota ligada (76) a mitad del glide: no debe saltar bruscamente a 72.0
+        vm.note_on(76, 0.95, &buf);
+        assert!(
+            (vm.voices[0].glide_current_note - mid_glide_note).abs() < 1e-4,
+            "Mid-glide legato retrigger must preserve glide_current_note without pitch jump"
+        );
+
+        // Soltar 76 y luego 72 mientras 60 sigue pulsada (trino legato): la voz sigue activa y vuelve a 60
+        vm.note_off(76);
+        assert_eq!(vm.active_voice_count(), 1);
+        assert_eq!(vm.voices[0].note, 72);
+        vm.note_off(72);
+        assert_eq!(vm.active_voice_count(), 1);
+        assert_eq!(vm.voices[0].note, 60);
+
+        // Al soltar finalmente la última nota mantenida (60), la voz entra en Release
+        vm.note_off(60);
+        assert_eq!(vm.voices[0].adsr.stage, AdsrStage::Release);
+    }
+
+    #[test]
+    fn test_arp_step_count_preserves_custom_ratchets_and_granular_freeze_playhead() {
+        let buf = make_test_sample();
+        let mut vm = VoiceManager::new(44100.0, 16);
+        vm.set_arp_step_count(16);
+        vm.arp.set_step_ratchet(0, 4);
+        vm.arp.set_step_octave(0, 2);
+
+        // Llamadas repetidas a set_arp_step_count(16) (como en project_to_dsp por bloque) no deben borrar ratchets/octavas personalizados
+        vm.set_arp_step_count(16);
+        assert_eq!(vm.arp.step_ratchet(0), 4);
+        assert_eq!(vm.arp.step_octave(0), 2);
+
+        // Verificar que activar Granular Freeze a mitad de nota congela en el playhead actual
+        vm.note_on(60, 0.9, &buf);
+        let mut l = vec![0.0; 1024];
+        let mut r = vec![0.0; 1024];
+        vm.process_block(&buf, &mut l, &mut r);
+        let pos_before_freeze = vm.voices[0].normalized_playhead(&buf);
+        assert!(pos_before_freeze > 0.02);
+
+        vm.set_granular_mode(2); // Freeze
+        vm.process_block(&buf, &mut l, &mut r);
+        let pos_after_freeze = vm.voices[0].normalized_playhead(&buf);
+        assert!(
+            (pos_after_freeze - pos_before_freeze).abs() < 1e-5,
+            "Granular Freeze must freeze at the current playhead ({pos_before_freeze}), got {pos_after_freeze}"
+        );
     }
 }
