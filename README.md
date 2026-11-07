@@ -20,6 +20,24 @@ Combina un motor DSP de tiempo real libre de asignaciones dinámicas (*zero-allo
 
 ---
 
+## Interfaz Modular & 6 Skins de Hardware (`@audio-ui/react`)
+
+<p align="center">
+  <img src="assets/screenshots/skin-dark.png" alt="TEPUI Studio ? Tepui Dark Studio" width="100%">
+</p>
+
+| Swiss Daylight Lab (`skin-minimal`) | Tepui Dark Studio (`skin-dark`) |
+| :---: | :---: |
+| <img src="assets/screenshots/skin-minimal.png" alt="Swiss Daylight Lab Skin" width="100%"> | <img src="assets/screenshots/skin-dark.png" alt="Tepui Dark Studio Skin" width="100%"> |
+| **Cream Console (`skin-retro`)** | **Synth '70s (`skin-synth70`)** |
+| <img src="assets/screenshots/skin-retro.png" alt="Cream Console Skin" width="100%"> | <img src="assets/screenshots/skin-synth70.png" alt="Synth 70s Skin" width="100%"> |
+| **Gunmetal Rack (`skin-gunmetal`)** | **CRT Phosphor (`skin-phosphor`)** |
+| <img src="assets/screenshots/skin-gunmetal.png" alt="Gunmetal Rack Skin" width="100%"> | <img src="assets/screenshots/skin-phosphor.png" alt="CRT Phosphor Skin" width="100%"> |
+| **Explorador de 1,250+ Presets & Sound Packs** | **Motor de Apariencia & Selector de Skins** |
+| <img src="assets/screenshots/preset-explorer.png" alt="Preset Explorer" width="100%"> | <img src="assets/screenshots/skins-selector.png" alt="Hardware Skins Selector" width="100%"> |
+
+---
+
 ## Arquitectura del Sistema
 
 ```mermaid
