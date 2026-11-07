@@ -1,0 +1,23 @@
+{
+  "name": "tepui-vst-ui",
+  "version": "1.0.0",
+  "private": true,
+  "description": "TEPUI Eurorack Synthesizer Workstation UI built with React 19 and @audio-ui/react",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@audio-ui/core": "latest",
+    "@audio-ui/react": "latest",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.8.2"
+  }
+}

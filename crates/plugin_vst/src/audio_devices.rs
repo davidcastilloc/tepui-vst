@@ -183,6 +183,8 @@ pub struct StandaloneAudioConfig {
     pub sample_rate: u32,
     pub period_size: u32,
     pub midi_input: Option<String>,
+    #[serde(default)]
+    pub ui_skin: Option<String>,
 }
 
 impl Default for StandaloneAudioConfig {
@@ -193,6 +195,7 @@ impl Default for StandaloneAudioConfig {
             sample_rate: 48000,
             period_size: 1056,
             midi_input: None,
+            ui_skin: None,
         }
     }
 }
@@ -205,6 +208,10 @@ pub struct AudioSystemStatus {
     pub active_sample_rate: u32,
     pub active_period_size: u32,
     pub active_midi_input: Option<String>,
+    #[serde(default)]
+    pub active_ui_skin: Option<String>,
+    #[serde(default)]
+    pub config: Option<StandaloneAudioConfig>,
     pub output_devices: Vec<AudioDeviceInfo>,
     pub input_devices: Vec<AudioDeviceInfo>,
     pub midi_inputs: Vec<String>,
@@ -310,6 +317,8 @@ pub fn enumerate_audio_system_cached(active_config: &StandaloneAudioConfig) -> A
             copy.is_standalone = is_standalone();
             copy.active_sample_rate = active_config.sample_rate;
             copy.active_period_size = active_config.period_size;
+            copy.active_ui_skin = active_config.ui_skin.clone();
+            copy.config = Some(active_config.clone());
             if active_config.output_device.is_some() {
                 copy.active_output_device = active_config.output_device.clone();
             }
@@ -336,6 +345,8 @@ pub fn enumerate_audio_system(active_config: &StandaloneAudioConfig) -> AudioSys
             active_sample_rate: active_config.sample_rate,
             active_period_size: active_config.period_size,
             active_midi_input: active_config.midi_input.clone(),
+            active_ui_skin: active_config.ui_skin.clone(),
+            config: Some(active_config.clone()),
             output_devices: Vec::new(),
             input_devices: Vec::new(),
             midi_inputs: Vec::new(),
@@ -422,6 +433,8 @@ pub fn enumerate_audio_system(active_config: &StandaloneAudioConfig) -> AudioSys
         active_sample_rate: active_config.sample_rate,
         active_period_size: active_config.period_size,
         active_midi_input: active_midi,
+        active_ui_skin: active_config.ui_skin.clone(),
+        config: Some(active_config.clone()),
         output_devices,
         input_devices,
         midi_inputs,
@@ -561,6 +574,7 @@ mod tests {
             sample_rate: 48000,
             period_size: 1056,
             midi_input: None,
+            ui_skin: None,
         };
         save_config(&dirty_cfg).expect("save_config should succeed");
         let loaded = load_config();

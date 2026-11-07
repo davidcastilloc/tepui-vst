@@ -43,6 +43,7 @@ pub struct AiWorker {
     _worker_thread: Option<JoinHandle<()>>,
     sample_update_tx: CbSender<SharedSampleBuffer>,
     sample_update_rx: CbReceiver<SharedSampleBuffer>,
+    garbage_tx: CbSender<SharedSampleBuffer>,
 
     // Banco de 3 Keyzones lock-free (0: Low, 1: Mid, 2: High)
     zone_samples: [Arc<ArcSwap<Option<SharedSampleBuffer>>>; 3],
@@ -74,6 +75,15 @@ impl AiWorker {
         let (tx, rx): (Sender<GenerateRequest>, Receiver<GenerateRequest>) = channel();
         let (sample_update_tx, sample_update_rx) = bounded(8);
         let (zone_update_tx, zone_update_rx) = bounded(16);
+        let (garbage_tx, garbage_rx) = bounded::<SharedSampleBuffer>(128);
+
+        let _ = thread::Builder::new()
+            .name("rt-sample-reaper".to_string())
+            .spawn(move || {
+                while let Ok(old_buf) = garbage_rx.recv() {
+                    drop(old_buf);
+                }
+            });
 
         let initial_sample = generate_grand_piano_c4(sample_rate);
         let current_sample = Arc::new(ArcSwap::from_pointee(initial_sample));
@@ -113,6 +123,7 @@ impl AiWorker {
         let current_sample_clone = current_sample.clone();
         let is_busy_clone = is_busy.clone();
         let worker_update_tx = sample_update_tx.clone();
+        let worker_update_rx = sample_update_rx.clone();
         let prompt_clone = active_prompt.clone();
         let wav_b64_clone = custom_wav_b64.clone();
         let backend_clone = last_backend.clone();
@@ -138,6 +149,7 @@ impl AiWorker {
                     current_sample_clone,
                     is_busy_clone,
                     worker_update_tx,
+                    worker_update_rx,
                     prompt_clone,
                     wav_b64_clone,
                     backend_clone,
@@ -165,6 +177,7 @@ impl AiWorker {
             _worker_thread: Some(handle),
             sample_update_tx,
             sample_update_rx,
+            garbage_tx,
             zone_samples,
             zone_update_tx,
             zone_update_rx,
@@ -395,6 +408,20 @@ impl AiWorker {
         self.sample_update_rx.clone()
     }
 
+    /// Retorna un emisor sin bloqueo para delegar la liberación (`Drop`) de buffers antiguos
+    /// fuera del hilo de audio en tiempo real (`assert_no_alloc` safe).
+    pub fn take_garbage_sender(&self) -> CbSender<SharedSampleBuffer> {
+        self.garbage_tx.clone()
+    }
+
+    /// Envía un `SharedSampleBuffer` antiguo al hilo recolector fuera del hilo de audio.
+    #[inline]
+    pub fn defer_drop(&self, old_sample: SharedSampleBuffer) {
+        if let Err(err) = self.garbage_tx.try_send(old_sample) {
+            std::mem::forget(err.into_inner());
+        }
+    }
+
     /// Indica si el worker está actualmente sintetizando un sample.
     pub fn is_generating(&self) -> bool {
         self.is_busy.load(Ordering::Relaxed)
@@ -528,6 +555,7 @@ impl AiWorker {
         current_sample: Arc<ArcSwap<SampleBuffer>>,
         is_busy: Arc<AtomicBool>,
         sample_update_tx: CbSender<SharedSampleBuffer>,
+        sample_update_rx: CbReceiver<SharedSampleBuffer>,
         active_prompt: Arc<ArcSwap<String>>,
         custom_wav_b64: Arc<ArcSwap<Option<String>>>,
         last_backend: Arc<ArcSwap<String>>,
@@ -654,6 +682,9 @@ impl AiWorker {
 
             let new_sample = Arc::new(new_buffer);
             current_sample.store(new_sample.clone());
+            while sample_update_tx.is_full() {
+                let _ = sample_update_rx.try_recv();
+            }
             let _ = sample_update_tx.try_send(new_sample);
 
             is_busy.store(false, Ordering::SeqCst);

@@ -347,17 +347,20 @@ impl Plugin for AiSamplerPlugin {
             return ProcessStatus::Normal;
         }
 
-        // 1. Actualizar el sample activo y las Keyzones solo si el worker produjo cambios en segundo plano (lock-free y zero-allocation)
+        // 1. Actualizar el sample activo y las Keyzones solo si el worker produjo cambios en segundo plano (lock-free y zero-allocation/zero-deallocation)
         while let Ok(new_sample) = self.sample_update_rx.try_recv() {
             self.live_params.set_root_note(new_sample.root_note as i32);
             self.voice_manager
                 .set_root_note_override(Some(new_sample.root_note), &new_sample);
             self.live_params.bump_revision();
-            self.active_sample = new_sample;
+            let old_sample = std::mem::replace(&mut self.active_sample, new_sample);
+            self.ai_worker.defer_drop(old_sample);
         }
         while let Ok((z_idx, z_buf)) = self.zone_update_rx.try_recv() {
             if z_idx < 3 {
-                self.active_zones[z_idx] = z_buf;
+                if let Some(old_zone) = std::mem::replace(&mut self.active_zones[z_idx], z_buf) {
+                    self.ai_worker.defer_drop(old_zone);
+                }
                 let mut mask = 0u8;
                 for i in 0..3 {
                     if self.active_zones[i].is_some() {
@@ -1885,5 +1888,28 @@ mod tests {
         assert!(plugin.voice_manager.is_custom_wavetable_active());
         plugin.live_params.clear_custom_wavetable();
         assert!(!plugin.live_params.is_custom_wavetable_active());
+    }
+
+    #[test]
+    fn test_rt_sample_swap_deferred_drop_prevents_audio_thread_dealloc() {
+        let mut plugin = AiSamplerPlugin::default();
+
+        // Simular que el worker IA generó un nuevo sample ("Deep 808 Sub Bass") y ya reemplazó su ArcSwap
+        let next_buf = Arc::new(
+            synth_core::SampleBuffer::new_mono(vec![0.25; 1024], 44100.0, 36)
+                .with_name("Deep 808 Sub Bass"),
+        );
+        plugin.ai_worker.current_sample.store(next_buf.clone());
+
+        // En este punto, `plugin.active_sample` tiene strong_count == 1 (única referencia viva en el hilo de audio)
+        assert_eq!(Arc::strong_count(&plugin.active_sample), 1);
+
+        // El reemplazo con `defer_drop` traslada la propiedad al hilo recolector (`rt-sample-reaper`)
+        // sin ejecutar `dealloc` de `String`/`Vec<f32>` en el hilo de audio bajo `assert_no_alloc`.
+        let old_sample = std::mem::replace(&mut plugin.active_sample, next_buf);
+        plugin.ai_worker.defer_drop(old_sample);
+
+        assert_eq!(plugin.active_sample.name, "Deep 808 Sub Bass");
+        assert_eq!(plugin.active_sample.root_note, 36);
     }
 }

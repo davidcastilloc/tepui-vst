@@ -676,7 +676,14 @@ pub const SHELL_VIEW_BUTTON_IDS: &[&str] = &[
     "btn-close-settings",
     "settings-tab-audio",
     "settings-tab-ai",
+    "settings-tab-skin",
     "settings-tab-all",
+    "btn-skin-minimal",
+    "btn-skin-dark",
+    "btn-skin-retro",
+    "btn-skin-synth70",
+    "btn-skin-gunmetal",
+    "btn-skin-phosphor",
     "btn-test-tone",
     "btn-redeem-cloud-code",
     "btn-buy-cloud-credits",
@@ -2277,4 +2284,64 @@ mod tests {
         );
         assert_eq!(live_params.get_wav_drag_exports(), 2);
     }
+
+    #[test]
+    fn test_gate_6_and_7_skin_minimal_default_and_skin_selector_contract() {
+        let html = include_str!("../ui/index.html");
+        let css = include_str!("../ui/style.css");
+        let js = include_str!("../ui/app.js");
+
+        // 1. Verificar que body arranca en skin-minimal por defecto
+        assert!(
+            html.contains(r#"<body class="skin-minimal" data-ui-skin="minimal">"#),
+            "index.html debe abrir en skin-minimal por defecto sin parpadeo oscuro"
+        );
+        assert!(
+            html.contains("SKIN: MINIMAL"),
+            "#btn-oled-theme debe mostrar SKIN: MINIMAL por defecto"
+        );
+
+        // 2. Verificar que todos los botones de SHELL_VIEW_BUTTON_IDS existen en index.html y están cableados en app.js
+        for &btn_id in SHELL_VIEW_BUTTON_IDS {
+            assert!(
+                html.contains(&format!("id=\"{}\"", btn_id)),
+                "Gate 6: El botón de shell '{}' debe existir en index.html",
+                btn_id
+            );
+            assert!(
+                js.contains(btn_id),
+                "Gate 6: El botón de shell '{}' debe estar referenciado y cableado en app.js",
+                btn_id
+            );
+        }
+
+        // 3. Verificar que style.css define las reglas de skin-minimal y las 4 skins adicionales
+        for skin_rule in [
+            "body.skin-minimal",
+            "body.skin-retro",
+            "body.skin-synth70",
+            "body.skin-gunmetal",
+            "body.skin-phosphor",
+            ".skin-selector-grid",
+            ".skin-preview-dial",
+        ] {
+            assert!(
+                css.contains(skin_rule),
+                "style.css debe definir la regla '{}'",
+                skin_rule
+            );
+        }
+
+        // 4. Verificar que StandaloneAudioConfig soporta ui_skin con retrocompatibilidad JSON
+        let legacy_cfg_json = r#"{"output_device":null,"input_device":null,"sample_rate":48000,"period_size":1056,"midi_input":null}"#;
+        let legacy_cfg: crate::audio_devices::StandaloneAudioConfig =
+            serde_json::from_str(legacy_cfg_json).expect("legacy StandaloneAudioConfig must deserialize");
+        assert_eq!(legacy_cfg.ui_skin, None);
+
+        let skin_cfg_json = r#"{"output_device":null,"input_device":null,"sample_rate":48000,"period_size":1056,"midi_input":null,"ui_skin":"minimal"}"#;
+        let skin_cfg: crate::audio_devices::StandaloneAudioConfig =
+            serde_json::from_str(skin_cfg_json).expect("StandaloneAudioConfig with ui_skin must deserialize");
+        assert_eq!(skin_cfg.ui_skin.as_deref(), Some("minimal"));
+    }
 }
+

@@ -7,7 +7,7 @@
   <link rel="icon" type="image/png" href="tepui-icon.png">
   <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body class="skin-minimal" data-ui-skin="minimal">
   <div id="plugin-shell" class="plugin-container" data-ui="true">
     <!-- 1. TOP CHASSIS HEADER & TELEMETRY BAR -->
     <header class="studio-header">
@@ -40,7 +40,7 @@
           <input type="file" id="patch-file-input" accept=".tepui,.json,application/json" class="hidden-file-input">
         </div>
         <button id="btn-ui-scale" class="btn-io btn-ui-scale" title="Cambiar escala / tamaño de ventana (90% / 100% / 115% / 130%)" type="button">SCALE 100%</button>
-        <button id="btn-oled-theme" class="btn-io btn-oled-theme" title="Ciclar Tema Cromático OLED y Chasis (CYAN / AMBER / EMERALD)" type="button">OLED: CYAN</button>
+        <button id="btn-oled-theme" class="btn-io btn-oled-theme" title="Cambiar Skin Visual (Minimal / Dark / Retro / Synth70 / Gunmetal / Phosphor) o abrir Apariencia" type="button">SKIN: MINIMAL</button>
         <button id="btn-cloud-credits" class="btn-io btn-cloud-credits" title="Selector de Proveedor IA Open Source (Community KV, Ollama Local, Gemini, Groq, OpenAI, Intel NPU)" type="button">
           <span class="cloud-dot"></span>
           <span id="cloud-credits-text">AI: COMMUNITY KV</span>
@@ -643,6 +643,9 @@
           <button id="settings-tab-ai" class="modal-tab-btn" data-tab="ai" role="tab" aria-selected="false" type="button">
             <span>2. MOTOR IA, NPU &amp; CLOUD</span>
           </button>
+          <button id="settings-tab-skin" class="modal-tab-btn" data-tab="skin" role="tab" aria-selected="false" type="button">
+            <span>3. APARIENCIA &amp; SKINS</span>
+          </button>
           <button id="settings-tab-all" class="modal-tab-btn" data-tab="all" role="tab" aria-selected="false" type="button">
             <span>VISTA COMPLETA</span>
           </button>
@@ -815,6 +818,192 @@
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+
+          <div id="settings-pane-skin" class="settings-tab-pane hidden-pane">
+            <div class="skin-pane-header">
+              <div class="field-label-group">
+                <label>MOTOR DE APARIENCIA &amp; HARDWARE SKINS (AUDIO/UI DESIGN ENGINE):</label>
+                <span class="field-desc">Selecciona la dirección industrial del chasis Eurorack, pantallas de telemetría y diales rotativos. También puedes ciclar con clic en el botón superior <strong>SKIN</strong> (o Shift+Clic para abrir este panel).</span>
+              </div>
+              <span id="active-skin-pill" class="skin-status-pill">ACTIVO: SWISS DAYLIGHT LAB</span>
+            </div>
+
+            <div class="skin-selector-grid" role="radiogroup" aria-label="Selector de Skin Visual de Hardware">
+              <!-- 1. SWISS DAYLIGHT LAB (skin-minimal) -->
+              <button id="btn-skin-minimal" class="skin-card-btn active" data-skin="minimal" type="button" aria-pressed="true">
+                <div class="skin-swatch-preview swatch-minimal">
+                  <div class="swatch-top-bar">
+                    <span class="swatch-mod-tag">01 // SWISS LAB</span>
+                    <span class="swatch-accent-pill">BRAUN #E03C1F</span>
+                  </div>
+                  <div class="swatch-body-row">
+                    <div class="swatch-oled-box">
+                      <svg class="swatch-wave-svg" viewBox="0 0 120 42" aria-hidden="true">
+                        <path class="swatch-wave-fill" d="M0 36 L18 34 Q38 8 54 12 T88 26 L120 30 L120 42 L0 42 Z" fill="rgba(224,60,31,0.16)"/>
+                        <path class="swatch-wave-line" d="M0 36 L18 34 Q38 8 54 12 T88 26 L120 30" fill="none" stroke="#e03c1f" stroke-width="2"/>
+                        <circle cx="54" cy="12" r="2.8" fill="#17181a"/>
+                      </svg>
+                    </div>
+                    <div class="skin-preview-dial">
+                      <span class="skin-preview-needle"></span>
+                    </div>
+                  </div>
+                </div>
+                <div class="skin-card-meta">
+                  <div class="skin-card-title-row">
+                    <span class="skin-card-title">SWISS DAYLIGHT LAB</span>
+                    <span class="skin-card-code">skin-minimal • DEFAULT</span>
+                  </div>
+                  <p class="skin-card-desc">Dieter Rams / Teenage Engineering • Papel cálido (<code>#f6f4ef</code>), trazos 1px en tinta (<code>#17181a</code>) y acento Braun (<code>#e03c1f</code>).</p>
+                </div>
+              </button>
+
+              <!-- 2. TEPUI DARK STUDIO (skin-dark) -->
+              <button id="btn-skin-dark" class="skin-card-btn" data-skin="dark" type="button" aria-pressed="false">
+                <div class="skin-swatch-preview swatch-dark">
+                  <div class="swatch-top-bar">
+                    <span class="swatch-mod-tag">02 // DARK STUDIO</span>
+                    <span class="swatch-accent-pill">CYAN #00F2FE</span>
+                  </div>
+                  <div class="swatch-body-row">
+                    <div class="swatch-oled-box">
+                      <svg class="swatch-wave-svg" viewBox="0 0 120 42" aria-hidden="true">
+                        <path class="swatch-wave-fill" d="M0 34 L22 30 Q44 6 60 14 T94 24 L120 28 L120 42 L0 42 Z" fill="rgba(0,242,254,0.18)"/>
+                        <path class="swatch-wave-line" d="M0 34 L22 30 Q44 6 60 14 T94 24 L120 28" fill="none" stroke="#00f2fe" stroke-width="2"/>
+                        <circle cx="60" cy="14" r="2.8" fill="#ffaa00"/>
+                      </svg>
+                    </div>
+                    <div class="skin-preview-dial">
+                      <span class="skin-preview-needle"></span>
+                    </div>
+                  </div>
+                </div>
+                <div class="skin-card-meta">
+                  <div class="skin-card-title-row">
+                    <span class="skin-card-title">TEPUI DARK STUDIO</span>
+                    <span class="skin-card-code">skin-dark</span>
+                  </div>
+                  <p class="skin-card-desc">Chasis táctico oscuro original (<code>#0b0e13</code>) con pantallas OLED de alto contraste en cian y ámbar.</p>
+                </div>
+              </button>
+
+              <!-- 3. CREAM CONSOLE (skin-retro) -->
+              <button id="btn-skin-retro" class="skin-card-btn" data-skin="retro" type="button" aria-pressed="false">
+                <div class="skin-swatch-preview swatch-retro">
+                  <div class="swatch-top-bar">
+                    <span class="swatch-mod-tag">03 // CREAM CONSOLE</span>
+                    <span class="swatch-accent-pill">TERRA #C84B31</span>
+                  </div>
+                  <div class="swatch-body-row">
+                    <div class="swatch-oled-box">
+                      <svg class="swatch-wave-svg" viewBox="0 0 120 42" aria-hidden="true">
+                        <path class="swatch-wave-fill" d="M0 35 L20 28 Q45 9 64 16 T98 25 L120 29 L120 42 L0 42 Z" fill="rgba(200,75,49,0.18)"/>
+                        <path class="swatch-wave-line" d="M0 35 L20 28 Q45 9 64 16 T98 25 L120 29" fill="none" stroke="#c84b31" stroke-width="2"/>
+                        <circle cx="64" cy="16" r="2.8" fill="#231f1c"/>
+                      </svg>
+                    </div>
+                    <div class="skin-preview-dial">
+                      <span class="skin-preview-needle"></span>
+                    </div>
+                  </div>
+                </div>
+                <div class="skin-card-meta">
+                  <div class="skin-card-title-row">
+                    <span class="skin-card-title">CREAM CONSOLE</span>
+                    <span class="skin-card-code">skin-retro</span>
+                  </div>
+                  <p class="skin-card-desc">Consola analógica clásica en esmalte crema (<code>#ece5d5</code>), diales marfil y terracota (<code>#c84b31</code>).</p>
+                </div>
+              </button>
+
+              <!-- 4. SYNTH '70s (skin-synth70) -->
+              <button id="btn-skin-synth70" class="skin-card-btn" data-skin="synth70" type="button" aria-pressed="false">
+                <div class="skin-swatch-preview swatch-synth70">
+                  <div class="swatch-top-bar">
+                    <span class="swatch-mod-tag">04 // SYNTH '70S</span>
+                    <span class="swatch-accent-pill">ANALOG #E06D53</span>
+                  </div>
+                  <div class="swatch-body-row">
+                    <div class="swatch-oled-box">
+                      <svg class="swatch-wave-svg" viewBox="0 0 120 42" aria-hidden="true">
+                        <path class="swatch-wave-fill" d="M0 34 L16 20 L38 32 L58 10 L82 28 L104 14 L120 26 L120 42 L0 42 Z" fill="rgba(224,109,83,0.18)"/>
+                        <path class="swatch-wave-line" d="M0 34 L16 20 L38 32 L58 10 L82 28 L104 14 L120 26" fill="none" stroke="#e06d53" stroke-width="2"/>
+                        <circle cx="58" cy="10" r="2.8" fill="#eab308"/>
+                      </svg>
+                    </div>
+                    <div class="skin-preview-dial">
+                      <span class="skin-preview-needle"></span>
+                    </div>
+                  </div>
+                </div>
+                <div class="skin-card-meta">
+                  <div class="skin-card-title-row">
+                    <span class="skin-card-title">SYNTH '70S</span>
+                    <span class="skin-card-code">skin-synth70</span>
+                  </div>
+                  <p class="skin-card-desc">Gabinete cálido años 70 con paneles en grafito, crema cálido (<code>#f4e8c1</code>) y naranja analógico (<code>#e06d53</code>).</p>
+                </div>
+              </button>
+
+              <!-- 5. GUNMETAL RACK (skin-gunmetal) -->
+              <button id="btn-skin-gunmetal" class="skin-card-btn" data-skin="gunmetal" type="button" aria-pressed="false">
+                <div class="skin-swatch-preview swatch-gunmetal">
+                  <div class="swatch-top-bar">
+                    <span class="swatch-mod-tag">05 // GUNMETAL RACK</span>
+                    <span class="swatch-accent-pill">AMBER #F59E0B</span>
+                  </div>
+                  <div class="swatch-body-row">
+                    <div class="swatch-oled-box">
+                      <svg class="swatch-wave-svg" viewBox="0 0 120 42" aria-hidden="true">
+                        <path class="swatch-wave-fill" d="M0 34 Q30 6 58 20 T120 16 L120 42 L0 42 Z" fill="rgba(245,158,11,0.18)"/>
+                        <path class="swatch-wave-line" d="M0 34 Q30 6 58 20 T120 16" fill="none" stroke="#f59e0b" stroke-width="2"/>
+                        <circle cx="48" cy="14" r="2.8" fill="#38bdf8"/>
+                      </svg>
+                    </div>
+                    <div class="skin-preview-dial">
+                      <span class="skin-preview-needle"></span>
+                    </div>
+                  </div>
+                </div>
+                <div class="skin-card-meta">
+                  <div class="skin-card-title-row">
+                    <span class="skin-card-title">GUNMETAL RACK</span>
+                    <span class="skin-card-code">skin-gunmetal</span>
+                  </div>
+                  <p class="skin-card-desc">Aluminio anodizado gris acero (<code>#1e2229</code>), biseles mecanizados y ámbar de estudio (<code>#f59e0b</code>).</p>
+                </div>
+              </button>
+
+              <!-- 6. CRT PHOSPHOR (skin-phosphor) -->
+              <button id="btn-skin-phosphor" class="skin-card-btn" data-skin="phosphor" type="button" aria-pressed="false">
+                <div class="skin-swatch-preview swatch-phosphor">
+                  <div class="swatch-top-bar">
+                    <span class="swatch-mod-tag">06 // CRT PHOSPHOR</span>
+                    <span class="swatch-accent-pill">P1 #39FF88</span>
+                  </div>
+                  <div class="swatch-body-row">
+                    <div class="swatch-oled-box">
+                      <svg class="swatch-wave-svg" viewBox="0 0 120 42" aria-hidden="true">
+                        <path class="swatch-wave-fill" d="M0 24 Q15 6 30 24 T60 24 T90 24 T120 24 L120 42 L0 42 Z" fill="rgba(57,255,136,0.16)"/>
+                        <path class="swatch-wave-line" d="M0 24 Q15 6 30 24 T60 24 T90 24 T120 24" fill="none" stroke="#39ff88" stroke-width="2"/>
+                        <circle cx="75" cy="15" r="2.8" fill="#39ff88"/>
+                      </svg>
+                    </div>
+                    <div class="skin-preview-dial">
+                      <span class="skin-preview-needle"></span>
+                    </div>
+                  </div>
+                </div>
+                <div class="skin-card-meta">
+                  <div class="skin-card-title-row">
+                    <span class="skin-card-title">CRT PHOSPHOR</span>
+                    <span class="skin-card-code">skin-phosphor</span>
+                  </div>
+                  <p class="skin-card-desc">Instrumento de laboratorio con retícula verde fósforo P1 (<code>#39ff88</code>) sobre negro profundo.</p>
+                </div>
+              </button>
             </div>
           </div>
 

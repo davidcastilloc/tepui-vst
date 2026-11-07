@@ -853,29 +853,50 @@ textarea {
   flex: 1;
 }
 
+.knob,
 .knob-container {
   display: flex;
   flex-direction: column;
   align-items: center;
+  gap: 2px;
   cursor: ns-resize;
+  user-select: none;
 }
 
+.knob-control,
 .knob-widget {
   width: var(--knob-size);
   height: var(--knob-size);
   position: relative;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-.hidden-knob {
-  display: none !important;
+  display: grid;
+  place-items: center;
+  cursor: ns-resize;
+  touch-action: none;
+  outline: none;
 }
 
-.knob-svg {
+.knob-track,
+.knob-indicator,
+.knob-mod-svg {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
-  transform: rotate(135deg);
+  pointer-events: none;
+}
+
+.knob-track {
+  color: rgba(148, 163, 184, 0.22);
+}
+
+.knob-indicator {
+  color: var(--color-cyan);
+}
+.amber-accent .knob-indicator {
+  color: var(--color-amber);
+}
+.green-accent .knob-indicator {
+  color: var(--color-green);
 }
 
 .knob-mod-track {
@@ -883,41 +904,78 @@ textarea {
   transition: opacity 0.12s ease;
 }
 
+.knob-thumb,
 .knob-cap {
-  position: absolute;
-  width: 30px;
-  height: 30px;
+  position: relative;
+  width: 68%;
+  height: 68%;
   border-radius: 50%;
+  pointer-events: none;
   background: radial-gradient(circle at 32% 30%, #2e3848, #121721 80%);
   border: 1.5px solid #090c12;
   box-shadow: 0 3px 6px rgba(0, 0, 0, 0.8), inset 0 1px 1px rgba(255, 255, 255, 0.15);
-  display: flex;
-  justify-content: center;
 }
 
-.knob-notch {
+.knob-thumb::after {
+  content: "";
+  position: absolute;
+  top: 12%;
+  left: 50%;
+  translate: -50% 0;
   width: 2px;
-  height: 9px;
-  margin-top: 2px;
-  border-radius: 1px;
+  height: 26%;
+  border-radius: 999px;
   background: var(--color-cyan);
   box-shadow: 0 0 4px var(--color-cyan);
 }
-.amber-accent .knob-notch {
+.amber-accent .knob-thumb::after {
   background: var(--color-amber);
   box-shadow: 0 0 4px var(--color-amber);
 }
-.green-accent .knob-notch {
+.green-accent .knob-thumb::after {
   background: var(--color-green);
   box-shadow: 0 0 4px var(--color-green);
 }
 
+.knob-mark {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.knob-tick {
+  position: absolute;
+  top: 1px;
+  left: 50%;
+  translate: -50% 0;
+  width: 1.5px;
+  height: 3.5px;
+  border-radius: 1px;
+  background: currentColor;
+  display: none;
+}
+
+.knob-value,
 .knob-val {
   font-family: var(--font-mono);
   font-size: 8.5px;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
   color: var(--text-high);
   margin-top: 1px;
+  line-height: 1.1;
+}
+
+.knob-value input {
+  width: 44px;
+  font: inherit;
+  color: inherit;
+  text-align: center;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  outline: none;
+  padding: 0 2px;
 }
 
 .knob-label {
@@ -925,6 +983,7 @@ textarea {
   font-size: 7.5px;
   color: var(--text-med);
   letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 /* Floating Precision Value HUD Tooltip */
@@ -953,7 +1012,7 @@ textarea {
 }
 
 /* -------------------------------------------------------------
-   VERTICAL HARDWARE ADSR FADERS (Module 3)
+   VERTICAL HARDWARE ADSR FADERS (Module 3 - @audio-ui/react/fader)
    ------------------------------------------------------------- */
 .fader-bank-row {
   display: flex;
@@ -966,70 +1025,50 @@ textarea {
   z-index: 2;
 }
 
+.fader,
 .fader-unit {
   flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 2px;
+  user-select: none;
+}
+
+.fader-control {
+  position: relative;
+  width: 28px;
+  height: 40px;
+  margin-top: 6px;
+  margin-bottom: 7px;
+  cursor: ns-resize;
+  touch-action: none;
+  outline: none;
 }
 
 .fader-track {
-  width: 12px;
-  height: 48px;
-  margin-top: 1px;
-  margin-bottom: 3px;
-  background:
-    repeating-linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.18) 0px,
-      rgba(255, 255, 255, 0.18) 1px,
-      transparent 1px,
-      transparent 6px
-    ),
-    #070a0f;
-  border: 1px solid #263244;
-  border-radius: 3px;
   position: relative;
-  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.95);
+  width: var(--fader-track, 5px);
+  height: 100%;
+  margin-inline: auto;
+  background: #070a0f;
+  border: 1px solid #263244;
+  border-radius: 999px;
+  overflow: hidden;
+  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.92);
 }
 
-.fader-track::before {
-  content: '';
-  position: absolute;
-  top: 3px;
-  bottom: 3px;
-  left: -6px;
-  right: -6px;
-  background:
-    repeating-linear-gradient(
-      180deg,
-      rgba(148, 163, 184, 0.38) 0px,
-      rgba(148, 163, 184, 0.38) 1px,
-      transparent 1px,
-      transparent 8px
-    );
-  pointer-events: none;
-  z-index: -1;
-}
-
+.fader-indicator,
 .fader-fill {
   position: absolute;
-  bottom: 0;
-  left: 1px;
-  right: 1px;
-  height: 50%;
-  background: linear-gradient(180deg, var(--color-amber) 0%, rgba(255, 170, 0, 0.25) 100%);
-  border-radius: 2px;
-  box-shadow: 0 0 6px rgba(255, 170, 0, 0.4);
+  inset-inline: 0;
+  background: linear-gradient(180deg, var(--color-amber) 0%, rgba(255, 170, 0, 0.3) 100%);
+  border-radius: 999px;
   pointer-events: none;
 }
 
 .fader-thumb {
   position: absolute;
-  left: 50%;
-  transform: translate(-50%, 50%);
-  bottom: 50%;
   width: 22px;
   height: 11px;
   border-radius: 2px;
@@ -1038,12 +1077,13 @@ textarea {
   box-shadow: 0 3px 5px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.35);
   pointer-events: none;
 }
+
 .fader-thumb::after {
-  content: '';
+  content: "";
   position: absolute;
-  left: 3px;
-  right: 3px;
-  top: 4px;
+  inset-inline: 3px;
+  top: 50%;
+  translate: 0 -50%;
   height: 1.5px;
   background: var(--color-amber);
   box-shadow: 0 0 4px var(--color-amber);
@@ -1193,7 +1233,8 @@ textarea {
   min-height: 0;
 }
 
-.meter-panel {
+.meter-panel,
+.meter {
   display: flex;
   gap: 3px;
   background: #05080d;
@@ -1214,20 +1255,22 @@ textarea {
   line-height: 1;
   user-select: none;
 }
-.meter-column {
+.meter-column,
+.meter-channel {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 2px;
   height: 100%;
 }
-.meter-channel {
+.meter-lbl {
   font-family: var(--font-mono);
   font-size: 7.5px;
   color: var(--text-med);
 }
+.meter-track,
 .vu-meter {
-  width: 7px;
+  width: var(--meter-w, 7px);
   flex: 1;
   min-height: 54px;
   background: #0e141f;
@@ -1235,29 +1278,30 @@ textarea {
   position: relative;
   overflow: hidden;
 }
+.meter-indicator,
 .vu-fill {
   position: absolute;
   bottom: 0;
   left: 0;
   right: 0;
   height: 100%;
-  transform: scaleY(0);
   transform-origin: bottom;
   background: linear-gradient(180deg, #ef4444 0%, #ffaa00 25%, #10b981 65%, #00ebff 100%);
   box-shadow: 0 0 6px rgba(0, 235, 255, 0.5);
-  transition: transform 0.04s linear;
 }
+.meter-peak,
 .vu-peak {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 0%;
   height: 2px;
   background: #ffaa00;
   box-shadow: 0 0 5px #ffaa00;
   pointer-events: none;
-  opacity: 0;
-  transition: bottom 0.04s linear, opacity 0.15s ease;
+}
+.meter-peak[hidden],
+.vu-peak[hidden] {
+  display: none;
 }
 
 .master-hw-btns {
@@ -1605,7 +1649,7 @@ textarea {
   box-shadow:
     0 2px 5px rgba(0, 0, 0, 0.7),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease, background 0.12s ease, color 0.12s ease;
+  transition: transform 0.12s ease, border-color 0.12s ease;
 }
 .folklore-pad:hover {
   background: linear-gradient(180deg, #1d2b40 0%, #121c2b 100%);
@@ -2670,5 +2714,3396 @@ body {
   border-color: var(--color-cyan);
   color: var(--color-cyan);
   background: rgba(0, 235, 255, 0.16);
+}
+
+/* ============================================================================
+   12. AUDIO/UI HARDWARE SKIN SELECTOR STUDIO (#settings-pane-skin)
+   ============================================================================ */
+.skin-pane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 14px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid var(--border-module);
+}
+
+.skin-status-pill {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.7px;
+  padding: 4px 9px;
+  border-radius: 4px;
+  color: var(--color-cyan);
+  background: rgba(0, 242, 254, 0.12);
+  border: 1px solid var(--color-cyan);
+  white-space: nowrap;
+}
+
+.skin-selector-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.skin-card-btn {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 10px;
+  border-radius: 7px;
+  background: rgba(15, 20, 29, 0.85);
+  border: 1.5px solid var(--border-module);
+  color: var(--text-high);
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.14s ease, box-shadow 0.14s ease, background 0.14s ease;
+}
+
+.skin-card-btn:hover {
+  transform: translateY(-1px);
+  border-color: var(--color-cyan);
+}
+
+.skin-card-btn.active,
+.skin-card-btn[aria-pressed="true"] {
+  border-color: var(--color-cyan);
+  box-shadow: 0 0 0 1px var(--color-cyan), 0 6px 16px rgba(0, 0, 0, 0.22);
+}
+
+.skin-swatch-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.swatch-top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 7.5px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+}
+
+.swatch-accent-pill {
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 7px;
+  font-weight: 800;
+}
+
+.swatch-body-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.swatch-oled-box {
+  flex: 1;
+  height: 40px;
+  border-radius: 4px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+}
+
+.swatch-wave-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.skin-preview-dial {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.skin-preview-needle {
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  width: 2px;
+  height: 10px;
+  border-radius: 1px;
+  transform: translateX(-50%) rotate(28deg);
+  transform-origin: 50% 13px;
+}
+
+/* Swatch 1: Swiss Daylight Lab (skin-minimal) */
+.swatch-minimal {
+  background: #f6f4ef;
+  border: 1px solid #17181a;
+  color: #17181a;
+}
+.swatch-minimal .swatch-accent-pill {
+  background: #e03c1f;
+  color: #ffffff;
+  border: 1px solid #17181a;
+}
+.swatch-minimal .swatch-oled-box {
+  background: #efede6;
+  border: 1px solid #17181a;
+}
+.swatch-minimal .skin-preview-dial {
+  background: #faf9f5;
+  border: 1.5px solid #17181a;
+  box-shadow: 0 2px 4px rgba(23, 24, 26, 0.14);
+}
+.swatch-minimal .skin-preview-needle {
+  background: #e03c1f;
+}
+
+/* Swatch 2: Tepui Dark Studio (skin-dark) */
+.swatch-dark {
+  background: #0d1118;
+  border: 1px solid #263144;
+  color: #f1f5f9;
+}
+.swatch-dark .swatch-accent-pill {
+  background: rgba(0, 242, 254, 0.16);
+  color: #00f2fe;
+  border: 1px solid #00f2fe;
+}
+.swatch-dark .swatch-oled-box {
+  background: #05070b;
+  border: 1px solid #1e2838;
+}
+.swatch-dark .skin-preview-dial {
+  background: radial-gradient(circle at 32% 28%, #3a4458 0%, #1c222e 55%, #0e1219 100%);
+  border: 1.5px solid #2d384c;
+}
+.swatch-dark .skin-preview-needle {
+  background: #00f2fe;
+  box-shadow: 0 0 4px #00f2fe;
+}
+
+/* Swatch 3: Cream Console (skin-retro) */
+.swatch-retro {
+  background: #ece5d5;
+  border: 1px solid #231f1c;
+  color: #231f1c;
+}
+.swatch-retro .swatch-accent-pill {
+  background: #c84b31;
+  color: #fffaf0;
+  border: 1px solid #231f1c;
+}
+.swatch-retro .swatch-oled-box {
+  background: #e2dac8;
+  border: 1px solid #231f1c;
+}
+.swatch-retro .skin-preview-dial {
+  background: #f7f2e7;
+  border: 1.5px solid #231f1c;
+  box-shadow: 0 2px 4px rgba(35, 31, 28, 0.18);
+}
+.swatch-retro .skin-preview-needle {
+  background: #c84b31;
+}
+
+/* Swatch 4: Synth '70s (skin-synth70) */
+.swatch-synth70 {
+  background: #1c1917;
+  border: 1px solid #443c35;
+  color: #f4e8c1;
+}
+.swatch-synth70 .swatch-accent-pill {
+  background: rgba(224, 109, 83, 0.22);
+  color: #e06d53;
+  border: 1px solid #e06d53;
+}
+.swatch-synth70 .swatch-oled-box {
+  background: #12100e;
+  border: 1px solid #3d352e;
+}
+.swatch-synth70 .skin-preview-dial {
+  background: radial-gradient(circle at 32% 28%, #3a332c 0%, #211d1a 70%, #14110f 100%);
+  border: 1.5px solid #f4e8c1;
+}
+.swatch-synth70 .skin-preview-needle {
+  background: #e06d53;
+}
+
+/* Swatch 5: Gunmetal Rack (skin-gunmetal) */
+.swatch-gunmetal {
+  background: #1e2229;
+  border: 1px solid #3b4252;
+  color: #e5e9f0;
+}
+.swatch-gunmetal .swatch-accent-pill {
+  background: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+  border: 1px solid #f59e0b;
+}
+.swatch-gunmetal .swatch-oled-box {
+  background: #12151a;
+  border: 1px solid #3b4252;
+}
+.swatch-gunmetal .skin-preview-dial {
+  background: radial-gradient(circle at 32% 28%, #434c5e 0%, #2e3440 65%, #1a1e26 100%);
+  border: 1.5px solid #4c566a;
+}
+.swatch-gunmetal .skin-preview-needle {
+  background: #f59e0b;
+}
+
+/* Swatch 6: CRT Phosphor (skin-phosphor) */
+.swatch-phosphor {
+  background: #050a06;
+  border: 1px solid #166534;
+  color: #39ff88;
+}
+.swatch-phosphor .swatch-accent-pill {
+  background: rgba(57, 255, 136, 0.14);
+  color: #39ff88;
+  border: 1px solid #39ff88;
+}
+.swatch-phosphor .swatch-oled-box {
+  background: #030704;
+  border: 1px solid #15803d;
+}
+.swatch-phosphor .skin-preview-dial {
+  background: #09120b;
+  border: 1.5px solid #39ff88;
+}
+.swatch-phosphor .skin-preview-needle {
+  background: #39ff88;
+  box-shadow: 0 0 5px #39ff88;
+}
+
+.skin-card-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.skin-card-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.skin-card-title {
+  font-family: var(--font-ui);
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+}
+
+.skin-card-code {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 700;
+  padding: 1.5px 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-med);
+}
+
+.skin-card-desc {
+  font-size: 9.2px;
+  line-height: 1.38;
+  color: var(--text-med);
+}
+
+.skin-card-desc code {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 700;
+}
+
+/* ============================================================================
+   13. LIGHT HARDWARE SKINS: SWISS DAYLIGHT LAB (body.skin-minimal)
+       & CREAM CONSOLE (body.skin-retro)
+   ============================================================================ */
+body.skin-minimal {
+  /* Unified Light Skin Tokens (Swiss Daylight Lab — Braun / TP-7) */
+  --skin-void: #eae7df;
+  --skin-chassis: #f6f4ef;
+  --skin-header: #ece9e0;
+  --skin-module: #efede6;
+  --skin-mod-hdr: #e6e3da;
+  --skin-oled: #efede6;
+  --skin-control: #f8f6f1;
+  --skin-control-hi: #faf9f5;
+  --skin-inset: #dedad0;
+  --skin-border: #17181a;
+  --skin-border-soft: rgba(23, 24, 26, 0.30);
+  --skin-ink: #17181a;
+  --skin-ink-med: #3f4146;
+  --skin-ink-low: #6e7075;
+  --skin-accent: #e03c1f;
+  --skin-accent-hover: #c83217;
+  --skin-accent-fg: #ffffff;
+  --skin-green: #15803d;
+  --skin-key-active-top: #fde8e3;
+  --skin-key-active-bot: #f9c5b9;
+
+  /* Canonical & legacy :root variable mappings */
+  --bg-void: #eae7df;
+  --bg-chassis: #f6f4ef;
+  --bg-module: #efede6;
+  --bg-module-header: #e6e3da;
+  --bg-oled: #efede6;
+  --bg-oled-bottom: #e6e3db;
+  --border-subtle: rgba(23, 24, 26, 0.16);
+  --border-bezel: #17181a;
+  --border-highlight: rgba(224, 60, 31, 0.45);
+  --cyan: #e03c1f;
+  --cyan-dim: rgba(224, 60, 31, 0.12);
+  --cyan-glow: rgba(224, 60, 31, 0.22);
+  --amber: #17181a;
+  --amber-dim: rgba(23, 24, 26, 0.08);
+  --amber-glow: rgba(23, 24, 26, 0.18);
+  --emerald: #15803d;
+  --crimson: #dc2626;
+  --text-primary: #17181a;
+  --text-secondary: #3f4146;
+  --text-muted: #6e7075;
+
+  --bg-canvas: #eae7df;
+  --bg-module-grad: linear-gradient(180deg, #f4f2ec 0%, #efede6 100%);
+  --border-module: #17181a;
+  --color-cyan: #e03c1f;
+  --color-cyan-glow: rgba(224, 60, 31, 0.22);
+  --color-amber: #17181a;
+  --color-amber-glow: rgba(23, 24, 26, 0.16);
+  --color-green: #15803d;
+  --color-green-glow: rgba(21, 128, 61, 0.2);
+  --color-red: #dc2626;
+  --color-jasper: #e03c1f;
+  --color-magenta: #be123c;
+  --text-high: #17181a;
+  --text-med: #3f4146;
+  --text-low: #6e7075;
+
+  background-color: var(--skin-void);
+  color: var(--skin-ink);
+}
+
+/* --- 3. CREAM CONSOLE (body.skin-retro) --- */
+body.skin-retro {
+  /* Unified Light Skin Tokens (Cream Console — Warm Analog Parchment & Terracotta) */
+  --skin-void: #dfd7c4;
+  --skin-chassis: #ece5d5;
+  --skin-header: #e2dac8;
+  --skin-module: #e5decb;
+  --skin-mod-hdr: #d8cfb9;
+  --skin-oled: #e4decb;
+  --skin-control: #f3ede0;
+  --skin-control-hi: #f8f4ea;
+  --skin-inset: #d2c8b2;
+  --skin-border: #231f1c;
+  --skin-border-soft: rgba(35, 31, 28, 0.32);
+  --skin-ink: #231f1c;
+  --skin-ink-med: #4a433d;
+  --skin-ink-low: #736960;
+  --skin-accent: #c84b31;
+  --skin-accent-hover: #ad3d25;
+  --skin-accent-fg: #ffffff;
+  --skin-green: #15803d;
+  --skin-key-active-top: #f7dfd8;
+  --skin-key-active-bot: #f0bfb1;
+
+  --bg-void: #dfd7c4;
+  --bg-canvas: #dfd7c4;
+  --bg-chassis: #ece5d5;
+  --bg-module: #e5decb;
+  --bg-module-header: #d8cfb9;
+  --bg-module-grad: linear-gradient(180deg, #eae3d2 0%, #e2dac8 100%);
+  --bg-oled: #e4decb;
+  --bg-oled-bottom: #dad2bc;
+  --border-subtle: rgba(35, 31, 28, 0.2);
+  --border-bezel: #231f1c;
+  --border-module: #231f1c;
+  --border-highlight: rgba(200, 75, 49, 0.5);
+  --cyan: #c84b31;
+  --color-cyan: #c84b31;
+  --color-cyan-glow: rgba(200, 75, 49, 0.24);
+  --amber: #231f1c;
+  --color-amber: #b45309;
+  --color-amber-glow: rgba(180, 83, 9, 0.2);
+  --color-green: #15803d;
+  --text-primary: #231f1c;
+  --text-secondary: #4a433d;
+  --text-muted: #736960;
+  --text-high: #231f1c;
+  --text-med: #4a433d;
+  --text-low: #736960;
+
+  background-color: var(--skin-void);
+  color: var(--skin-ink);
+}
+
+/* Chassis & Top Studio Header (Shared across Light Skins: minimal + retro) */
+body.skin-minimal .plugin-container,
+body.skin-minimal .vst-chassis,
+body.skin-retro .plugin-container,
+body.skin-retro .vst-chassis {
+  background-color: var(--skin-chassis);
+  background-image:
+    radial-gradient(rgba(23, 24, 26, 0.045) 1px, transparent 0);
+  background-size: 16px 16px;
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .studio-header,
+body.skin-retro .studio-header {
+  background: var(--skin-header);
+  border-bottom: 1.5px solid var(--skin-border);
+  box-shadow: 0 1px 0 rgba(23, 24, 26, 0.08);
+}
+
+body.skin-minimal .brand-logo,
+body.skin-retro .brand-logo {
+  filter: none;
+  border: 1px solid var(--skin-border);
+  background: var(--skin-border);
+}
+
+body.skin-minimal .brand-title,
+body.skin-retro .brand-title {
+  color: var(--skin-ink);
+  text-shadow: none;
+}
+
+body.skin-minimal .brand-separator,
+body.skin-retro .brand-separator {
+  color: var(--skin-accent);
+  font-weight: 800;
+}
+
+body.skin-minimal .brand-subtitle,
+body.skin-minimal .brand-sub,
+body.skin-retro .brand-subtitle,
+body.skin-retro .brand-sub {
+  color: var(--skin-ink-med);
+  font-weight: 700;
+}
+
+body.skin-minimal .brand-badge,
+body.skin-retro .brand-badge {
+  background: var(--skin-control);
+  color: var(--skin-ink);
+  border: 1px solid var(--skin-border);
+}
+
+body.skin-minimal .header-right,
+body.skin-minimal .utility-group,
+body.skin-retro .header-right,
+body.skin-retro .utility-group {
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .btn-io,
+body.skin-minimal .studio-btn,
+body.skin-minimal .btn-settings,
+body.skin-retro .btn-io,
+body.skin-retro .studio-btn,
+body.skin-retro .btn-settings {
+  background: var(--skin-control);
+  border: 1px solid var(--skin-border);
+  color: var(--skin-ink);
+  box-shadow: 0 1px 0 rgba(23, 24, 26, 0.14);
+}
+
+body.skin-minimal .btn-io:hover,
+body.skin-minimal .studio-btn:hover,
+body.skin-minimal .btn-settings:hover,
+body.skin-retro .btn-io:hover,
+body.skin-retro .studio-btn:hover,
+body.skin-retro .btn-settings:hover {
+  background: var(--skin-accent);
+  border-color: var(--skin-border);
+  color: var(--skin-accent-fg);
+  box-shadow: 0 1px 3px rgba(224, 60, 31, 0.28);
+}
+
+body.skin-minimal .btn-oled-theme,
+body.skin-retro .btn-oled-theme {
+  background: var(--skin-border);
+  color: var(--skin-chassis);
+  border: 1px solid var(--skin-border);
+}
+
+body.skin-minimal .btn-oled-theme:hover,
+body.skin-retro .btn-oled-theme:hover {
+  background: var(--skin-accent);
+  color: var(--skin-accent-fg);
+  border-color: var(--skin-border);
+}
+
+body.skin-minimal .btn-cloud-credits,
+body.skin-retro .btn-cloud-credits {
+  background: var(--skin-control);
+  border: 1px solid var(--skin-border);
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .btn-cloud-credits:hover,
+body.skin-retro .btn-cloud-credits:hover {
+  background: var(--skin-control-hi);
+  border-color: var(--skin-accent);
+  color: var(--skin-accent);
+}
+
+body.skin-minimal .cloud-dot,
+body.skin-retro .cloud-dot {
+  background: var(--skin-green);
+  box-shadow: none;
+}
+
+body.skin-minimal .engine-badge,
+body.skin-minimal .engine-pill,
+body.skin-minimal .engine-badge.engine-ipc,
+body.skin-retro .engine-badge,
+body.skin-retro .engine-pill,
+body.skin-retro .engine-badge.engine-ipc {
+  background: var(--skin-control);
+  border: 1px solid var(--skin-border);
+  color: var(--skin-green);
+}
+
+body.skin-minimal .engine-badge.engine-ipc .engine-dot,
+body.skin-retro .engine-badge.engine-ipc .engine-dot {
+  background: var(--skin-green);
+  box-shadow: none;
+}
+
+body.skin-minimal .voice-monitor,
+body.skin-retro .voice-monitor {
+  background: var(--skin-control);
+  border: 1px solid var(--skin-border);
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .voice-label,
+body.skin-minimal .voice-max,
+body.skin-retro .voice-label,
+body.skin-retro .voice-max {
+  color: var(--skin-ink-med);
+}
+
+body.skin-minimal .voice-num,
+body.skin-retro .voice-num {
+  color: var(--skin-accent);
+  text-shadow: none;
+}
+
+body.skin-minimal .voice-led,
+body.skin-minimal .voice-leds i,
+body.skin-retro .voice-led,
+body.skin-retro .voice-leds i {
+  background: var(--skin-inset);
+  border: 1px solid var(--skin-border-soft);
+}
+
+body.skin-minimal .voice-led.on,
+body.skin-minimal .voice-leds i.on,
+body.skin-retro .voice-led.on,
+body.skin-retro .voice-leds i.on {
+  background: var(--skin-accent);
+  border-color: var(--skin-border);
+  box-shadow: none;
+}
+
+/* Command Dock / AI Bar / Preset Selector */
+body.skin-minimal .command-dock,
+body.skin-minimal .ai-Command-bar,
+body.skin-minimal .ai-bar,
+body.skin-retro .command-dock,
+body.skin-retro .ai-Command-bar,
+body.skin-retro .ai-bar {
+  background: var(--skin-module);
+  border: 1px solid var(--skin-border);
+  box-shadow: 0 2px 0 rgba(23, 24, 26, 0.08);
+}
+
+body.skin-minimal .btn-preset-step,
+body.skin-retro .btn-preset-step {
+  background: var(--skin-control);
+  border: 1px solid var(--skin-border);
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .btn-preset-step:hover,
+body.skin-retro .btn-preset-step:hover {
+  background: var(--skin-accent);
+  color: var(--skin-accent-fg);
+}
+
+body.skin-minimal .btn-preset-browser,
+body.skin-minimal .patch-display,
+body.skin-retro .btn-preset-browser,
+body.skin-retro .patch-display {
+  background: var(--skin-control-hi);
+  border: 1px solid var(--skin-border);
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .btn-preset-browser:hover,
+body.skin-retro .btn-preset-browser:hover {
+  background: #ffffff;
+  border-color: var(--skin-accent);
+}
+
+body.skin-minimal .preset-Icon,
+body.skin-minimal .preset-chevron,
+body.skin-retro .preset-Icon,
+body.skin-retro .preset-chevron {
+  color: var(--skin-accent);
+}
+
+body.skin-minimal .preset-cat-badge,
+body.skin-retro .preset-cat-badge {
+  background: var(--skin-border);
+  color: var(--skin-chassis);
+  border: 1px solid var(--skin-border);
+}
+
+body.skin-minimal .preset-name-label,
+body.skin-retro .preset-name-label {
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .prompt-input-shell,
+body.skin-minimal .ai-input-wrap,
+body.skin-retro .prompt-input-shell,
+body.skin-retro .ai-input-wrap {
+  background: var(--skin-control-hi);
+  border: 1px solid var(--skin-border);
+}
+
+body.skin-minimal .prompt-input-shell:focus-within,
+body.skin-minimal .ai-input-wrap:focus-within,
+body.skin-retro .prompt-input-shell:focus-within,
+body.skin-retro .ai-input-wrap:focus-within {
+  border-color: var(--skin-accent);
+  box-shadow: 0 0 0 1px var(--skin-accent);
+}
+
+body.skin-minimal .prompt-sparkle,
+body.skin-retro .prompt-sparkle {
+  color: var(--skin-accent);
+}
+
+body.skin-minimal #prompt-input,
+body.skin-minimal .ai-prompt-input,
+body.skin-retro #prompt-input,
+body.skin-retro .ai-prompt-input {
+  color: var(--skin-ink);
+}
+
+body.skin-minimal #prompt-input::placeholder,
+body.skin-minimal .ai-prompt-input::placeholder,
+body.skin-retro #prompt-input::placeholder,
+body.skin-retro .ai-prompt-input::placeholder {
+  color: var(--skin-ink-low);
+}
+
+body.skin-minimal .btn-generate-ia,
+body.skin-minimal .ai-generate-btn,
+body.skin-retro .btn-generate-ia,
+body.skin-retro .ai-generate-btn {
+  background: var(--skin-accent);
+  border: 1px solid var(--skin-border);
+  color: var(--skin-accent-fg);
+  text-shadow: none;
+  box-shadow: 0 1px 0 var(--skin-border);
+}
+
+body.skin-minimal .btn-generate-ia:hover,
+body.skin-minimal .ai-generate-btn:hover,
+body.skin-retro .btn-generate-ia:hover,
+body.skin-retro .ai-generate-btn:hover {
+  background: var(--skin-accent-hover);
+  box-shadow: 0 2px 4px rgba(224, 60, 31, 0.3);
+}
+
+body.skin-minimal .btn-ab-compare,
+body.skin-retro .btn-ab-compare {
+  background: var(--skin-control);
+  border: 1px solid var(--skin-border);
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .btn-ab-compare .ab-slot,
+body.skin-retro .btn-ab-compare .ab-slot {
+  color: var(--skin-ink-low);
+}
+
+body.skin-minimal .btn-ab-compare .ab-slot.active,
+body.skin-minimal .btn-ab-compare.slot-b-active .ab-slot.active,
+body.skin-retro .btn-ab-compare .ab-slot.active,
+body.skin-retro .btn-ab-compare.slot-b-active .ab-slot.active {
+  color: var(--skin-accent);
+  text-shadow: none;
+}
+
+body.skin-minimal .btn-ab-compare.slot-b,
+body.skin-minimal .btn-ab-compare:hover,
+body.skin-retro .btn-ab-compare.slot-b,
+body.skin-retro .btn-ab-compare:hover {
+  background: var(--skin-control-hi);
+  border-color: var(--skin-accent);
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .macro-strip,
+body.skin-minimal .sound-packs-strip,
+body.skin-retro .macro-strip,
+body.skin-retro .sound-packs-strip {
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .packs-label,
+body.skin-retro .packs-label {
+  color: var(--skin-ink-med);
+}
+
+/* High-specificity overrides on pack-pill so neon/pastel text never appears on light skins */
+body.skin-minimal .pack-pill,
+body.skin-minimal .macro-pill,
+body.skin-minimal .pack-pill.amber,
+body.skin-minimal .pack-pill.magenta,
+body.skin-minimal .pack-pill.green,
+body.skin-minimal .pack-pill.cyan,
+body.skin-minimal .pack-pill.jasper,
+body.skin-retro .pack-pill,
+body.skin-retro .macro-pill,
+body.skin-retro .pack-pill.amber,
+body.skin-retro .pack-pill.magenta,
+body.skin-retro .pack-pill.green,
+body.skin-retro .pack-pill.cyan,
+body.skin-retro .pack-pill.jasper {
+  background: var(--skin-control);
+  border: 1px solid var(--skin-border-soft);
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .pack-pill:hover,
+body.skin-minimal .pack-pill.active,
+body.skin-minimal .macro-pill.active,
+body.skin-minimal .pack-pill.amber:hover,
+body.skin-minimal .pack-pill.magenta:hover,
+body.skin-minimal .pack-pill.green:hover,
+body.skin-minimal .pack-pill.cyan:hover,
+body.skin-minimal .pack-pill.jasper:hover,
+body.skin-minimal .pack-pill.amber.active,
+body.skin-minimal .pack-pill.magenta.active,
+body.skin-minimal .pack-pill.green.active,
+body.skin-minimal .pack-pill.cyan.active,
+body.skin-minimal .pack-pill.jasper.active,
+body.skin-retro .pack-pill:hover,
+body.skin-retro .pack-pill.active,
+body.skin-retro .macro-pill.active,
+body.skin-retro .pack-pill.amber:hover,
+body.skin-retro .pack-pill.magenta:hover,
+body.skin-retro .pack-pill.green:hover,
+body.skin-retro .pack-pill.cyan:hover,
+body.skin-retro .pack-pill.jasper:hover,
+body.skin-retro .pack-pill.amber.active,
+body.skin-retro .pack-pill.magenta.active,
+body.skin-retro .pack-pill.green.active,
+body.skin-retro .pack-pill.cyan.active,
+body.skin-retro .pack-pill.jasper.active {
+  background: var(--skin-accent);
+  border-color: var(--skin-border);
+  color: var(--skin-accent-fg);
+  box-shadow: none;
+}
+
+/* Eurorack Synth Matrix Grid & Modules */
+body.skin-minimal .eurorack-chassis,
+body.skin-minimal .synth-matrix-grid,
+body.skin-retro .eurorack-chassis,
+body.skin-retro .synth-matrix-grid {
+  background: transparent;
+}
+
+body.skin-minimal .eurorack-module,
+body.skin-minimal .synth-module,
+body.skin-retro .eurorack-module,
+body.skin-retro .synth-module {
+  background: var(--skin-module);
+  border: 1px solid var(--skin-border);
+  box-shadow: 0 2px 0 rgba(23, 24, 26, 0.08);
+}
+
+body.skin-minimal .eurorack-module::before,
+body.skin-minimal .synth-module::before,
+body.skin-retro .eurorack-module::before,
+body.skin-retro .synth-module::before {
+  background: linear-gradient(90deg, var(--skin-border) 0%, rgba(23, 24, 26, 0.25) 100%);
+  opacity: 0.2;
+}
+
+body.skin-minimal .hex-screw,
+body.skin-retro .hex-screw {
+  background: var(--skin-inset);
+  border: 1px solid var(--skin-border);
+  box-shadow: none;
+}
+
+body.skin-minimal .hex-screw::after,
+body.skin-retro .hex-screw::after {
+  background: var(--skin-border);
+}
+
+/* Keep .mod-header geometry identical to base CSS (0px height shift on skin switch) */
+body.skin-minimal .mod-header,
+body.skin-retro .mod-header {
+  background: var(--skin-mod-hdr);
+  border-bottom: 1px solid var(--skin-border);
+  margin: 0;
+  padding: 2px 5px;
+  border-radius: 3px;
+}
+
+body.skin-minimal .mod-title,
+body.skin-retro .mod-title {
+  color: var(--skin-ink);
+  font-weight: 800;
+}
+
+body.skin-minimal .mod-sub-tag,
+body.skin-minimal .mod-badge,
+body.skin-retro .mod-sub-tag,
+body.skin-retro .mod-badge {
+  background: var(--skin-control);
+  color: var(--skin-ink);
+  border: 1px solid var(--skin-border-soft);
+}
+
+/* Module Pill Buttons & Mode Selectors (including .green / .amber / .cyan high-specificity) */
+body.skin-minimal .oled-pill-btn,
+body.skin-minimal .oled-pill-btn.green,
+body.skin-minimal .oled-pill-btn.amber,
+body.skin-minimal .oled-pill-btn.cyan,
+body.skin-minimal .mod-pill-btn,
+body.skin-minimal .zone-btn,
+body.skin-minimal .hw-sq-btn,
+body.skin-minimal .mode-btn,
+body.skin-minimal .arp-mode-btn,
+body.skin-retro .oled-pill-btn,
+body.skin-retro .oled-pill-btn.green,
+body.skin-retro .oled-pill-btn.amber,
+body.skin-retro .oled-pill-btn.cyan,
+body.skin-retro .mod-pill-btn,
+body.skin-retro .zone-btn,
+body.skin-retro .hw-sq-btn,
+body.skin-retro .mode-btn,
+body.skin-retro .arp-mode-btn {
+  background: var(--skin-control);
+  border: 1px solid var(--skin-border-soft);
+  color: var(--skin-ink);
+  box-shadow: none;
+  text-shadow: none;
+}
+
+body.skin-minimal .oled-pill-btn:hover,
+body.skin-minimal .oled-pill-btn.green:hover,
+body.skin-minimal .oled-pill-btn.amber:hover,
+body.skin-minimal .oled-pill-btn.cyan:hover,
+body.skin-minimal .mod-pill-btn:hover,
+body.skin-minimal .zone-btn:hover,
+body.skin-minimal .hw-sq-btn:hover,
+body.skin-minimal .mode-btn:hover,
+body.skin-minimal .arp-mode-btn:hover,
+body.skin-retro .oled-pill-btn:hover,
+body.skin-retro .oled-pill-btn.green:hover,
+body.skin-retro .oled-pill-btn.amber:hover,
+body.skin-retro .oled-pill-btn.cyan:hover,
+body.skin-retro .mod-pill-btn:hover,
+body.skin-retro .zone-btn:hover,
+body.skin-retro .hw-sq-btn:hover,
+body.skin-retro .mode-btn:hover,
+body.skin-retro .arp-mode-btn:hover {
+  border-color: var(--skin-border);
+  background: #ffffff;
+  color: var(--skin-accent);
+}
+
+body.skin-minimal .oled-pill-btn.active,
+body.skin-minimal .oled-pill-btn.green.active,
+body.skin-minimal .oled-pill-btn.amber.active,
+body.skin-minimal .oled-pill-btn.cyan.active,
+body.skin-minimal .mod-pill-btn.active,
+body.skin-minimal .zone-btn.active,
+body.skin-minimal .hw-sq-btn.active,
+body.skin-minimal .mode-btn.active,
+body.skin-minimal .arp-mode-btn.active,
+body.skin-minimal #btn-wt-3d.active,
+body.skin-minimal #btn-env-target.active,
+body.skin-minimal #btn-arp-latch.active,
+body.skin-retro .oled-pill-btn.active,
+body.skin-retro .oled-pill-btn.green.active,
+body.skin-retro .oled-pill-btn.amber.active,
+body.skin-retro .oled-pill-btn.cyan.active,
+body.skin-retro .mod-pill-btn.active,
+body.skin-retro .zone-btn.active,
+body.skin-retro .hw-sq-btn.active,
+body.skin-retro .mode-btn.active,
+body.skin-retro .arp-mode-btn.active,
+body.skin-retro #btn-wt-3d.active,
+body.skin-retro #btn-env-target.active,
+body.skin-retro #btn-arp-latch.active {
+  background: var(--skin-accent);
+  color: var(--skin-accent-fg);
+  border: 1px solid var(--skin-border);
+  box-shadow: none;
+  text-shadow: none;
+}
+
+/* OLED / Paper-Ink Telemetry Screens */
+body.skin-minimal .oled-bezel,
+body.skin-minimal .oled-frame,
+body.skin-minimal .oled-screen,
+body.skin-retro .oled-bezel,
+body.skin-retro .oled-frame,
+body.skin-retro .oled-screen {
+  background: var(--skin-oled);
+  border: 1px solid var(--skin-border);
+  box-shadow: none;
+}
+
+body.skin-minimal .oled-bezel::after,
+body.skin-minimal .oled-frame::after,
+body.skin-retro .oled-bezel::after,
+body.skin-retro .oled-frame::after {
+  display: none;
+}
+
+body.skin-minimal .oled-hud-top span,
+body.skin-minimal .oled-hud-bottom span,
+body.skin-minimal .oled-overlay-stats,
+body.skin-retro .oled-hud-top span,
+body.skin-retro .oled-hud-bottom span,
+body.skin-retro .oled-overlay-stats {
+  background: var(--skin-control-hi);
+  color: var(--skin-ink);
+  border: 1px solid var(--skin-border-soft);
+  padding: 0.5px 4px;
+  border-radius: 2px;
+  text-shadow: none;
+}
+
+body.skin-minimal .hw-readout,
+body.skin-minimal .brushed-cap,
+body.skin-retro .hw-readout,
+body.skin-retro .brushed-cap {
+  background: var(--skin-control);
+  border: 1px solid var(--skin-border);
+  color: var(--skin-ink);
+  box-shadow: none;
+}
+
+body.skin-minimal .mode-selector-row,
+body.skin-retro .mode-selector-row {
+  background: var(--skin-mod-hdr);
+  border: 1px solid var(--skin-border);
+}
+
+/* Tactile Braun / Teenage Engineering Knobs & Fader Bank */
+body.skin-minimal .knob-container,
+body.skin-minimal .knob-dial,
+body.skin-retro .knob-container,
+body.skin-retro .knob-dial {
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .knob-val,
+body.skin-retro .knob-val {
+  color: var(--skin-ink);
+  font-weight: 800;
+}
+
+body.skin-minimal .knob-label,
+body.skin-minimal .vital-macros-bay .macro-knob .knob-label,
+body.skin-retro .knob-label,
+body.skin-retro .vital-macros-bay .macro-knob .knob-label {
+  color: var(--skin-ink);
+  font-weight: 800;
+}
+
+/* Fader Bank (ADSR) */
+body.skin-minimal .fader-bank-row,
+body.skin-minimal .faders-row,
+body.skin-minimal .fader-bank,
+body.skin-retro .fader-bank-row,
+body.skin-retro .faders-row,
+body.skin-retro .fader-bank {
+  background: var(--skin-mod-hdr);
+  border: 1px solid var(--skin-border);
+}
+
+body.skin-minimal .fader-unit,
+body.skin-minimal .fader-label,
+body.skin-minimal .fader-val,
+body.skin-retro .fader-unit,
+body.skin-retro .fader-label,
+body.skin-retro .fader-val {
+  color: var(--skin-ink);
+}
+
+/* Mod Matrix Mini & Arp Step Sequencer */
+body.skin-minimal .mod-matrix-mini,
+body.skin-retro .mod-matrix-mini {
+  background: var(--skin-control);
+  border: 1px solid var(--skin-border);
+}
+
+body.skin-minimal .matrix-header-row,
+body.skin-retro .matrix-header-row {
+  color: var(--skin-ink-med);
+  border-bottom: 1px solid var(--skin-border-soft);
+}
+
+body.skin-minimal .matrix-row,
+body.skin-retro .matrix-row {
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .matrix-row i,
+body.skin-retro .matrix-row i {
+  background: var(--skin-void);
+  color: var(--skin-ink);
+  border: 1px solid var(--skin-border-soft);
+}
+
+body.skin-minimal .arp-step-sequencer,
+body.skin-minimal .arp-status-strip,
+body.skin-retro .arp-step-sequencer,
+body.skin-retro .arp-status-strip {
+  background: var(--skin-control);
+  border: 1px solid var(--skin-border);
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .arp-step,
+body.skin-retro .arp-step {
+  background: var(--skin-control-hi);
+  border: 1px solid var(--skin-border);
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .arp-step.active,
+body.skin-retro .arp-step.active {
+  background: var(--skin-accent);
+  color: var(--skin-accent-fg);
+  border-color: var(--skin-border);
+}
+
+body.skin-minimal .arp-led,
+body.skin-retro .arp-led {
+  background: var(--skin-accent);
+  box-shadow: none;
+}
+
+/* Master VU Meters */
+body.skin-minimal .meter-panel,
+body.skin-retro .meter-panel {
+  background: var(--skin-control);
+  border: 1px solid var(--skin-border);
+}
+
+body.skin-minimal .meter-col span,
+body.skin-minimal .meter-scale,
+body.skin-minimal .meter-column,
+body.skin-minimal .meter-channel,
+body.skin-retro .meter-col span,
+body.skin-retro .meter-scale,
+body.skin-retro .meter-column,
+body.skin-retro .meter-channel {
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .vu-meter,
+body.skin-retro .vu-meter {
+  background: var(--skin-inset);
+  border: 1px solid var(--skin-border);
+}
+
+body.skin-minimal .vu-bar,
+body.skin-minimal .vu-fill,
+body.skin-retro .vu-bar,
+body.skin-retro .vu-fill {
+  background: linear-gradient(to top, var(--skin-green) 0%, var(--skin-green) 65%, #d97706 86%, var(--skin-accent) 100%);
+  box-shadow: none;
+}
+
+body.skin-minimal .vu-peak,
+body.skin-retro .vu-peak {
+  background: var(--skin-accent);
+  box-shadow: none;
+}
+
+/* Folklore Pads, Macros Bay & Chips Deck */
+body.skin-minimal .pads-and-chips-deck,
+body.skin-retro .pads-and-chips-deck {
+  background: transparent;
+}
+
+body.skin-minimal .folklore-pad,
+body.skin-retro .folklore-pad {
+  background: var(--skin-control);
+  border: 1px solid var(--skin-border);
+  color: var(--skin-ink);
+  box-shadow: 0 1px 0 rgba(23, 24, 26, 0.12);
+}
+
+body.skin-minimal .folklore-pad .pad-led,
+body.skin-retro .folklore-pad .pad-led {
+  background: var(--skin-inset);
+  border: 1px solid var(--skin-border);
+  box-shadow: none;
+}
+
+body.skin-minimal .folklore-pad .pad-name,
+body.skin-retro .folklore-pad .pad-name {
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .folklore-pad:hover,
+body.skin-minimal .folklore-pad.active,
+body.skin-retro .folklore-pad:hover,
+body.skin-retro .folklore-pad.active {
+  background: var(--skin-accent);
+  border-color: var(--skin-border);
+  color: var(--skin-accent-fg);
+  box-shadow: none;
+}
+
+body.skin-minimal .folklore-pad:hover .pad-led,
+body.skin-minimal .folklore-pad.active .pad-led,
+body.skin-retro .folklore-pad:hover .pad-led,
+body.skin-retro .folklore-pad.active .pad-led {
+  background: #ffffff;
+  border-color: var(--skin-border);
+  box-shadow: none;
+}
+
+body.skin-minimal .folklore-pad .pad-code,
+body.skin-retro .folklore-pad .pad-code {
+  color: var(--skin-accent);
+}
+
+body.skin-minimal .folklore-pad:hover .pad-code,
+body.skin-minimal .folklore-pad.active .pad-code,
+body.skin-minimal .folklore-pad:hover .pad-name,
+body.skin-minimal .folklore-pad.active .pad-name,
+body.skin-retro .folklore-pad:hover .pad-code,
+body.skin-retro .folklore-pad.active .pad-code,
+body.skin-retro .folklore-pad:hover .pad-name,
+body.skin-retro .folklore-pad.active .pad-name {
+  color: var(--skin-accent-fg);
+}
+
+body.skin-minimal .vital-macros-bay,
+body.skin-retro .vital-macros-bay {
+  background: var(--skin-module);
+  border: 1px solid var(--skin-border);
+}
+
+body.skin-minimal .macros-bay-title,
+body.skin-retro .macros-bay-title {
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .vital-macro-slot,
+body.skin-retro .vital-macro-slot {
+  background: var(--skin-control-hi);
+  border: 1px solid var(--skin-border-soft);
+}
+
+body.skin-minimal .vital-macro-dial,
+body.skin-retro .vital-macro-dial {
+  background: #ffffff;
+  border: 1.5px solid var(--skin-border);
+}
+
+body.skin-minimal .vital-macro-needle,
+body.skin-retro .vital-macro-needle {
+  background: var(--skin-accent);
+  box-shadow: none;
+}
+
+body.skin-minimal .vital-macro-slot span,
+body.skin-retro .vital-macro-slot span {
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .vital-macro-slot em,
+body.skin-retro .vital-macro-slot em {
+  color: var(--skin-accent);
+}
+
+body.skin-minimal .mini-chip,
+body.skin-retro .mini-chip {
+  background: var(--skin-control);
+  border: 1px solid var(--skin-border);
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .mini-chip:hover,
+body.skin-retro .mini-chip:hover {
+  background: var(--skin-accent);
+  color: var(--skin-accent-fg);
+}
+
+/* Keyboard Dock, Pitch/Mod Wheels & Piano Keys */
+body.skin-minimal .keyboard-card,
+body.skin-minimal .keyboard-dock,
+body.skin-retro .keyboard-card,
+body.skin-retro .keyboard-dock {
+  background: var(--skin-module);
+  border: 1px solid var(--skin-border);
+  box-shadow: 0 2px 0 rgba(23, 24, 26, 0.08);
+}
+
+body.skin-minimal .keyboard-toolbar,
+body.skin-retro .keyboard-toolbar {
+  border-bottom: 1px solid var(--skin-border);
+}
+
+body.skin-minimal .kb-section-title,
+body.skin-retro .kb-section-title {
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .kb-hint,
+body.skin-retro .kb-hint {
+  color: var(--skin-ink-med);
+}
+
+body.skin-minimal .tb-group,
+body.skin-retro .tb-group {
+  background: var(--skin-mod-hdr);
+  border: 1px solid var(--skin-border);
+}
+
+body.skin-minimal .tb-label,
+body.skin-retro .tb-label {
+  color: var(--skin-ink-med);
+}
+
+body.skin-minimal .tb-btn,
+body.skin-retro .tb-btn {
+  background: var(--skin-control-hi);
+  border: 1px solid var(--skin-border);
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .tb-btn:hover,
+body.skin-minimal .tb-btn.active,
+body.skin-minimal #btn-glide-legato.active,
+body.skin-retro .tb-btn:hover,
+body.skin-retro .tb-btn.active,
+body.skin-retro #btn-glide-legato.active {
+  background: var(--skin-accent);
+  border-color: var(--skin-border);
+  color: var(--skin-accent-fg);
+}
+
+body.skin-minimal .tb-badge,
+body.skin-retro .tb-badge {
+  background: var(--skin-control-hi);
+  color: var(--skin-ink);
+  border: 1px solid var(--skin-border-soft);
+}
+
+body.skin-minimal .keybed-assembly,
+body.skin-retro .keybed-assembly {
+  background: transparent;
+}
+
+body.skin-minimal .wheel-cheek,
+body.skin-retro .wheel-cheek {
+  background: var(--skin-mod-hdr);
+  border: 1px solid var(--skin-border);
+}
+
+body.skin-minimal .hw-wheel,
+body.skin-retro .hw-wheel {
+  background: var(--skin-inset);
+  border: 1px solid var(--skin-border);
+  box-shadow: inset 0 2px 4px rgba(23, 24, 26, 0.15);
+}
+
+body.skin-minimal .wheel-cap,
+body.skin-retro .wheel-cap {
+  background: var(--skin-control-hi);
+  border-top: 2px solid var(--skin-accent);
+  border-bottom: 1px solid var(--skin-border);
+  box-shadow: 0 1px 3px rgba(23, 24, 26, 0.2);
+}
+
+body.skin-minimal .hw-wheel span,
+body.skin-minimal .wheel-unit span,
+body.skin-retro .hw-wheel span,
+body.skin-retro .wheel-unit span {
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .tri-zone-legend .tz-txt,
+body.skin-minimal .typing-text,
+body.skin-retro .tri-zone-legend .tz-txt,
+body.skin-retro .typing-text {
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .tri-zone-legend .tz-txt .hl,
+body.skin-minimal .typing-text .hl,
+body.skin-retro .tri-zone-legend .tz-txt .hl,
+body.skin-retro .typing-text .hl {
+  color: var(--skin-accent);
+}
+
+body.skin-minimal .piano-keyboard,
+body.skin-retro .piano-keyboard {
+  background: var(--skin-border);
+  border: 1px solid var(--skin-border);
+}
+
+body.skin-minimal .piano-key.white-key,
+body.skin-minimal .piano-key.white,
+body.skin-retro .piano-key.white-key,
+body.skin-retro .piano-key.white {
+  background: linear-gradient(180deg, #ffffff 0%, var(--skin-chassis) 90%, var(--skin-void) 100%);
+  border-right: 1px solid var(--skin-border);
+  color: var(--skin-ink-med);
+  box-shadow: inset 0 -2px 0 rgba(23, 24, 26, 0.12);
+}
+
+body.skin-minimal .piano-key.white-key .key-note,
+body.skin-minimal .piano-key.white .key-note,
+body.skin-retro .piano-key.white-key .key-note,
+body.skin-retro .piano-key.white .key-note {
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .piano-key.white-key .key-shortcut,
+body.skin-minimal .piano-key.white .key-shortcut,
+body.skin-retro .piano-key.white-key .key-shortcut,
+body.skin-retro .piano-key.white .key-shortcut {
+  color: var(--skin-ink-med);
+}
+
+body.skin-minimal .piano-key.white-key.active,
+body.skin-minimal .piano-key.white.active,
+body.skin-retro .piano-key.white-key.active,
+body.skin-retro .piano-key.white.active {
+  background: linear-gradient(180deg, var(--skin-key-active-top) 0%, var(--skin-key-active-bot) 100%);
+  border-bottom: 3px solid var(--skin-accent);
+  color: var(--skin-ink);
+  box-shadow: none;
+}
+
+body.skin-minimal .piano-key.black-key,
+body.skin-minimal .piano-key.black,
+body.skin-retro .piano-key.black-key,
+body.skin-retro .piano-key.black {
+  background: linear-gradient(180deg, #27292d 0%, var(--skin-border) 100%);
+  border: 1px solid var(--skin-border);
+  color: var(--skin-chassis);
+  box-shadow: 0 2px 4px rgba(23, 24, 26, 0.25);
+}
+
+body.skin-minimal .piano-key.black-key .key-note,
+body.skin-minimal .piano-key.black .key-note,
+body.skin-retro .piano-key.black-key .key-note,
+body.skin-retro .piano-key.black .key-note {
+  color: var(--skin-chassis);
+}
+
+body.skin-minimal .piano-key.black-key .key-shortcut,
+body.skin-minimal .piano-key.black .key-shortcut,
+body.skin-retro .piano-key.black-key .key-shortcut,
+body.skin-retro .piano-key.black .key-shortcut {
+  color: #b4b6bc;
+}
+
+body.skin-minimal .piano-key.black-key.active,
+body.skin-minimal .piano-key.black.active,
+body.skin-retro .piano-key.black-key.active,
+body.skin-retro .piano-key.black.active {
+  background: var(--skin-accent);
+  border-color: var(--skin-border);
+  color: var(--skin-accent-fg);
+  box-shadow: none;
+}
+
+/* Studio Footer & Floating HUD Tooltip */
+body.skin-minimal .studio-footer,
+body.skin-retro .studio-footer {
+  background: var(--skin-header);
+  border-top: 1px solid var(--skin-border);
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .footer-left,
+body.skin-minimal .footer-right,
+body.skin-minimal #status-text,
+body.skin-retro .footer-left,
+body.skin-retro .footer-right,
+body.skin-retro #status-text {
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .shortcut-tip kbd,
+body.skin-retro .shortcut-tip kbd {
+  background: var(--skin-control-hi);
+  border: 1px solid var(--skin-border);
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .param-hud-tooltip,
+body.skin-retro .param-hud-tooltip {
+  background: var(--skin-border);
+  border: 1px solid var(--skin-accent);
+  color: var(--skin-chassis);
+  box-shadow: 0 4px 12px rgba(23, 24, 26, 0.22);
+}
+
+/* Settings Modal in Light Skins (minimal + retro) */
+body.skin-minimal #settings-modal.modal-backdrop,
+body.skin-minimal .modal-backdrop,
+body.skin-retro #settings-modal.modal-backdrop,
+body.skin-retro .modal-backdrop {
+  background: rgba(23, 24, 26, 0.45);
+  backdrop-filter: blur(4px);
+}
+
+body.skin-minimal .modal-card,
+body.skin-retro .modal-card {
+  background: var(--skin-chassis);
+  border: 1.5px solid var(--skin-border);
+  box-shadow: 0 18px 48px rgba(23, 24, 26, 0.25);
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .modal-header,
+body.skin-retro .modal-header {
+  background: var(--skin-mod-hdr);
+  border-bottom: 1px solid var(--skin-border);
+}
+
+body.skin-minimal .modal-title,
+body.skin-retro .modal-title {
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .modal-subtitle,
+body.skin-retro .modal-subtitle {
+  color: var(--skin-ink-med);
+}
+
+body.skin-minimal .settings-latency-badge,
+body.skin-retro .settings-latency-badge {
+  background: var(--skin-control-hi);
+  border: 1px solid var(--skin-border);
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .btn-close,
+body.skin-retro .btn-close {
+  background: var(--skin-control-hi);
+  border: 1px solid var(--skin-border);
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .btn-close:hover,
+body.skin-retro .btn-close:hover {
+  background: var(--skin-accent);
+  color: var(--skin-accent-fg);
+}
+
+body.skin-minimal .modal-tabs-bar,
+body.skin-retro .modal-tabs-bar {
+  background: var(--skin-module);
+  border-bottom: 1px solid var(--skin-border);
+}
+
+body.skin-minimal .modal-tab-btn,
+body.skin-retro .modal-tab-btn {
+  background: var(--skin-control-hi);
+  border: 1px solid var(--skin-border-soft);
+  color: var(--skin-ink-med);
+}
+
+body.skin-minimal .modal-tab-btn:hover,
+body.skin-retro .modal-tab-btn:hover {
+  color: var(--skin-ink);
+  border-color: var(--skin-border);
+}
+
+body.skin-minimal .modal-tab-btn.active,
+body.skin-retro .modal-tab-btn.active {
+  background: var(--skin-accent);
+  border-color: var(--skin-border);
+  color: var(--skin-accent-fg);
+  box-shadow: none;
+}
+
+body.skin-minimal .modal-body,
+body.skin-retro .modal-body {
+  background: var(--skin-chassis);
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .field-label-group label,
+body.skin-minimal .setting-field label,
+body.skin-retro .field-label-group label,
+body.skin-retro .setting-field label {
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .field-desc,
+body.skin-retro .field-desc {
+  color: var(--skin-ink-med);
+}
+
+body.skin-minimal .studio-select,
+body.skin-minimal .studio-input,
+body.skin-minimal .studio-text-input,
+body.skin-retro .studio-select,
+body.skin-retro .studio-input,
+body.skin-retro .studio-text-input {
+  background-color: var(--skin-control-hi);
+  border: 1px solid var(--skin-border);
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .studio-select option,
+body.skin-retro .studio-select option {
+  background: var(--skin-control-hi);
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .test-tone-box,
+body.skin-minimal .cloud-license-box,
+body.skin-minimal .skin-pane-header,
+body.skin-retro .test-tone-box,
+body.skin-retro .cloud-license-box,
+body.skin-retro .skin-pane-header {
+  background: var(--skin-module);
+  border: 1px solid var(--skin-border);
+}
+
+body.skin-minimal .test-tone-title,
+body.skin-retro .test-tone-title {
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .test-tone-desc,
+body.skin-retro .test-tone-desc {
+  color: var(--skin-ink-med);
+}
+
+body.skin-minimal .btn-test-tone,
+body.skin-minimal .skin-status-pill,
+body.skin-minimal .cloud-tier-pill,
+body.skin-retro .btn-test-tone,
+body.skin-retro .skin-status-pill,
+body.skin-retro .cloud-tier-pill {
+  background: var(--skin-control-hi);
+  border: 1px solid var(--skin-border);
+  color: var(--skin-accent);
+}
+
+body.skin-minimal .btn-test-tone:hover,
+body.skin-retro .btn-test-tone:hover {
+  background: var(--skin-accent);
+  color: var(--skin-accent-fg);
+}
+
+body.skin-minimal .skin-card-btn,
+body.skin-retro .skin-card-btn {
+  background: var(--skin-control-hi);
+  border: 1.5px solid var(--skin-border-soft);
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .skin-card-btn:hover,
+body.skin-retro .skin-card-btn:hover {
+  border-color: var(--skin-border);
+}
+
+body.skin-minimal .skin-card-btn.active,
+body.skin-minimal .skin-card-btn[aria-pressed="true"],
+body.skin-retro .skin-card-btn.active,
+body.skin-retro .skin-card-btn[aria-pressed="true"] {
+  background: #ffffff;
+  border: 1.5px solid var(--skin-accent);
+  box-shadow: 0 0 0 1px var(--skin-accent), 0 4px 12px rgba(224, 60, 31, 0.14);
+}
+
+body.skin-minimal .skin-card-code,
+body.skin-retro .skin-card-code {
+  background: var(--skin-module);
+  color: var(--skin-ink);
+  border: 1px solid var(--skin-border-soft);
+}
+
+body.skin-minimal .skin-card-desc,
+body.skin-retro .skin-card-desc {
+  color: var(--skin-ink-med);
+}
+
+body.skin-minimal .modal-footer,
+body.skin-retro .modal-footer {
+  background: var(--skin-mod-hdr);
+  border-top: 1px solid var(--skin-border);
+}
+
+body.skin-minimal .btn-secondary,
+body.skin-retro .btn-secondary {
+  background: var(--skin-control-hi);
+  border: 1px solid var(--skin-border);
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .btn-primary,
+body.skin-retro .btn-primary {
+  background: var(--skin-accent);
+  border: 1px solid var(--skin-border);
+  color: var(--skin-accent-fg);
+  box-shadow: none;
+}
+
+/* Full Light-Mode Overrides for #preset-browser-drawer (minimal + retro) */
+body.skin-minimal #preset-browser-drawer,
+body.skin-minimal .preset-browser-drawer,
+body.skin-minimal #preset-browser-modal,
+body.skin-retro #preset-browser-drawer,
+body.skin-retro .preset-browser-drawer,
+body.skin-retro #preset-browser-modal {
+  background: var(--skin-chassis);
+  border: 1.5px solid var(--skin-border);
+  border-top: 2px solid var(--skin-border);
+  box-shadow: 0 12px 32px rgba(23, 24, 26, 0.22);
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .browser-header,
+body.skin-minimal .browser-col-header,
+body.skin-minimal .browser-toolbar,
+body.skin-minimal .browser-footer,
+body.skin-retro .browser-header,
+body.skin-retro .browser-col-header,
+body.skin-retro .browser-toolbar,
+body.skin-retro .browser-footer {
+  background: var(--skin-mod-hdr);
+  border-color: var(--skin-border);
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .b-title,
+body.skin-retro .b-title {
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .browser-close-btn,
+body.skin-minimal .btn-close-browser,
+body.skin-minimal .btn-preset-audition,
+body.skin-retro .browser-close-btn,
+body.skin-retro .btn-close-browser,
+body.skin-retro .btn-preset-audition {
+  background: var(--skin-control-hi);
+  border: 1px solid var(--skin-border);
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .browser-close-btn:hover,
+body.skin-minimal .btn-close-browser:hover,
+body.skin-minimal .btn-preset-audition:hover,
+body.skin-minimal .btn-preset-audition.active,
+body.skin-retro .browser-close-btn:hover,
+body.skin-retro .btn-close-browser:hover,
+body.skin-retro .btn-preset-audition:hover,
+body.skin-retro .btn-preset-audition.active {
+  background: var(--skin-accent);
+  border-color: var(--skin-border);
+  color: var(--skin-accent-fg);
+}
+
+body.skin-minimal .browser-packs-col,
+body.skin-retro .browser-packs-col {
+  background: var(--skin-module);
+  border-right: 1px solid var(--skin-border);
+}
+
+body.skin-minimal .browser-presets-col,
+body.skin-minimal .browser-table-col,
+body.skin-retro .browser-presets-col,
+body.skin-retro .browser-table-col {
+  background: var(--skin-chassis);
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .sound-pack-card,
+body.skin-retro .sound-pack-card {
+  background: var(--skin-control-hi);
+  border: 1px solid var(--skin-border-soft);
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .sound-pack-card:hover,
+body.skin-retro .sound-pack-card:hover {
+  background: #ffffff;
+  border-color: var(--skin-border);
+}
+
+body.skin-minimal .pack-card-title,
+body.skin-minimal .pack-title,
+body.skin-retro .pack-card-title,
+body.skin-retro .pack-title {
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .pack-card-meta,
+body.skin-minimal .pack-code,
+body.skin-minimal .pack-count,
+body.skin-retro .pack-card-meta,
+body.skin-retro .pack-code,
+body.skin-retro .pack-count {
+  color: var(--skin-ink-med);
+}
+
+body.skin-minimal .sound-pack-card.active,
+body.skin-retro .sound-pack-card.active {
+  background: var(--skin-accent);
+  border-color: var(--skin-border);
+  color: var(--skin-accent-fg);
+}
+
+body.skin-minimal .sound-pack-card.active .pack-card-title,
+body.skin-minimal .sound-pack-card.active .pack-title,
+body.skin-minimal .sound-pack-card.active .pack-card-meta,
+body.skin-minimal .sound-pack-card.active .pack-code,
+body.skin-minimal .sound-pack-card.active .pack-count,
+body.skin-retro .sound-pack-card.active .pack-card-title,
+body.skin-retro .sound-pack-card.active .pack-title,
+body.skin-retro .sound-pack-card.active .pack-card-meta,
+body.skin-retro .sound-pack-card.active .pack-code,
+body.skin-retro .sound-pack-card.active .pack-count {
+  color: var(--skin-accent-fg);
+}
+
+body.skin-minimal .browser-search-bar,
+body.skin-retro .browser-search-bar {
+  background: var(--skin-control-hi);
+  border: 1px solid var(--skin-border);
+  color: var(--skin-ink);
+}
+
+body.skin-minimal #preset-search-input,
+body.skin-retro #preset-search-input {
+  color: var(--skin-ink);
+}
+
+body.skin-minimal #preset-search-input::placeholder,
+body.skin-retro #preset-search-input::placeholder {
+  color: var(--skin-ink-low);
+}
+
+body.skin-minimal .preset-count-badge,
+body.skin-retro .preset-count-badge {
+  background: var(--skin-module);
+  border: 1px solid var(--skin-border-soft);
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .cat-pill,
+body.skin-retro .cat-pill {
+  background: var(--skin-control-hi);
+  border: 1px solid var(--skin-border-soft);
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .cat-pill:hover,
+body.skin-retro .cat-pill:hover {
+  border-color: var(--skin-border);
+  color: var(--skin-accent);
+}
+
+body.skin-minimal .cat-pill.active,
+body.skin-retro .cat-pill.active {
+  background: var(--skin-accent);
+  border-color: var(--skin-border);
+  color: var(--skin-accent-fg);
+}
+
+body.skin-minimal .preset-table-head,
+body.skin-retro .preset-table-head {
+  background: var(--skin-mod-hdr);
+  border-bottom: 1px solid var(--skin-border);
+  color: var(--skin-ink-med);
+}
+
+body.skin-minimal .preset-row-item,
+body.skin-retro .preset-row-item {
+  background: var(--skin-control-hi);
+  border-bottom: 1px solid var(--skin-border-soft);
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .preset-row-item:hover,
+body.skin-retro .preset-row-item:hover {
+  background: #ffffff;
+}
+
+body.skin-minimal .preset-row-name,
+body.skin-minimal .p-name,
+body.skin-retro .preset-row-name,
+body.skin-retro .p-name {
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .preset-row-cat,
+body.skin-minimal .p-genre,
+body.skin-minimal .preset-row-desc,
+body.skin-minimal .p-meter-badge,
+body.skin-retro .preset-row-cat,
+body.skin-retro .p-genre,
+body.skin-retro .preset-row-desc,
+body.skin-retro .p-meter-badge {
+  color: var(--skin-ink-med);
+}
+
+body.skin-minimal .preset-row-item.active,
+body.skin-retro .preset-row-item.active {
+  background: var(--skin-accent);
+  border-color: var(--skin-border);
+  color: var(--skin-accent-fg);
+}
+
+body.skin-minimal .preset-row-item.active .preset-row-name,
+body.skin-minimal .preset-row-item.active .p-name,
+body.skin-minimal .preset-row-item.active .preset-row-cat,
+body.skin-minimal .preset-row-item.active .p-genre,
+body.skin-minimal .preset-row-item.active .preset-row-desc,
+body.skin-minimal .preset-row-item.active .p-meter-badge,
+body.skin-retro .preset-row-item.active .preset-row-name,
+body.skin-retro .preset-row-item.active .p-name,
+body.skin-retro .preset-row-item.active .preset-row-cat,
+body.skin-retro .preset-row-item.active .p-genre,
+body.skin-retro .preset-row-item.active .preset-row-desc,
+body.skin-retro .preset-row-item.active .p-meter-badge {
+  color: var(--skin-accent-fg);
+}
+
+body.skin-minimal .p-meter-badge,
+body.skin-minimal .p-meter-badge.m-68,
+body.skin-minimal .p-meter-badge.m-58,
+body.skin-retro .p-meter-badge,
+body.skin-retro .p-meter-badge.m-68,
+body.skin-retro .p-meter-badge.m-58 {
+  background: var(--skin-module);
+  border-color: var(--skin-border-soft);
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .preset-row-item.active .p-meter-badge,
+body.skin-minimal .preset-row-item.active .p-meter-badge.m-68,
+body.skin-minimal .preset-row-item.active .p-meter-badge.m-58,
+body.skin-retro .preset-row-item.active .p-meter-badge,
+body.skin-retro .preset-row-item.active .p-meter-badge.m-68,
+body.skin-retro .preset-row-item.active .p-meter-badge.m-58 {
+  background: rgba(255, 255, 255, 0.22);
+  border-color: var(--skin-accent-fg);
+  color: var(--skin-accent-fg);
+}
+
+body.skin-minimal .p-fav-btn,
+body.skin-retro .p-fav-btn {
+  color: var(--skin-ink-low);
+  text-shadow: none;
+}
+
+body.skin-minimal .p-fav-btn.fav,
+body.skin-retro .p-fav-btn.fav {
+  color: var(--skin-accent);
+  text-shadow: none;
+}
+
+body.skin-minimal .preset-row-item.active .p-fav-btn,
+body.skin-minimal .preset-row-item.active .p-fav-btn.fav,
+body.skin-retro .preset-row-item.active .p-fav-btn,
+body.skin-retro .preset-row-item.active .p-fav-btn.fav {
+  color: var(--skin-accent-fg);
+}
+
+body.skin-minimal .mode-banner,
+body.skin-retro .mode-banner {
+  background: var(--skin-module);
+  border-color: var(--skin-border);
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .mode-banner .banner-icon,
+body.skin-minimal .mode-banner strong,
+body.skin-retro .mode-banner .banner-icon,
+body.skin-retro .mode-banner strong {
+  color: var(--skin-accent);
+}
+
+body.skin-minimal .settings-status-msg,
+body.skin-retro .settings-status-msg {
+  background: var(--skin-control-hi);
+  border: 1px solid var(--skin-border);
+  color: var(--skin-ink);
+}
+
+body.skin-minimal .settings-status-msg.error,
+body.skin-retro .settings-status-msg.error {
+  background: #fef2f2;
+  border-color: #b91c1c;
+  color: #991b1b;
+}
+
+body.skin-minimal .midi-cc-badge,
+body.skin-retro .midi-cc-badge {
+  background: var(--skin-accent);
+  border-color: var(--skin-border);
+  color: var(--skin-accent-fg);
+}
+
+body.skin-minimal .resize-grip,
+body.skin-retro .resize-grip {
+  background: linear-gradient(135deg, transparent 50%, var(--skin-ink-low) 50%);
+}
+
+body.skin-minimal ::-webkit-scrollbar-track,
+body.skin-retro ::-webkit-scrollbar-track {
+  background: var(--skin-inset);
+}
+
+body.skin-minimal ::-webkit-scrollbar-thumb,
+body.skin-retro ::-webkit-scrollbar-thumb {
+  background: var(--skin-ink-low);
+}
+
+body.skin-minimal ::-webkit-scrollbar-thumb:hover,
+body.skin-retro ::-webkit-scrollbar-thumb:hover {
+  background: var(--skin-accent);
+}
+
+/* ============================================================================
+   14. SECONDARY DARK HARDWARE SKINS
+       (body.skin-synth70, body.skin-gunmetal, body.skin-phosphor)
+   ============================================================================ */
+
+/* --- 4. SYNTH '70S (body.skin-synth70) --- */
+body.skin-synth70 {
+  --skin-void: #14110f;
+  --skin-chassis: #1c1917;
+  --skin-header: #241f1c;
+  --skin-module: #26221f;
+  --skin-mod-hdr: #302a26;
+  --skin-oled: #12100e;
+  --skin-control: #2d2824;
+  --skin-control-hi: #38312c;
+  --skin-border: #443c35;
+  --skin-border-soft: rgba(244, 232, 193, 0.16);
+  --skin-ink: #f4e8c1;
+  --skin-ink-med: #cbbba0;
+  --skin-ink-low: #8c7f6a;
+  --skin-accent: #e06d53;
+  --skin-accent-2: #eab308;
+  --skin-knob-cap: radial-gradient(circle at 35% 30%, #3d352e 0%, #241f1b 70%, #171412 100%);
+
+  --bg-void: #14110f;
+  --bg-canvas: #14110f;
+  --bg-chassis: #1c1917;
+  --bg-module: #26221f;
+  --bg-module-grad: linear-gradient(180deg, #2d2824 0%, #211d1a 100%);
+  --bg-oled: #12100e;
+  --border-module: #443c35;
+  --border-highlight: #e06d53;
+  --color-cyan: #e06d53;
+  --color-cyan-glow: rgba(224, 109, 83, 0.32);
+  --color-amber: #eab308;
+  --color-amber-glow: rgba(234, 179, 8, 0.28);
+  --color-green: #22c55e;
+  --text-high: #f4e8c1;
+  --text-med: #cbbba0;
+  --text-low: #8c7f6a;
+
+  background-color: var(--skin-void);
+  color: var(--skin-ink);
+}
+
+/* --- 5. GUNMETAL RACK (body.skin-gunmetal) --- */
+body.skin-gunmetal {
+  --skin-void: #12151a;
+  --skin-chassis: #1a1d24;
+  --skin-header: #20242d;
+  --skin-module: #22262f;
+  --skin-mod-hdr: #2a303c;
+  --skin-oled: #0e1116;
+  --skin-control: #282d38;
+  --skin-control-hi: #323846;
+  --skin-border: #3b4252;
+  --skin-border-soft: rgba(229, 233, 240, 0.16);
+  --skin-ink: #e5e9f0;
+  --skin-ink-med: #b4bece;
+  --skin-ink-low: #7b88a1;
+  --skin-accent: #f59e0b;
+  --skin-accent-2: #38bdf8;
+  --skin-knob-cap: radial-gradient(circle at 35% 30%, #3b4252 0%, #242933 70%, #171a21 100%);
+
+  --bg-void: #12151a;
+  --bg-canvas: #12151a;
+  --bg-chassis: #1a1d24;
+  --bg-module: #22262f;
+  --bg-module-grad: linear-gradient(180deg, #2a303c 0%, #1e222a 100%);
+  --bg-oled: #0e1116;
+  --border-module: #3b4252;
+  --border-highlight: #f59e0b;
+  --color-cyan: #f59e0b;
+  --color-cyan-glow: rgba(245, 158, 11, 0.32);
+  --color-amber: #38bdf8;
+  --color-amber-glow: rgba(56, 189, 248, 0.28);
+  --color-green: #10b981;
+  --text-high: #e5e9f0;
+  --text-med: #b4bece;
+  --text-low: #7b88a1;
+
+  background-color: var(--skin-void);
+  color: var(--skin-ink);
+}
+
+/* --- 6. CRT PHOSPHOR (body.skin-phosphor) --- */
+body.skin-phosphor {
+  --skin-void: #030604;
+  --skin-chassis: #050a06;
+  --skin-header: #08110a;
+  --skin-module: #09120b;
+  --skin-mod-hdr: #0d1b10;
+  --skin-oled: #020503;
+  --skin-control: #0c180f;
+  --skin-control-hi: #112215;
+  --skin-border: #14532d;
+  --skin-border-soft: rgba(57, 255, 136, 0.22);
+  --skin-ink: #d1fae5;
+  --skin-ink-med: #6ee7b7;
+  --skin-ink-low: #34d399;
+  --skin-accent: #39ff88;
+  --skin-accent-2: #16a34a;
+  --skin-knob-cap: radial-gradient(circle at 35% 30%, #132a19 0%, #09140c 70%, #040906 100%);
+
+  --bg-void: #030604;
+  --bg-canvas: #030604;
+  --bg-chassis: #050a06;
+  --bg-module: #09120b;
+  --bg-module-grad: linear-gradient(180deg, #0c180f 0%, #060c07 100%);
+  --bg-oled: #020503;
+  --border-module: #14532d;
+  --border-highlight: #39ff88;
+  --color-cyan: #39ff88;
+  --color-cyan-glow: rgba(57, 255, 136, 0.35);
+  --color-amber: #16a34a;
+  --color-amber-glow: rgba(22, 163, 74, 0.3);
+  --color-green: #39ff88;
+  --text-high: #d1fae5;
+  --text-med: #6ee7b7;
+  --text-low: #34d399;
+
+  background-color: var(--skin-void);
+  color: var(--skin-ink);
+}
+
+/* Shared Component Overrides for Secondary Dark Skins (synth70, gunmetal, phosphor) */
+body.skin-synth70 .plugin-container,
+body.skin-gunmetal .plugin-container,
+body.skin-phosphor .plugin-container {
+  background-color: var(--skin-chassis);
+  color: var(--skin-ink);
+}
+
+body.skin-synth70 .studio-header,
+body.skin-gunmetal .studio-header,
+body.skin-phosphor .studio-header {
+  background: var(--skin-header);
+  border-bottom: 1px solid var(--skin-border);
+}
+
+body.skin-synth70 .btn-io,
+body.skin-synth70 .btn-settings,
+body.skin-synth70 .btn-oled-theme,
+body.skin-synth70 .btn-cloud-credits,
+body.skin-synth70 .engine-badge,
+body.skin-synth70 .voice-monitor,
+body.skin-gunmetal .btn-io,
+body.skin-gunmetal .btn-settings,
+body.skin-gunmetal .btn-oled-theme,
+body.skin-gunmetal .btn-cloud-credits,
+body.skin-gunmetal .engine-badge,
+body.skin-gunmetal .voice-monitor,
+body.skin-phosphor .btn-io,
+body.skin-phosphor .btn-settings,
+body.skin-phosphor .btn-oled-theme,
+body.skin-phosphor .btn-cloud-credits,
+body.skin-phosphor .engine-badge,
+body.skin-phosphor .voice-monitor {
+  background: var(--skin-control);
+  border-color: var(--skin-border);
+  color: var(--skin-ink);
+}
+
+body.skin-synth70 .command-dock,
+body.skin-gunmetal .command-dock,
+body.skin-phosphor .command-dock {
+  background: var(--skin-module);
+  border-color: var(--skin-border);
+}
+
+body.skin-synth70 .btn-preset-step,
+body.skin-synth70 .btn-preset-browser,
+body.skin-synth70 .prompt-input-shell,
+body.skin-synth70 .pack-pill,
+body.skin-synth70 .btn-ab-compare,
+body.skin-gunmetal .btn-preset-step,
+body.skin-gunmetal .btn-preset-browser,
+body.skin-gunmetal .prompt-input-shell,
+body.skin-gunmetal .pack-pill,
+body.skin-gunmetal .btn-ab-compare,
+body.skin-phosphor .btn-preset-step,
+body.skin-phosphor .btn-preset-browser,
+body.skin-phosphor .prompt-input-shell,
+body.skin-phosphor .pack-pill,
+body.skin-phosphor .btn-ab-compare {
+  background: var(--skin-control);
+  border-color: var(--skin-border);
+  color: var(--skin-ink);
+}
+
+body.skin-synth70 .eurorack-module,
+body.skin-gunmetal .eurorack-module,
+body.skin-phosphor .eurorack-module {
+  background: var(--bg-module-grad);
+  border-color: var(--skin-border);
+}
+
+body.skin-synth70 .mod-header,
+body.skin-gunmetal .mod-header,
+body.skin-phosphor .mod-header {
+  background: var(--skin-mod-hdr);
+  border-color: var(--skin-border);
+}
+
+body.skin-synth70 .mod-title,
+body.skin-gunmetal .mod-title,
+body.skin-phosphor .mod-title {
+  color: var(--skin-ink);
+}
+
+body.skin-synth70 .mod-sub-tag,
+body.skin-gunmetal .mod-sub-tag,
+body.skin-phosphor .mod-sub-tag {
+  background: var(--skin-control);
+  border-color: var(--skin-border);
+  color: var(--skin-ink-med);
+}
+
+body.skin-synth70 .oled-bezel,
+body.skin-gunmetal .oled-bezel,
+body.skin-phosphor .oled-bezel {
+  background: var(--skin-oled);
+  border-color: var(--skin-border);
+}
+
+body.skin-synth70 .oled-pill-btn,
+body.skin-synth70 .mode-selector-row,
+body.skin-synth70 .mode-btn,
+body.skin-synth70 .arp-mode-btn,
+body.skin-gunmetal .oled-pill-btn,
+body.skin-gunmetal .mode-selector-row,
+body.skin-gunmetal .mode-btn,
+body.skin-gunmetal .arp-mode-btn,
+body.skin-phosphor .oled-pill-btn,
+body.skin-phosphor .mode-selector-row,
+body.skin-phosphor .mode-btn,
+body.skin-phosphor .arp-mode-btn {
+  background: var(--skin-control);
+  border-color: var(--skin-border);
+  color: var(--skin-ink-med);
+}
+
+body.skin-synth70 .oled-pill-btn.active,
+body.skin-synth70 .mode-btn.active,
+body.skin-synth70 .arp-mode-btn.active,
+body.skin-gunmetal .oled-pill-btn.active,
+body.skin-gunmetal .mode-btn.active,
+body.skin-gunmetal .arp-mode-btn.active,
+body.skin-phosphor .oled-pill-btn.active,
+body.skin-phosphor .mode-btn.active,
+body.skin-phosphor .arp-mode-btn.active {
+  background: var(--skin-control-hi);
+  border-color: var(--skin-accent);
+  color: var(--skin-accent);
+}
+
+body.skin-synth70 .knob-cap,
+body.skin-gunmetal .knob-cap,
+body.skin-phosphor .knob-cap {
+  background: var(--skin-knob-cap);
+  border-color: var(--skin-border);
+}
+
+body.skin-synth70 .fader-bank-row,
+body.skin-synth70 .mod-matrix-mini,
+body.skin-synth70 .arp-status-strip,
+body.skin-synth70 .meter-panel,
+body.skin-synth70 .vu-meter,
+body.skin-gunmetal .fader-bank-row,
+body.skin-gunmetal .mod-matrix-mini,
+body.skin-gunmetal .arp-status-strip,
+body.skin-gunmetal .meter-panel,
+body.skin-gunmetal .vu-meter,
+body.skin-phosphor .fader-bank-row,
+body.skin-phosphor .mod-matrix-mini,
+body.skin-phosphor .arp-status-strip,
+body.skin-phosphor .meter-panel,
+body.skin-phosphor .vu-meter {
+  background: var(--skin-oled);
+  border-color: var(--skin-border);
+}
+
+body.skin-synth70 .fader-track,
+body.skin-gunmetal .fader-track,
+body.skin-phosphor .fader-track {
+  background: var(--skin-void);
+  border-color: var(--skin-border);
+}
+
+body.skin-synth70 .fader-thumb,
+body.skin-gunmetal .fader-thumb,
+body.skin-phosphor .fader-thumb {
+  background: var(--skin-control-hi);
+  border-color: var(--skin-border);
+}
+
+body.skin-synth70 .folklore-pad,
+body.skin-synth70 .vital-macros-bay,
+body.skin-synth70 .mini-chip,
+body.skin-gunmetal .folklore-pad,
+body.skin-gunmetal .vital-macros-bay,
+body.skin-gunmetal .mini-chip,
+body.skin-phosphor .folklore-pad,
+body.skin-phosphor .vital-macros-bay,
+body.skin-phosphor .mini-chip {
+  background: var(--skin-module);
+  border-color: var(--skin-border);
+  color: var(--skin-ink);
+}
+
+body.skin-synth70 .keyboard-card,
+body.skin-gunmetal .keyboard-card,
+body.skin-phosphor .keyboard-card {
+  background: var(--skin-module);
+  border-color: var(--skin-border);
+}
+
+body.skin-synth70 .tb-group,
+body.skin-synth70 .tb-btn,
+body.skin-synth70 .wheel-cheek,
+body.skin-synth70 .hw-wheel,
+body.skin-gunmetal .tb-group,
+body.skin-gunmetal .tb-btn,
+body.skin-gunmetal .wheel-cheek,
+body.skin-gunmetal .hw-wheel,
+body.skin-phosphor .tb-group,
+body.skin-phosphor .tb-btn,
+body.skin-phosphor .wheel-cheek,
+body.skin-phosphor .hw-wheel {
+  background: var(--skin-control);
+  border-color: var(--skin-border);
+  color: var(--skin-ink);
+}
+
+body.skin-synth70 .piano-keyboard,
+body.skin-gunmetal .piano-keyboard,
+body.skin-phosphor .piano-keyboard {
+  background: var(--skin-void);
+  border-color: var(--skin-border);
+}
+
+body.skin-synth70 .piano-key.black-key,
+body.skin-gunmetal .piano-key.black-key,
+body.skin-phosphor .piano-key.black-key {
+  background: var(--skin-void);
+  border: 1px solid var(--skin-border);
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.65), 0 3px 5px rgba(0, 0, 0, 0.85);
+}
+
+body.skin-synth70 .studio-footer,
+body.skin-gunmetal .studio-footer,
+body.skin-phosphor .studio-footer {
+  background: var(--skin-header);
+  border-top: 1px solid var(--skin-border);
+  color: var(--skin-ink-med);
+}
+
+body.skin-synth70 .modal-card,
+body.skin-synth70 #preset-browser-drawer,
+body.skin-gunmetal .modal-card,
+body.skin-gunmetal #preset-browser-drawer,
+body.skin-phosphor .modal-card,
+body.skin-phosphor #preset-browser-drawer {
+  background: var(--skin-chassis);
+  border-color: var(--skin-border);
+  color: var(--skin-ink);
+}
+
+body.skin-synth70 .modal-header,
+body.skin-synth70 .modal-tabs-bar,
+body.skin-synth70 .modal-footer,
+body.skin-gunmetal .modal-header,
+body.skin-gunmetal .modal-tabs-bar,
+body.skin-gunmetal .modal-footer,
+body.skin-phosphor .modal-header,
+body.skin-phosphor .modal-tabs-bar,
+body.skin-phosphor .modal-footer {
+  background: var(--skin-header);
+  border-color: var(--skin-border);
+}
+
+body.skin-synth70 .modal-body,
+body.skin-gunmetal .modal-body,
+body.skin-phosphor .modal-body {
+  background: var(--skin-chassis);
+  color: var(--skin-ink);
+}
+
+body.skin-synth70 .modal-tab-btn,
+body.skin-synth70 .studio-select,
+body.skin-synth70 .test-tone-box,
+body.skin-synth70 .cloud-license-box,
+body.skin-synth70 .skin-pane-header,
+body.skin-synth70 .skin-card-btn,
+body.skin-gunmetal .modal-tab-btn,
+body.skin-gunmetal .studio-select,
+body.skin-gunmetal .test-tone-box,
+body.skin-gunmetal .cloud-license-box,
+body.skin-gunmetal .skin-pane-header,
+body.skin-gunmetal .skin-card-btn,
+body.skin-phosphor .modal-tab-btn,
+body.skin-phosphor .studio-select,
+body.skin-phosphor .test-tone-box,
+body.skin-phosphor .cloud-license-box,
+body.skin-phosphor .skin-pane-header,
+body.skin-phosphor .skin-card-btn {
+  background: var(--skin-control);
+  border-color: var(--skin-border);
+  color: var(--skin-ink);
+}
+
+body.skin-synth70 .pads-and-chips-deck,
+body.skin-synth70 .hw-readout,
+body.skin-synth70 .tb-badge,
+body.skin-synth70 .param-hud-tooltip,
+body.skin-gunmetal .pads-and-chips-deck,
+body.skin-gunmetal .hw-readout,
+body.skin-gunmetal .tb-badge,
+body.skin-gunmetal .param-hud-tooltip,
+body.skin-phosphor .pads-and-chips-deck,
+body.skin-phosphor .hw-readout,
+body.skin-phosphor .tb-badge,
+body.skin-phosphor .param-hud-tooltip {
+  background: var(--skin-oled);
+  border-color: var(--skin-border);
+  color: var(--skin-ink);
+}
+
+body.skin-synth70 .hw-sq-btn,
+body.skin-synth70 .zone-btn,
+body.skin-synth70 .shortcut-tip kbd,
+body.skin-synth70 .btn-secondary,
+body.skin-synth70 .matrix-row i,
+body.skin-gunmetal .hw-sq-btn,
+body.skin-gunmetal .zone-btn,
+body.skin-gunmetal .shortcut-tip kbd,
+body.skin-gunmetal .btn-secondary,
+body.skin-gunmetal .matrix-row i,
+body.skin-phosphor .hw-sq-btn,
+body.skin-phosphor .zone-btn,
+body.skin-phosphor .shortcut-tip kbd,
+body.skin-phosphor .btn-secondary,
+body.skin-phosphor .matrix-row i {
+  background: var(--skin-control);
+  border-color: var(--skin-border);
+  color: var(--skin-ink);
+}
+
+body.skin-synth70 .piano-key.white-key,
+body.skin-gunmetal .piano-key.white-key,
+body.skin-phosphor .piano-key.white-key {
+  background: linear-gradient(180deg, var(--skin-control-hi) 0%, var(--skin-control) 82%, var(--skin-module) 100%);
+  border-right-color: var(--skin-border);
+  color: var(--skin-ink-med);
+  box-shadow: inset 0 2px 0 var(--skin-border-soft), inset 0 -3px 4px rgba(0, 0, 0, 0.65);
+}
+
+body.skin-synth70 .brand-logo,
+body.skin-gunmetal .brand-logo,
+body.skin-phosphor .brand-logo {
+  border-color: var(--skin-accent);
+  box-shadow: none;
+}
+
+body.skin-synth70 .p-meter-badge,
+body.skin-gunmetal .p-meter-badge,
+body.skin-phosphor .p-meter-badge {
+  border-color: var(--skin-border);
+  color: var(--skin-accent);
+  background: var(--skin-control);
+}
+
+body.skin-synth70 .p-meter-badge.m-68,
+body.skin-gunmetal .p-meter-badge.m-68,
+body.skin-phosphor .p-meter-badge.m-68 {
+  border-color: var(--skin-accent-2);
+  color: var(--skin-accent-2);
+  background: var(--skin-control);
+}
+
+body.skin-synth70 .browser-packs-col,
+body.skin-synth70 .browser-table-col,
+body.skin-synth70 .browser-presets-col,
+body.skin-gunmetal .browser-packs-col,
+body.skin-gunmetal .browser-table-col,
+body.skin-gunmetal .browser-presets-col,
+body.skin-phosphor .browser-packs-col,
+body.skin-phosphor .browser-table-col,
+body.skin-phosphor .browser-presets-col {
+  background: var(--skin-chassis);
+  border-color: var(--skin-border);
+}
+
+body.skin-synth70 .browser-col-header,
+body.skin-synth70 .browser-header,
+body.skin-synth70 .preset-table-head,
+body.skin-synth70 .browser-footer,
+body.skin-gunmetal .browser-col-header,
+body.skin-gunmetal .browser-header,
+body.skin-gunmetal .preset-table-head,
+body.skin-gunmetal .browser-footer,
+body.skin-phosphor .browser-col-header,
+body.skin-phosphor .browser-header,
+body.skin-phosphor .preset-table-head,
+body.skin-phosphor .browser-footer {
+  background: var(--skin-mod-hdr);
+  border-color: var(--skin-border);
+  color: var(--skin-ink-med);
+}
+
+body.skin-synth70 .b-title,
+body.skin-gunmetal .b-title,
+body.skin-phosphor .b-title {
+  color: var(--skin-ink);
+}
+
+body.skin-synth70 .sound-pack-card,
+body.skin-synth70 .cat-pill,
+body.skin-synth70 .browser-close-btn,
+body.skin-gunmetal .sound-pack-card,
+body.skin-gunmetal .cat-pill,
+body.skin-gunmetal .browser-close-btn,
+body.skin-phosphor .sound-pack-card,
+body.skin-phosphor .cat-pill,
+body.skin-phosphor .browser-close-btn {
+  background: var(--skin-control);
+  border-color: var(--skin-border);
+  color: var(--skin-ink);
+}
+
+body.skin-synth70 .sound-pack-card.active,
+body.skin-synth70 .cat-pill.active,
+body.skin-gunmetal .sound-pack-card.active,
+body.skin-gunmetal .cat-pill.active,
+body.skin-phosphor .sound-pack-card.active,
+body.skin-phosphor .cat-pill.active {
+  background: var(--skin-control-hi);
+  border-color: var(--skin-accent);
+  color: var(--skin-accent);
+}
+
+body.skin-synth70 .browser-search-bar,
+body.skin-gunmetal .browser-search-bar,
+body.skin-phosphor .browser-search-bar {
+  background: var(--skin-oled);
+  border-color: var(--skin-border);
+}
+
+body.skin-synth70 #preset-search-input,
+body.skin-gunmetal #preset-search-input,
+body.skin-phosphor #preset-search-input {
+  color: var(--skin-ink);
+}
+
+body.skin-synth70 .preset-row-item,
+body.skin-gunmetal .preset-row-item,
+body.skin-phosphor .preset-row-item {
+  background: var(--skin-module);
+  border-bottom-color: var(--skin-border);
+  color: var(--skin-ink);
+}
+
+body.skin-synth70 .preset-row-item:hover,
+body.skin-gunmetal .preset-row-item:hover,
+body.skin-phosphor .preset-row-item:hover {
+  background: var(--skin-control-hi);
+}
+
+body.skin-synth70 .preset-row-item.active,
+body.skin-gunmetal .preset-row-item.active,
+body.skin-phosphor .preset-row-item.active {
+  background: var(--skin-control-hi);
+  border-left: 3px solid var(--skin-accent);
+}
+
+body.skin-synth70 .p-name,
+body.skin-synth70 .pack-title,
+body.skin-gunmetal .p-name,
+body.skin-gunmetal .pack-title,
+body.skin-phosphor .p-name,
+body.skin-phosphor .pack-title {
+  color: var(--skin-ink);
+}
+
+body.skin-synth70 .p-genre,
+body.skin-synth70 .pack-code,
+body.skin-synth70 .pack-count,
+body.skin-gunmetal .p-genre,
+body.skin-gunmetal .pack-code,
+body.skin-gunmetal .pack-count,
+body.skin-phosphor .p-genre,
+body.skin-phosphor .pack-code,
+body.skin-phosphor .pack-count {
+  color: var(--skin-ink-med);
+}
+
+/* ==========================================================================
+   @audio-ui/react OFFICIAL PRIMITIVE & SKIN ARCHITECTURE
+   (Knob, Fader, Meter, Pad, Piano, Envelope, Plot, Sequencer)
+   ========================================================================== */
+
+/* --- Materials & Shared Tokens (from .agents/skills/design/styles/materials.css) --- */
+:root,
+body {
+  --hl-x: 32%;
+  --hl-y: 26%;
+  --lift: 4;
+  --hi: #f4f1ea;
+  --lo: #55524b;
+  --mid: color-mix(in oklab, var(--hi) 50%, var(--lo));
+  --shadow-raised:
+    0 calc(var(--lift) * 1px) calc(var(--lift) * 1.3px) rgb(0 0 0 / 0.5),
+    inset 0 1px 0 rgb(255 255 255 / 0.45),
+    inset 0 -2px 3px rgb(0 0 0 / 0.3);
+  --segments: repeating-linear-gradient(0deg, #000 0 3px, transparent 3px 5px);
+  --zones-dim: linear-gradient(rgb(0 0 0 / 0.72), rgb(0 0 0 / 0.72));
+  --zones-lit: rgb(184 184 184);
+  --zones: linear-gradient(
+    0deg,
+    var(--ok, #7fd04a) 0 60%,
+    var(--warn, #ffb028) 60% 85%,
+    var(--clip, #e5432c) 85% 100%
+  );
+}
+
+/* --- Interactive OLED Overlays: @audio-ui/react/plot, envelope, sequencer --- */
+.oled-plot-bezel,
+.oled-envelope-bezel,
+.oled-arp-bezel {
+  position: relative;
+}
+
+/* Plot (@audio-ui/react/plot) in #mod-filter */
+.plot.tepui-svf-plot {
+  position: absolute !important;
+  inset: 14px 8px 12px 0;
+  width: calc(100% - 8px);
+  height: calc(100% - 26px);
+  z-index: 4;
+  border: 0;
+  background: transparent;
+  color: var(--color-cyan, #00ebff);
+  pointer-events: none;
+}
+.plot.tepui-svf-plot .plot-graph {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.plot.tepui-svf-plot .plot-grid {
+  stroke: color-mix(in oklab, currentColor 20%, transparent);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.plot.tepui-svf-plot .plot-trace {
+  fill: color-mix(in oklab, currentColor 12%, transparent);
+  stroke: color-mix(in oklab, currentColor 42%, transparent);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.plot.tepui-svf-plot .plot-area,
+.plot.tepui-svf-plot .plot-curve {
+  fill: color-mix(in oklab, currentColor 22%, transparent);
+  stroke: currentColor;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.plot-handle.tepui-plot-handle {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--bg-oled, #05070a);
+  border: 2px solid currentColor;
+  box-shadow: 0 0 8px currentColor;
+  cursor: grab;
+  z-index: 5;
+  pointer-events: auto;
+}
+.plot-handle.tepui-plot-handle[data-dragging],
+.plot-handle.tepui-plot-handle:focus-visible {
+  cursor: grabbing;
+  background: currentColor;
+  transform: scale(1.2);
+  outline: 2px solid var(--text-high, #fff);
+  outline-offset: 2px;
+}
+
+/* Envelope (@audio-ui/react/envelope) in #mod-adsr */
+.envelope.tepui-adsr-envelope {
+  position: absolute !important;
+  inset: 16px 10px 15px 10px;
+  width: calc(100% - 20px);
+  height: calc(100% - 31px);
+  z-index: 4;
+  background: transparent;
+  border: 0;
+  color: var(--color-amber, #ffaa00);
+  pointer-events: none;
+}
+.envelope.tepui-adsr-envelope .envelope-graph {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.envelope.tepui-adsr-envelope .envelope-line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.envelope.tepui-adsr-envelope .envelope-fill {
+  fill: color-mix(in oklab, currentColor 22%, transparent);
+  stroke: none;
+}
+.envelope.tepui-adsr-envelope .envelope-point {
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
+  background: var(--bg-oled, #05070a);
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  box-shadow: 0 0 6px currentColor;
+  cursor: grab;
+  pointer-events: auto;
+}
+.envelope.tepui-adsr-envelope .envelope-point[data-dragging],
+.envelope.tepui-adsr-envelope .envelope-point:focus-visible {
+  cursor: grabbing;
+  background: currentColor;
+  outline: 2px solid var(--text-high, #fff);
+  outline-offset: 2px;
+}
+
+/* Sequencer (@audio-ui/react/sequencer) in #mod-arp */
+.sequencer.tepui-arp-sequencer {
+  position: absolute !important;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  display: grid;
+  gap: 2px;
+  padding: 3px 6px;
+  background: color-mix(in oklab, var(--bg-oled, #05070a) 88%, transparent);
+  border-top: 1px solid color-mix(in oklab, currentColor 25%, transparent);
+  touch-action: none;
+  color: var(--color-amber, #ffaa00);
+}
+.sequencer.tepui-arp-sequencer .sequencer-row {
+  display: grid;
+  grid-template-columns: repeat(var(--arp-cols, 12), minmax(0, 1fr));
+  gap: 3px;
+}
+.sequencer.tepui-arp-sequencer .step {
+  box-sizing: border-box;
+  height: 11px;
+  padding: 0;
+  color: inherit;
+  cursor: pointer;
+  background: rgba(8, 12, 18, 0.72);
+  border: 1px solid color-mix(in oklab, currentColor 42%, transparent);
+  border-radius: 2px;
+  transition: background 80ms ease, transform 80ms ease;
+}
+.sequencer.tepui-arp-sequencer .step[data-on] {
+  background: color-mix(in oklab, currentColor 82%, transparent);
+  box-shadow: 0 0 5px color-mix(in oklab, currentColor 45%, transparent);
+}
+.sequencer.tepui-arp-sequencer .step[data-current] {
+  outline: 1.5px solid #ffffff;
+  outline-offset: 0px;
+  transform: scaleY(1.18);
+}
+
+/* Piano (@audio-ui/react/piano) base positioning */
+.piano-keyboard.audio-ui-piano,
+.piano.piano-keyboard {
+  position: relative;
+  display: block;
+}
+.piano-key.white-key.key,
+.piano-key[data-color="white"] {
+  top: 2px;
+  bottom: 2px;
+  height: calc(100% - 4px);
+  margin: 0;
+  padding: 0 0 3px 0;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+.piano-key.black-key.key,
+.piano-key[data-color="black"] {
+  top: 2px;
+  z-index: 2;
+  margin: 0;
+  padding: 0 0 4px 0;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+.sr-only-key-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ==========================================================================
+   1. SKIN-MINIMAL (from .agents/skills/design/styles/minimal.css)
+   "No material at all. Hairlines, one accent, plenty of air, type does the work.
+    Knob: a hairline ring, the value as an arc, a single dot. No cap."
+   ========================================================================== */
+body.skin-minimal {
+  --fader-track: 2px;
+  --fader-thumb-w: 14px;
+  --fader-thumb-h: 14px;
+  --meter-w: 4px;
+}
+body.skin-minimal .knob-control {
+  --knob-cap: 0%;
+  color: #17181a;
+}
+body.skin-minimal .knob-track {
+  color: #d0cec7;
+}
+body.skin-minimal .knob-indicator,
+body.skin-minimal .cyan-accent .knob-indicator,
+body.skin-minimal .amber-accent .knob-indicator,
+body.skin-minimal .green-accent .knob-indicator {
+  color: #e8452c;
+  filter: none;
+}
+body.skin-minimal .knob-thumb,
+body.skin-minimal .knob-cap {
+  inset: 0;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+body.skin-minimal .knob-thumb::after {
+  top: 15%;
+  left: 50%;
+  width: 5px;
+  height: 5px;
+  background: #17181a;
+  border-radius: 50%;
+  box-shadow: none;
+  translate: -50% 0;
+}
+body.skin-minimal .knob-control[data-dragging] .knob-thumb::after {
+  background: #e8452c;
+  scale: 1.35;
+}
+body.skin-minimal .knob-tick {
+  display: none;
+}
+body.skin-minimal .fader-track {
+  width: var(--fader-track, 2px);
+  background: #d0cec7;
+  border: 0;
+  box-shadow: none;
+}
+body.skin-minimal .fader-indicator {
+  width: 100%;
+  background: #17181a;
+  box-shadow: none;
+}
+body.skin-minimal .fader-thumb {
+  width: var(--fader-thumb-w, 14px);
+  height: var(--fader-thumb-h, 14px);
+  background: #f6f5f1;
+  border: 1.5px solid #17181a;
+  border-radius: 2px;
+  box-shadow: none;
+}
+body.skin-minimal .fader-thumb::after {
+  display: none;
+}
+body.skin-minimal .fader-control[data-dragging] .fader-thumb {
+  background: #e8452c;
+  border-color: #e8452c;
+}
+body.skin-minimal .meter-track,
+body.skin-minimal .vu-meter {
+  width: 4px;
+  background: #d9d7d0;
+  border-radius: 0;
+}
+body.skin-minimal .meter-indicator,
+body.skin-minimal .vu-fill {
+  background: #17181a;
+  box-shadow: none;
+}
+body.skin-minimal .meter-channel[data-clipping] .meter-indicator,
+body.skin-minimal .meter-channel[data-warning] .meter-indicator {
+  background: #e8452c;
+}
+body.skin-minimal .meter-peak,
+body.skin-minimal .vu-peak {
+  height: 1.5px;
+  background: #e8452c;
+  box-shadow: none;
+}
+body.skin-minimal .pad.folklore-pad {
+  border-radius: 0;
+  border: 1px solid #17181a;
+  box-shadow: none;
+}
+body.skin-minimal .pad.folklore-pad[data-active] {
+  background: #17181a;
+  color: #f6f5f1;
+}
+body.skin-minimal .plot.tepui-svf-plot,
+body.skin-minimal .envelope.tepui-adsr-envelope,
+body.skin-minimal .sequencer.tepui-arp-sequencer {
+  color: #e8452c;
+}
+body.skin-minimal .plot-handle.tepui-plot-handle,
+body.skin-minimal .envelope.tepui-adsr-envelope .envelope-point {
+  background: #f6f5f1;
+  border-color: #17181a;
+  box-shadow: none;
+}
+
+/* ==========================================================================
+   2. SKIN-DARK (from .agents/skills/design/styles/modern.css)
+   "Flat instrument UI. Graphite, hairline borders, one signal colour, tabular type.
+    Knob: a dark disc, a flat arc, a square-ended pointer."
+   ========================================================================== */
+body.skin-dark {
+  --fader-track: 4px;
+  --fader-thumb-w: 20px;
+  --fader-thumb-h: 13px;
+  --meter-w: 7px;
+}
+body.skin-dark .knob-control {
+  --knob-cap: 17%;
+}
+body.skin-dark .knob-track {
+  color: #2a3342;
+}
+body.skin-dark .knob-thumb {
+  background: #232a36;
+  border: 1px solid #3c4759;
+  border-radius: 50%;
+  box-shadow: none;
+}
+body.skin-dark .knob-thumb::after {
+  top: 6%;
+  left: 50%;
+  width: 2px;
+  height: 30%;
+  background: #ededed;
+  border-radius: 0;
+  box-shadow: none;
+  translate: -50% 0;
+}
+body.skin-dark .knob-tick {
+  display: none;
+}
+body.skin-dark .fader-track {
+  width: 4px;
+  background: #181e27;
+  border: 1px solid #313b4c;
+  border-radius: 1px;
+}
+body.skin-dark .fader-thumb {
+  background: #262e3b;
+  border: 1px solid #6b7a90;
+  border-radius: 2px;
+  box-shadow: none;
+}
+body.skin-dark .meter-track,
+body.skin-dark .vu-meter {
+  -webkit-mask: var(--segments);
+  mask: var(--segments);
+}
+
+/* ==========================================================================
+   3. SKIN-RETRO (from .agents/skills/design/styles/retro.css)
+   "A hardware faceplate. Turned aluminium cap on a dark skirt, printed scale ticks,
+    console fader with side scale ticks and sculpted cap."
+   ========================================================================== */
+body.skin-retro {
+  --fader-track: 4px;
+  --fader-thumb-w: 22px;
+  --fader-thumb-h: 16px;
+  --meter-w: 8px;
+}
+body.skin-retro .knob-control {
+  --knob-cap: 15%;
+  color: #6b6257;
+}
+body.skin-retro .knob-track {
+  color: rgba(35, 31, 28, 0.28);
+}
+body.skin-retro .knob-indicator,
+body.skin-retro .cyan-accent .knob-indicator,
+body.skin-retro .amber-accent .knob-indicator,
+body.skin-retro .green-accent .knob-indicator {
+  color: #d97706;
+  filter: none;
+}
+body.skin-retro .knob-thumb {
+  background:
+    radial-gradient(
+      circle,
+      transparent 0 60%,
+      rgb(0 0 0 / 0.22) 76%,
+      rgb(255 255 255 / 0.3) 90%,
+      rgb(0 0 0 / 0.32) 100%
+    ),
+    conic-gradient(
+      from 25deg,
+      #f4f1ea,
+      #9c978c 10%,
+      #f4f1ea 22%,
+      #55524b 36%,
+      #f4f1ea 50%,
+      #9c978c 60%,
+      #f4f1ea 72%,
+      #55524b 86%,
+      #f4f1ea
+    ) !important;
+  border: 0 !important;
+  border-radius: 50%;
+  box-shadow:
+    0 4px 6px rgb(0 0 0 / 0.45),
+    0 1px 0 rgb(255 255 255 / 0.5) inset,
+    0 -2px 3px rgb(0 0 0 / 0.35) inset,
+    0 0 0 2.5px #1a1613 !important;
+}
+body.skin-retro .knob-thumb::after {
+  top: 8%;
+  left: 50%;
+  width: 2.5px;
+  height: 30%;
+  background: #1a1613 !important;
+  border-radius: 1.5px;
+  box-shadow: 0 1px 0 rgb(255 255 255 / 0.4) !important;
+  translate: -50% 0;
+}
+body.skin-retro .knob-tick {
+  display: block;
+  top: -3px;
+  height: 4px;
+  background: #5a5248;
+}
+body.skin-retro .fader-control::before,
+body.skin-retro .fader-control::after {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 4px;
+  pointer-events: none;
+  content: "";
+  background: repeating-linear-gradient(
+    180deg,
+    #6b6257 0 1px,
+    transparent 1px 6px
+  );
+}
+body.skin-retro .fader-control::before {
+  left: 1px;
+}
+body.skin-retro .fader-control::after {
+  right: 1px;
+}
+body.skin-retro .fader-track {
+  width: 4px;
+  background: #17120f;
+  border-radius: 2px;
+  box-shadow:
+    inset 0 1px 3px #000,
+    0 0 0 2px #2b241e;
+}
+body.skin-retro .fader-indicator {
+  background: #d97706;
+}
+body.skin-retro .fader-thumb {
+  background:
+    linear-gradient(
+      180deg,
+      transparent calc(50% - 1px),
+      #f4f1ea calc(50% - 1px) calc(50% + 1px),
+      transparent calc(50% + 1px)
+    ),
+    linear-gradient(180deg, #5a5650, #2b2926 15%, #1b1a18 55%, #0f0e0d);
+  border: 0;
+  border-radius: 3px;
+  box-shadow:
+    0 4px 6px rgb(0 0 0 / 0.55),
+    inset 0 1px 0 rgb(255 255 255 / 0.35);
+}
+body.skin-retro .fader-thumb::after {
+  display: none;
+}
+
+/* ==========================================================================
+   4. SKIN-SYNTH70 (from .agents/skills/design/styles/synth70.css)
+   "70s monophonic synth. Black panel, wood cheeks, white print, bakelite knob
+    with bold white pointer and outer ticks, ivory fader cap."
+   ========================================================================== */
+body.skin-synth70 {
+  --fader-track: 4px;
+  --fader-thumb-w: 20px;
+  --fader-thumb-h: 16px;
+}
+body.skin-synth70 .plugin-container {
+  box-shadow:
+    inset 10px 0 0 #6c4125,
+    inset -10px 0 0 #6c4125,
+    inset 12px 0 0 #2b180c,
+    inset -12px 0 0 #2b180c;
+}
+body.skin-synth70 .knob-control {
+  --knob-cap: 13%;
+  color: #f0ebe0;
+}
+body.skin-synth70 .knob-track {
+  color: rgb(255 255 255 / 0.14);
+}
+body.skin-synth70 .knob-indicator,
+body.skin-synth70 .cyan-accent .knob-indicator,
+body.skin-synth70 .amber-accent .knob-indicator,
+body.skin-synth70 .green-accent .knob-indicator {
+  color: #ffb028;
+  filter: none;
+}
+body.skin-synth70 .knob-thumb {
+  background: radial-gradient(
+    circle at 32% 26%,
+    #55504a,
+    #1d1b19 55%,
+    #0b0a09
+  ) !important;
+  border: 0 !important;
+  border-radius: 50%;
+  box-shadow:
+    var(--shadow-raised),
+    0 0 0 2.5px #050505,
+    0 0 0 3.5px rgb(255 255 255 / 0.12) !important;
+}
+body.skin-synth70 .knob-thumb::after {
+  top: 5%;
+  left: 50%;
+  width: 2.5px;
+  height: 32%;
+  background: #ffffff !important;
+  border-radius: 1px;
+  box-shadow: none !important;
+  translate: -50% 0;
+}
+body.skin-synth70 .knob-tick {
+  display: block;
+  top: -3px;
+  height: 4px;
+  background: #f0ebe0;
+}
+body.skin-synth70 .fader-track {
+  width: 4px;
+  background: #000000;
+  border-radius: 2px;
+  box-shadow: 0 0 0 2px #38312c;
+}
+body.skin-synth70 .fader-indicator {
+  background: #ffb028;
+}
+body.skin-synth70 .fader-thumb {
+  background:
+    linear-gradient(
+      180deg,
+      transparent calc(50% - 1px),
+      #111 calc(50% - 1px) calc(50% + 1px),
+      transparent calc(50% + 1px)
+    ),
+    linear-gradient(180deg, #fff, #cfc9bb 60%, #a7a193) !important;
+  border: 0 !important;
+  border-radius: 2px;
+  box-shadow: var(--shadow-raised);
+}
+body.skin-synth70 .fader-thumb::after {
+  display: none;
+}
+body.skin-synth70 .piano-key[data-color="white"] {
+  background: linear-gradient(180deg, #fffdf4, #e2dac6) !important;
+  color: #1c1917 !important;
+}
+body.skin-synth70 .piano-key[data-color="black"] {
+  background: linear-gradient(180deg, #2a2724, #050505) !important;
+}
+
+/* ==========================================================================
+   5. SKIN-GUNMETAL (from .agents/skills/design/styles/gunmetal.css)
+   "The buss compressor's brushed charcoal panel. Glossy colored caps (blue,
+    orange, green, ivory) with dark skirt and a printed ring of dots."
+   ========================================================================== */
+body.skin-gunmetal {
+  --cap: #e6e2d4;
+  --pointer: #1a1a1a;
+  --fader-track: 4px;
+  --fader-thumb-w: 22px;
+  --fader-thumb-h: 17px;
+}
+body.skin-gunmetal .knob.cyan-accent {
+  --cap: #2e7fc8;
+  --pointer: #ffffff;
+}
+body.skin-gunmetal .knob.amber-accent {
+  --cap: #e8742c;
+  --pointer: #ffffff;
+}
+body.skin-gunmetal .knob.green-accent {
+  --cap: #2f9e4f;
+  --pointer: #ffffff;
+}
+body.skin-gunmetal .knob-control {
+  --knob-cap: 14%;
+  color: #ece8da;
+}
+body.skin-gunmetal .knob-track {
+  color: rgb(236 232 218 / 0.14);
+}
+body.skin-gunmetal .knob-indicator {
+  color: var(--cap);
+  filter: none;
+}
+body.skin-gunmetal .knob-thumb {
+  background: radial-gradient(
+    circle at 32% 26%,
+    color-mix(in oklab, var(--cap) 65%, white),
+    var(--cap) 55%,
+    color-mix(in oklab, var(--cap) 55%, black)
+  ) !important;
+  border: 0 !important;
+  border-radius: 50%;
+  box-shadow:
+    0 4px 6px rgb(0 0 0 / 0.55),
+    inset 0 1px 0 rgb(255 255 255 / 0.5),
+    0 0 0 3px #0e1017,
+    0 0 0 4px rgb(255 255 255 / 0.12) !important;
+}
+body.skin-gunmetal .knob-thumb::after {
+  top: 6%;
+  left: 50%;
+  width: 2.5px;
+  height: 34%;
+  background: var(--pointer) !important;
+  border-radius: 1px;
+  box-shadow: none !important;
+  translate: -50% 0;
+}
+body.skin-gunmetal .knob-tick {
+  display: block;
+  top: -3px;
+  width: 2.5px;
+  height: 2.5px;
+  background: #ece8da;
+  border-radius: 50%;
+}
+body.skin-gunmetal .fader-control::before,
+body.skin-gunmetal .fader-control::after {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 4px;
+  pointer-events: none;
+  content: "";
+  background: repeating-linear-gradient(
+    180deg,
+    rgb(236 232 218 / 0.55) 0 1px,
+    transparent 1px 6px
+  );
+}
+body.skin-gunmetal .fader-control::before {
+  left: 1px;
+}
+body.skin-gunmetal .fader-control::after {
+  right: 1px;
+}
+body.skin-gunmetal .fader-track {
+  width: 4px;
+  background: #0b0d12;
+  border-radius: 2px;
+  box-shadow: 0 0 0 2px #1a1e29;
+}
+body.skin-gunmetal .fader-thumb {
+  background:
+    linear-gradient(
+      180deg,
+      transparent calc(50% - 1px),
+      #1c202b calc(50% - 1px) calc(50% + 1px),
+      transparent calc(50% + 1px)
+    ),
+    linear-gradient(180deg, #f2f0e8, #cfccc0 60%, #aaa89c) !important;
+  border: 0 !important;
+  border-radius: 2px;
+  box-shadow: var(--shadow-raised);
+}
+body.skin-gunmetal .fader-thumb::after {
+  display: none;
+}
+
+/* ==========================================================================
+   6. SKIN-PHOSPHOR (from .agents/skills/design/styles/phosphor.css)
+   "A monochrome terminal. One green on near-black, scanline grain, mono type,
+    no radius, bracketed readouts [val]."
+   ========================================================================== */
+body.skin-phosphor {
+  --fader-track: 3px;
+  --fader-thumb-w: 20px;
+  --fader-thumb-h: 12px;
+  --meter-w: 7px;
+}
+body.skin-phosphor .knob-control {
+  --knob-cap: 20%;
+  color: #2f6d44;
+}
+body.skin-phosphor .knob-track {
+  color: #0b2314;
+}
+body.skin-phosphor .knob-indicator,
+body.skin-phosphor .cyan-accent .knob-indicator,
+body.skin-phosphor .amber-accent .knob-indicator,
+body.skin-phosphor .green-accent .knob-indicator {
+  color: #6dff9c;
+  filter: drop-shadow(0 0 2px rgb(109 255 156 / 0.65));
+}
+body.skin-phosphor .knob-thumb {
+  background: #07110a !important;
+  border: 1px solid #2f6d44 !important;
+  border-radius: 50%;
+  box-shadow: none !important;
+}
+body.skin-phosphor .knob-thumb::after {
+  top: 4%;
+  left: 50%;
+  width: 2px;
+  height: 36%;
+  background: #6dff9c !important;
+  border-radius: 0;
+  box-shadow: 0 0 4px #6dff9c !important;
+  translate: -50% 0;
+}
+body.skin-phosphor .knob-tick {
+  display: none;
+}
+body.skin-phosphor .knob-value::before {
+  content: "[";
+}
+body.skin-phosphor .knob-value::after {
+  content: "]";
+}
+body.skin-phosphor .fader-track {
+  width: 3px;
+  background: #0b2314;
+  border: 1px solid #2f6d44;
+  border-radius: 0;
+}
+body.skin-phosphor .fader-indicator {
+  width: 100%;
+  background: #6dff9c;
+}
+body.skin-phosphor .fader-thumb {
+  background: #07110a !important;
+  border: 1px solid #6dff9c !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+body.skin-phosphor .fader-thumb::after {
+  background: #6dff9c !important;
+}
+body.skin-phosphor .fader-control[data-dragging] .fader-thumb {
+  background: #6dff9c !important;
+}
+body.skin-phosphor .pad.folklore-pad {
+  border-radius: 0;
+  background: transparent;
+  border: 1px solid #2f6d44;
+}
+body.skin-phosphor .pad.folklore-pad[data-active] {
+  background: #6dff9c;
+  color: #07110a;
+  border-color: #6dff9c;
+}
+body.skin-phosphor .plot.tepui-svf-plot,
+body.skin-phosphor .envelope.tepui-adsr-envelope,
+body.skin-phosphor .sequencer.tepui-arp-sequencer {
+  color: #6dff9c;
 }
 
