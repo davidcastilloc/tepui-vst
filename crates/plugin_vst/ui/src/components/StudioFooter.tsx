@@ -6,9 +6,7 @@ export const StudioFooter: React.FC = () => {
       <div className="footer-status">
         <span className="status-indicator"></span>
         <span id="footer-text">
-          ODD // BACKEND: HYBRID-PHYSICAL • SYNTH: 0µs • AI-PATCH: #1 • PITCH:
-          261.6Hz • CACHE: 0H/0M • ROUTES: 5 • VEL: 95% • FAVS: 6 • PRESETS: 0
-          • MATRIX: 0 • RESIZE: 0 • DSP BLK: 0
+          ENGINE: HYBRID-PHYSICAL • ROOT: C4 (261.6 Hz) • VEL: 95% • MOD ROUTES: 5 ACTIVE • 48.0 kHz / 32-BIT FLOAT
         </span>
       </div>
       <div className="footer-actions">

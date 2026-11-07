@@ -53,11 +53,28 @@ const TepuiFilterPlot: React.FC = () => {
         mag = (r / q) / Math.max(0.05, denom);
       } else if (filterMode === 3) {
         mag = 1.0;
+      } else if (filterMode === 4) {
+        const denom4 = Math.pow(denom, 1.65);
+        mag = (1.0 / Math.max(0.04, denom4)) * (1.0 + resNorm * 0.25);
+      } else if (filterMode === 5) {
+        const logF = Math.log(f / 20) / Math.log(20000 / 20);
+        const logFc = Math.log(fc / 20) / Math.log(20000 / 20);
+        const teeth = 0.5 + 0.5 * Math.cos((logF - logFc) * Math.PI * (8 + (1 - cutoffNorm) * 12));
+        mag = 0.25 + teeth * (0.85 + resNorm * 0.9);
+      } else if (filterMode === 6) {
+        const logF = Math.log(f / 20) / Math.log(20000 / 20);
+        const f1 = 0.22 + cutoffNorm * 0.2;
+        const f2 = 0.46 + cutoffNorm * 0.26;
+        const f3 = 0.74 + cutoffNorm * 0.16;
+        const p1 = Math.exp(-Math.pow((logF - f1) * 10, 2)) * 1.35;
+        const p2 = Math.exp(-Math.pow((logF - f2) * 9, 2)) * 1.15;
+        const p3 = Math.exp(-Math.pow((logF - f3) * 11, 2)) * 0.9;
+        mag = 0.22 + (p1 + p2 + p3) * (0.75 + resNorm * 0.5);
       }
       const db = 20 * Math.log10(Math.max(0.125, mag));
       return Math.max(-18, Math.min(16, db));
     },
-    [cutoffHz, resNorm, filterMode],
+    [cutoffHz, cutoffNorm, resNorm, filterMode],
   );
 
   return (
@@ -937,7 +954,7 @@ export const EurorackMatrix: React.FC = () => {
         <i className="hex-screw br"></i>
         <div className="mod-header">
           <span className="mod-title">OTT, DRIVE &amp; CANYON</span>
-          <span className="mod-sub-tag cyan">VITAL FX RACK</span>
+          <span className="mod-sub-tag cyan">MASTER FX BUS</span>
         </div>
 
         <div className="reverb-oled-and-vu">

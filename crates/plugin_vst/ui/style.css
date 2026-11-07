@@ -5398,9 +5398,9 @@ body {
 /* Envelope (@audio-ui/react/envelope) in #mod-adsr */
 .envelope.tepui-adsr-envelope {
   position: absolute !important;
-  inset: 16px 10px 15px 10px;
+  inset: 22px 10px 15px 10px;
   width: calc(100% - 20px);
-  height: calc(100% - 31px);
+  height: calc(100% - 37px);
   z-index: 4;
   background: transparent;
   border: 0;
@@ -6106,4 +6106,47 @@ body.skin-phosphor .envelope.tepui-adsr-envelope,
 body.skin-phosphor .sequencer.tepui-arp-sequencer {
   color: #6dff9c;
 }
+
+/* =========================================================================
+   STUDIO HARDWARE POLISH (ANTI-SLOP COHESION)
+   ========================================================================= */
+#engine-badge,
+.studio-chips-bay {
+  display: none !important;
+}
+
+.pads-and-chips-deck {
+  grid-template-columns: 1fr auto !important;
+  gap: 12px !important;
+}
+
+.btn-cloud-credits {
+  border-color: var(--border-module, rgba(148, 163, 184, 0.25)) !important;
+  color: var(--text-med, #cbd5e1) !important;
+  background: var(--bg-module, rgba(15, 23, 42, 0.6)) !important;
+  box-shadow: none !important;
+}
+.btn-cloud-credits .cloud-dot {
+  background: var(--color-cyan, #00ebff) !important;
+  box-shadow: none !important;
+}
+
+.pack-pill {
+  border: 1px solid var(--border-module, rgba(148, 163, 184, 0.28)) !important;
+  color: var(--text-med, #cbd5e1) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.pack-pill:hover,
+.pack-pill.active {
+  border-color: var(--color-cyan, #00ebff) !important;
+  color: var(--text-high, #f8fafc) !important;
+  background: color-mix(in oklab, var(--color-cyan, #00ebff) 14%, transparent) !important;
+}
+
+.btn-generate-ia {
+  letter-spacing: 0.08em !important;
+  font-weight: 700 !important;
+}
+
 

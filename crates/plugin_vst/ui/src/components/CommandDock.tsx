@@ -48,7 +48,7 @@ export const CommandDock: React.FC = () => {
         </div>
 
         <button id="btn-generate" className="btn-generate-ia" type="button">
-          <span className="btn-text">[ GENERAR IA ]</span>
+          <span className="btn-text">SYNTHESIZE</span>
         </button>
 
         <button
@@ -67,19 +67,19 @@ export const CommandDock: React.FC = () => {
         </button>
 
         <div className="pack-pills-group" aria-label="Packs por Género">
-          <button className="pack-pill amber" data-pack="pack-01" type="button">
+          <button className="pack-pill" data-pack="pack-01" type="button">
             Vital Wavetables
           </button>
-          <button className="pack-pill magenta" data-pack="pack-02" type="button">
+          <button className="pack-pill" data-pack="pack-02" type="button">
             Reese &amp; 808 Bass
           </button>
-          <button className="pack-pill green" data-pack="pack-03" type="button">
+          <button className="pack-pill" data-pack="pack-03" type="button">
             Cinematic Pads
           </button>
-          <button className="pack-pill cyan" data-pack="pack-04" type="button">
+          <button className="pack-pill" data-pack="pack-04" type="button">
             Supersaw &amp; Leads
           </button>
-          <button className="pack-pill jasper" data-pack="pack-05" type="button">
+          <button className="pack-pill" data-pack="pack-05" type="button">
             Karplus Acoustic
           </button>
         </div>

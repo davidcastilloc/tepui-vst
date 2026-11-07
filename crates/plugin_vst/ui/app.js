@@ -21514,7 +21514,7 @@
           }
         )
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("button", { id: "btn-generate", className: "btn-generate-ia", type: "button", children: /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("span", { className: "btn-text", children: "[ GENERAR IA ]" }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("button", { id: "btn-generate", className: "btn-generate-ia", type: "button", children: /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("span", { className: "btn-text", children: "SYNTHESIZE" }) }),
       /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)(
         "button",
         {
@@ -21530,11 +21530,11 @@
         }
       ),
       /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)("div", { className: "pack-pills-group", "aria-label": "Packs por G\xE9nero", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("button", { className: "pack-pill amber", "data-pack": "pack-01", type: "button", children: "Vital Wavetables" }),
-        /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("button", { className: "pack-pill magenta", "data-pack": "pack-02", type: "button", children: "Reese & 808 Bass" }),
-        /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("button", { className: "pack-pill green", "data-pack": "pack-03", type: "button", children: "Cinematic Pads" }),
-        /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("button", { className: "pack-pill cyan", "data-pack": "pack-04", type: "button", children: "Supersaw & Leads" }),
-        /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("button", { className: "pack-pill jasper", "data-pack": "pack-05", type: "button", children: "Karplus Acoustic" })
+        /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("button", { className: "pack-pill", "data-pack": "pack-01", type: "button", children: "Vital Wavetables" }),
+        /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("button", { className: "pack-pill", "data-pack": "pack-02", type: "button", children: "Reese & 808 Bass" }),
+        /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("button", { className: "pack-pill", "data-pack": "pack-03", type: "button", children: "Cinematic Pads" }),
+        /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("button", { className: "pack-pill", "data-pack": "pack-04", type: "button", children: "Supersaw & Leads" }),
+        /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("button", { className: "pack-pill", "data-pack": "pack-05", type: "button", children: "Karplus Acoustic" })
       ] })
     ] }) });
   };
@@ -21841,11 +21841,28 @@
           mag = r / q / Math.max(0.05, denom);
         } else if (filterMode === 3) {
           mag = 1;
+        } else if (filterMode === 4) {
+          const denom4 = Math.pow(denom, 1.65);
+          mag = 1 / Math.max(0.04, denom4) * (1 + resNorm * 0.25);
+        } else if (filterMode === 5) {
+          const logF = Math.log(f / 20) / Math.log(2e4 / 20);
+          const logFc = Math.log(fc / 20) / Math.log(2e4 / 20);
+          const teeth = 0.5 + 0.5 * Math.cos((logF - logFc) * Math.PI * (8 + (1 - cutoffNorm) * 12));
+          mag = 0.25 + teeth * (0.85 + resNorm * 0.9);
+        } else if (filterMode === 6) {
+          const logF = Math.log(f / 20) / Math.log(2e4 / 20);
+          const f1 = 0.22 + cutoffNorm * 0.2;
+          const f2 = 0.46 + cutoffNorm * 0.26;
+          const f3 = 0.74 + cutoffNorm * 0.16;
+          const p1 = Math.exp(-Math.pow((logF - f1) * 10, 2)) * 1.35;
+          const p2 = Math.exp(-Math.pow((logF - f2) * 9, 2)) * 1.15;
+          const p3 = Math.exp(-Math.pow((logF - f3) * 11, 2)) * 0.9;
+          mag = 0.22 + (p1 + p2 + p3) * (0.75 + resNorm * 0.5);
         }
         const db = 20 * Math.log10(Math.max(0.125, mag));
         return Math.max(-18, Math.min(16, db));
       },
-      [cutoffHz, resNorm, filterMode]
+      [cutoffHz, cutoffNorm, resNorm, filterMode]
     );
     return /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)(
       plot_exports.Root,
@@ -22721,7 +22738,7 @@
         /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { className: "hex-screw br" }),
         /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "mod-header", children: [
           /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { className: "mod-title", children: "OTT, DRIVE & CANYON" }),
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { className: "mod-sub-tag cyan", children: "VITAL FX RACK" })
+          /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { className: "mod-sub-tag cyan", children: "MASTER FX BUS" })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "reverb-oled-and-vu", children: [
           /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("div", { className: "oled-bezel cyan-bezel reverb-bezel", children: /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("canvas", { id: "oled-reverb", width: "230", height: "72" }) }),
@@ -23138,7 +23155,7 @@
     return /* @__PURE__ */ (0, import_jsx_runtime35.jsxs)("footer", { className: "studio-footer", children: [
       /* @__PURE__ */ (0, import_jsx_runtime35.jsxs)("div", { className: "footer-status", children: [
         /* @__PURE__ */ (0, import_jsx_runtime35.jsx)("span", { className: "status-indicator" }),
-        /* @__PURE__ */ (0, import_jsx_runtime35.jsx)("span", { id: "footer-text", children: "ODD // BACKEND: HYBRID-PHYSICAL \u2022 SYNTH: 0\xB5s \u2022 AI-PATCH: #1 \u2022 PITCH: 261.6Hz \u2022 CACHE: 0H/0M \u2022 ROUTES: 5 \u2022 VEL: 95% \u2022 FAVS: 6 \u2022 PRESETS: 0 \u2022 MATRIX: 0 \u2022 RESIZE: 0 \u2022 DSP BLK: 0" })
+        /* @__PURE__ */ (0, import_jsx_runtime35.jsx)("span", { id: "footer-text", children: "ENGINE: HYBRID-PHYSICAL \u2022 ROOT: C4 (261.6 Hz) \u2022 VEL: 95% \u2022 MOD ROUTES: 5 ACTIVE \u2022 48.0 kHz / 32-BIT FLOAT" })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime35.jsxs)("div", { className: "footer-actions", children: [
         /* @__PURE__ */ (0, import_jsx_runtime35.jsxs)("span", { className: "shortcut-tip", children: [
@@ -24178,21 +24195,19 @@
     if (btnCredits && txtCredits) {
       btnCredits.classList.toggle("tier-pro", isCustomProvider);
       if (tier.includes("OLLAMA")) {
-        txtCredits.innerText = "AI: OLLAMA LOCAL";
+        txtCredits.innerText = "ENGINE: OLLAMA";
       } else if (tier.includes("GEMINI")) {
-        txtCredits.innerText = "AI: GEMINI";
+        txtCredits.innerText = "ENGINE: GEMINI";
       } else if (tier.includes("GROQ")) {
-        txtCredits.innerText = "AI: GROQ LPU";
+        txtCredits.innerText = "ENGINE: GROQ LPU";
       } else if (tier.includes("OPENAI")) {
-        txtCredits.innerText = "AI: OPENAI";
+        txtCredits.innerText = "ENGINE: OPENAI";
       } else if (isLocalOnly) {
-        txtCredits.innerText = "AI: NPU LOCAL";
+        txtCredits.innerText = "ENGINE: NPU LOCAL";
       } else if (isProTier) {
-        txtCredits.innerText = `PRO CLOUD (${cr} CR)`;
-      } else if (cr < 5 || tier.includes("SIN CR")) {
-        txtCredits.innerText = `SIN CR\xC9DITOS (${cr} CR)`;
+        txtCredits.innerText = "ENGINE: PRO CLOUD";
       } else {
-        txtCredits.innerText = `AI: KV (${cr} CR)`;
+        txtCredits.innerText = "ENGINE: HYBRID DSP";
       }
     }
     const modalPill = document.getElementById("cloud-modal-tier-badge");
@@ -24242,7 +24257,7 @@
     const advFlt = odd.advanced_filter_frames || 0;
     const ratch = odd.arp_ratchet_hits !== void 0 ? odd.arp_ratchet_hits : odd.arp_ratchet_hits_count || 0;
     const ccMaps = odd.midi_learn_bindings_count !== void 0 ? odd.midi_learn_bindings_count : odd.midi_cc_learned_count || 0;
-    footerText.innerText = `ODD // BACKEND: ${backend} \u2022 CLOUD: ${cloudCr}CR \u2022 SYNTH: ${durUs}\xB5s (#${genCnt}) \u2022 AI-PATCH: #${aiPresets} \u2022 PITCH: ${pitchHz}Hz \u2022 CACHE: ${cacheHits}H/${cacheMiss}M \u2022 VEL: ${velPct}% \u2022 LFO: ${lfoMod}% \u2022 GLIDE: ${glideCnt} \u2022 MPE: ${mpeCnt} \u2022 GRAN: ${granFrames}f \u2022 FLT+: ${advFlt}f \u2022 RATCH: ${ratch} \u2022 CC-MAP: ${ccMaps} \u2022 ROUTES: ${routes} \u2022 PRESETS: ${presets} \u2022 FAVS: ${favs} \u2022 MATRIX: ${matrix} \u2022 RESIZE: ${resizes} \u2022 DSP BLK: ${blk} \u2022 LIM: ${lim}`;
+    footerText.innerText = `ENGINE: ${backend}  \u2022  PITCH: ${pitchHz} Hz  \u2022  VEL: ${velPct}%  \u2022  MOD MATRIX: ${routes} ROUTES  \u2022  48.0 kHz / 32-BIT FLOAT`;
   }
   function syncExpressionWheelsUI() {
     const pbCap = document.getElementById("wheel-pitch-cap");
@@ -25704,49 +25719,9 @@
         } else {
           state.fftPeaks64[b] = Math.max(0, (state.fftPeaks64[b] || 0) - 8e-3);
         }
-        const bx = b * bandSlotW + (bandSlotW - barW) * 0.5;
-        const bh = smoothed * maxPlotH * 0.86;
-        const by = botPlotY - bh;
-        ctx.fillStyle = sharedBarGrad;
-        ctx.fillRect(bx, by, barW, bh);
-        const peakY = botPlotY - state.fftPeaks64[b] * maxPlotH * 0.86;
-        ctx.fillStyle = capColor;
-        ctx.fillRect(bx, Math.max(6 * dpr, peakY), barW, capH);
       }
-      ctx.beginPath();
-      for (let b = 0; b < numBands; b++) {
-        const bx = (b + 0.5) * bandSlotW;
-        const jitter = Math.sin(b * 3.7 + animPhase * 2.8) * 0.025 * audioEnergy;
-        const by = botPlotY - Math.max(0.03, state.fftBins64[b] + jitter) * maxPlotH * 0.88;
-        if (b === 0) ctx.moveTo(bx, by);
-        else ctx.lineTo(bx, by);
-      }
-      ctx.strokeStyle = getOledPrimaryRgba(0.85);
-      ctx.lineWidth = 1.15 * dpr;
-      ctx.stroke();
-      svfSpectrumSource.set(state.fftBins64.map((v) => -18 + Math.max(0, Math.min(1, v)) * 32));
+      svfSpectrumSource.set(Array.from(state.fftBins64, (v) => -18 + Math.max(0, Math.min(1, v)) * 30));
     }
-    const companionCut = cutNorm > 0.88 ? 0.56 : Math.max(0.14, Math.min(0.88, cutNorm - 0.14 + driveNorm * 0.22));
-    ctx.beginPath();
-    for (let px = 0; px <= plotW; px += 2) {
-      const xn = px / plotW;
-      const dComp = (xn - companionCut) * 6.5;
-      const yn = Math.min(0.92, Math.exp(-(dComp * dComp) * 1.15) * (0.62 + resNorm * 0.26));
-      const y = botPlotY - yn * maxPlotH;
-      if (px === 0) ctx.moveTo(px, y);
-      else ctx.lineTo(px, y);
-    }
-    ctx.strokeStyle = getOledSecondaryRgba(0.78);
-    ctx.lineWidth = 1.35 * dpr;
-    ctx.stroke();
-    const nodeX = Math.max(8 * dpr, Math.min(plotW - 8 * dpr, effCut * plotW));
-    const nodeCurveY = botPlotY - evalCurve(effCut, effCut, mode) * maxPlotH;
-    const nodeY = Math.max(8 * dpr, Math.min(botPlotY - 6 * dpr, nodeCurveY));
-    const calloutX = Math.max(6 * dpr, Math.min(plotW - 64 * dpr, nodeX - 24 * dpr));
-    const calloutY = Math.max(18 * dpr, nodeY - 8 * dpr);
-    ctx.fillStyle = pal.textPrimary;
-    ctx.font = `bold ${Math.round(6.6 * dpr)}px monospace`;
-    ctx.fillText(`${formatKnobValue("cutoff", cutNorm)}`, calloutX, calloutY);
     const meterX = w - 4.5 * dpr;
     const meterH = botPlotY - 8 * dpr;
     ctx.fillStyle = pal.isDaylight ? "rgba(23, 24, 26, 0.14)" : "rgba(15, 23, 42, 0.9)";
@@ -25807,7 +25782,7 @@
     const curveTension = state.params.env_curve !== void 0 ? state.params.env_curve : -0.65;
     const padX = 10 * dpr;
     const rulerH = 12 * dpr;
-    const topY = 16 * dpr;
+    const topY = 22 * dpr;
     const botY = h - rulerH - 3 * dpr;
     const spanW = w - padX * 2;
     const x1Norm = 0.02 + aNorm * 0.22;
@@ -25859,19 +25834,14 @@
       ctx.lineTo(st.xEnd, botY);
       ctx.stroke();
       ctx.restore();
-      const colW = st.xEnd - st.xStart;
-      if (colW > 28 * dpr) {
-        ctx.fillStyle = pal.isDaylight ? pal.secondaryRgba(0.55) : envRgba(0.45);
-        ctx.font = `bold ${Math.round(5.4 * dpr)}px monospace`;
-        ctx.fillText(st.lbl[0], st.xStart + 3 * dpr, topY + 7 * dpr);
-      }
     });
     const bowBias = curveTension * 0.28;
     const c1y = topY + (botY - topY) * (0.42 - bowBias);
     const c2y = ySus - (ySus - topY) * (0.35 + bowBias);
     const c3y = botY - (botY - ySus) * (0.35 + bowBias);
     const evalQuad = (t, p0, pc, p1) => (1 - t) * (1 - t) * p0 + 2 * (1 - t) * t * pc + t * t * p1;
-    const env2Depth = state.params.env2_depth !== void 0 ? state.params.env2_depth : 0.35;
+    const env2Target = state.params.env2_target !== void 0 ? state.params.env2_target : 3;
+    const env2Depth = env2Target !== 3 && state.params.env2_depth !== void 0 ? state.params.env2_depth : 0;
     if (Math.abs(env2Depth) > 0.02) {
       const e2Top = topY + (1 - Math.min(1, Math.abs(env2Depth) * 0.92)) * (botY - topY) * 0.45;
       const e2Sus = botY - s * 0.65 * (botY - topY);
@@ -26149,9 +26119,9 @@
     arpStepSource.set(activeStep % bars.length);
     const numBars = bars.length;
     const padX = 8 * dpr;
-    const rulerH = 12 * dpr;
+    const rulerH = 29 * dpr;
     const topPlotY = 16 * dpr;
-    const botY = h - rulerH - 3 * dpr;
+    const botY = h - rulerH - 2 * dpr;
     const maxBarH = botY - topPlotY;
     const availW = w - padX * 2;
     const slotW = availW / numBars;
@@ -26245,14 +26215,6 @@
     ctx.moveTo(0, h - rulerH);
     ctx.lineTo(w, h - rulerH);
     ctx.stroke();
-    ctx.font = `bold ${Math.round(5.3 * dpr)}px monospace`;
-    for (let i = 0; i < numBars; i++) {
-      const bx = padX + i * slotW + slotW * 0.5 - 3.2 * dpr;
-      const isHit = i === activeStep;
-      ctx.fillStyle = isHit ? pal.primaryHex : i % groupSize === 0 ? arpAccHex : pal.textMuted;
-      const numStr = i + 1 < 10 ? `0${i + 1}` : `${i + 1}`;
-      ctx.fillText(numStr, bx, h - 2.8 * dpr);
-    }
     const rateLbl = ARP_RATE_LABELS[state.params.arp_rate_div || 1] || "1/8";
     const titleMap = ["4/4 MANUAL", `ARP UP \u2022 ${numBars}ST`, `ARP DOWN \u2022 ${numBars}ST`, "JOROPO 6/8 SYNC", "MERENGUE 5/8 SYNC"];
     ctx.fillStyle = arpHex;

@@ -282,21 +282,19 @@ function syncCloudCreditsBadgeUI(oddObj) {
   if (btnCredits && txtCredits) {
     btnCredits.classList.toggle('tier-pro', isCustomProvider);
     if (tier.includes('OLLAMA')) {
-      txtCredits.innerText = 'AI: OLLAMA LOCAL';
+      txtCredits.innerText = 'ENGINE: OLLAMA';
     } else if (tier.includes('GEMINI')) {
-      txtCredits.innerText = 'AI: GEMINI';
+      txtCredits.innerText = 'ENGINE: GEMINI';
     } else if (tier.includes('GROQ')) {
-      txtCredits.innerText = 'AI: GROQ LPU';
+      txtCredits.innerText = 'ENGINE: GROQ LPU';
     } else if (tier.includes('OPENAI')) {
-      txtCredits.innerText = 'AI: OPENAI';
+      txtCredits.innerText = 'ENGINE: OPENAI';
     } else if (isLocalOnly) {
-      txtCredits.innerText = 'AI: NPU LOCAL';
+      txtCredits.innerText = 'ENGINE: NPU LOCAL';
     } else if (isProTier) {
-      txtCredits.innerText = `PRO CLOUD (${cr} CR)`;
-    } else if (cr < 5 || tier.includes('SIN CR')) {
-      txtCredits.innerText = `SIN CRÉDITOS (${cr} CR)`;
+      txtCredits.innerText = 'ENGINE: PRO CLOUD';
     } else {
-      txtCredits.innerText = `AI: KV (${cr} CR)`;
+      txtCredits.innerText = 'ENGINE: HYBRID DSP';
     }
   }
 
@@ -355,7 +353,7 @@ function refreshFooterOddText() {
   const advFlt = odd.advanced_filter_frames || 0;
   const ratch = odd.arp_ratchet_hits !== undefined ? odd.arp_ratchet_hits : (odd.arp_ratchet_hits_count || 0);
   const ccMaps = odd.midi_learn_bindings_count !== undefined ? odd.midi_learn_bindings_count : (odd.midi_cc_learned_count || 0);
-  footerText.innerText = `ODD // BACKEND: ${backend} • CLOUD: ${cloudCr}CR • SYNTH: ${durUs}µs (#${genCnt}) • AI-PATCH: #${aiPresets} • PITCH: ${pitchHz}Hz • CACHE: ${cacheHits}H/${cacheMiss}M • VEL: ${velPct}% • LFO: ${lfoMod}% • GLIDE: ${glideCnt} • MPE: ${mpeCnt} • GRAN: ${granFrames}f • FLT+: ${advFlt}f • RATCH: ${ratch} • CC-MAP: ${ccMaps} • ROUTES: ${routes} • PRESETS: ${presets} • FAVS: ${favs} • MATRIX: ${matrix} • RESIZE: ${resizes} • DSP BLK: ${blk} • LIM: ${lim}`;
+  footerText.innerText = `ENGINE: ${backend}  •  PITCH: ${pitchHz} Hz  •  VEL: ${velPct}%  •  MOD MATRIX: ${routes} ROUTES  •  48.0 kHz / 32-BIT FLOAT`;
 }
 
 function syncExpressionWheelsUI() {
@@ -1993,64 +1991,12 @@ function drawSvfOled() {
       } else {
         state.fftPeaks64[b] = Math.max(0, (state.fftPeaks64[b] || 0) - 0.008);
       }
-
-      const bx = b * bandSlotW + (bandSlotW - barW) * 0.5;
-      const bh = smoothed * maxPlotH * 0.86;
-      const by = botPlotY - bh;
-
-      // Columna espectral de la banda b
-      ctx.fillStyle = sharedBarGrad;
-      ctx.fillRect(bx, by, barW, bh);
-
-      // Peak-hold cap flotante por banda
-      const peakY = botPlotY - state.fftPeaks64[b] * maxPlotH * 0.86;
-      ctx.fillStyle = capColor;
-      ctx.fillRect(bx, Math.max(6 * dpr, peakY), barW, capH);
     }
 
-    // Trazo continuo de alta resolución FFT (estilo FabFilter Pro-Q 4)
-    ctx.beginPath();
-    for (let b = 0; b < numBands; b++) {
-      const bx = (b + 0.5) * bandSlotW;
-      const jitter = Math.sin(b * 3.7 + animPhase * 2.8) * 0.025 * audioEnergy;
-      const by = botPlotY - Math.max(0.03, state.fftBins64[b] + jitter) * maxPlotH * 0.88;
-      if (b === 0) ctx.moveTo(bx, by);
-      else ctx.lineTo(bx, by);
-    }
-    ctx.strokeStyle = getOledPrimaryRgba(0.85);
-    ctx.lineWidth = 1.15 * dpr;
-    ctx.stroke();
-    svfSpectrumSource.set(state.fftBins64.map((v) => -18 + Math.max(0, Math.min(1, v)) * 32));
+    svfSpectrumSource.set(Array.from(state.fftBins64, (v) => -18 + Math.max(0, Math.min(1, v)) * 30));
   }
 
-  // 3. Curva secundaria armónica / de modulación bipolar (Ámbar / Complementaria, estilo Propuesta A)
-  const companionCut = cutNorm > 0.88
-    ? 0.56
-    : Math.max(0.14, Math.min(0.88, cutNorm - 0.14 + (driveNorm * 0.22)));
-  ctx.beginPath();
-  for (let px = 0; px <= plotW; px += 2) {
-    const xn = px / plotW;
-    const dComp = (xn - companionCut) * 6.5;
-    const yn = Math.min(0.92, Math.exp(-(dComp * dComp) * 1.15) * (0.62 + resNorm * 0.26));
-    const y = botPlotY - yn * maxPlotH;
-    if (px === 0) ctx.moveTo(px, y);
-    else ctx.lineTo(px, y);
-  }
-  ctx.strokeStyle = getOledSecondaryRgba(0.78);
-  ctx.lineWidth = 1.35 * dpr;
-  ctx.stroke();
-
-  // 4. La curva principal SVF y su nodo interactivo 2D son renderizados por <Plot.Root> (@audio-ui/react/plot)
-  const nodeX = Math.max(8 * dpr, Math.min(plotW - 8 * dpr, effCut * plotW));
-  const nodeCurveY = botPlotY - evalCurve(effCut, effCut, mode) * maxPlotH;
-  const nodeY = Math.max(8 * dpr, Math.min(botPlotY - 6 * dpr, nodeCurveY));
-
-  // Etiqueta flotante sobre el nodo activo (Freq Hz + Q)
-  const calloutX = Math.max(6 * dpr, Math.min(plotW - 64 * dpr, nodeX - 24 * dpr));
-  const calloutY = Math.max(18 * dpr, nodeY - 8 * dpr);
-  ctx.fillStyle = pal.textPrimary;
-  ctx.font = `bold ${Math.round(6.6 * dpr)}px monospace`;
-  ctx.fillText(`${formatKnobValue('cutoff', cutNorm)}`, calloutX, calloutY);
+  // 4. La curva principal SVF, el trazo FFT y su nodo interactivo 2D son renderizados exclusivamente por <Plot.Root> (@audio-ui/react/plot)
 
   // 6. Mini Medidor Vertical Post-Filtro en el borde derecho del OLED (Propuesta A)
   const meterX = w - 4.5 * dpr;
@@ -2124,7 +2070,7 @@ function drawAdsrOled() {
   // Coordenadas normalizadas sincronizadas con <Envelope.Root> (@audio-ui/react/envelope)
   const padX = 10 * dpr;
   const rulerH = 12 * dpr;
-  const topY = 16 * dpr;
+  const topY = 22 * dpr;
   const botY = h - rulerH - 3 * dpr;
   const spanW = w - padX * 2;
 
@@ -2182,13 +2128,6 @@ function drawAdsrOled() {
     ctx.lineTo(st.xEnd, botY);
     ctx.stroke();
     ctx.restore();
-
-    const colW = st.xEnd - st.xStart;
-    if (colW > 28 * dpr) {
-      ctx.fillStyle = pal.isDaylight ? pal.secondaryRgba(0.55) : envRgba(0.45);
-      ctx.font = `bold ${Math.round(5.4 * dpr)}px monospace`;
-      ctx.fillText(st.lbl[0], st.xStart + 3 * dpr, topY + 7 * dpr);
-    }
   });
 
   const bowBias = curveTension * 0.28;
@@ -2197,8 +2136,9 @@ function drawAdsrOled() {
   const c3y = botY - (botY - ySus) * (0.35 + bowBias);
   const evalQuad = (t, p0, pc, p1) => (1 - t) * (1 - t) * p0 + 2 * (1 - t) * t * pc + t * t * p1;
 
-  // 2.5 Overlay de Segunda Envolvente Dedicada (MOD ENV 2) en cian punteado
-  const env2Depth = state.params.env2_depth !== undefined ? state.params.env2_depth : 0.35;
+  // 2.5 Overlay de Segunda Envolvente Dedicada (MOD ENV 2) en cian punteado solo cuando está activa
+  const env2Target = state.params.env2_target !== undefined ? state.params.env2_target : 3;
+  const env2Depth = (env2Target !== 3 && state.params.env2_depth !== undefined) ? state.params.env2_depth : 0.0;
   if (Math.abs(env2Depth) > 0.02) {
     const e2Top = topY + (1.0 - Math.min(1.0, Math.abs(env2Depth) * 0.92)) * (botY - topY) * 0.45;
     const e2Sus = botY - (s * 0.65) * (botY - topY);
@@ -2502,9 +2442,9 @@ function drawArpOled() {
 
   const numBars = bars.length;
   const padX = 8 * dpr;
-  const rulerH = 12 * dpr;
+  const rulerH = 29 * dpr;
   const topPlotY = 16 * dpr;
-  const botY = h - rulerH - 3 * dpr;
+  const botY = h - rulerH - 2 * dpr;
   const maxBarH = botY - topPlotY;
   const availW = w - padX * 2;
   const slotW = availW / numBars;
@@ -2605,20 +2545,11 @@ function drawArpOled() {
     ctx.fill();
   });
 
-  // 4. Regla inferior numerada (01..12 o 01..16) y HUD superior
+  // 4. Base reservada para <Sequencer.Root> (@audio-ui/react/sequencer) y HUD superior
   ctx.fillStyle = pal.rulerBg;
   ctx.fillRect(0, h - rulerH, w, rulerH);
   ctx.strokeStyle = pal.gridLine;
   ctx.beginPath(); ctx.moveTo(0, h - rulerH); ctx.lineTo(w, h - rulerH); ctx.stroke();
-
-  ctx.font = `bold ${Math.round(5.3 * dpr)}px monospace`;
-  for (let i = 0; i < numBars; i++) {
-    const bx = padX + i * slotW + slotW * 0.5 - 3.2 * dpr;
-    const isHit = i === activeStep;
-    ctx.fillStyle = isHit ? pal.primaryHex : (i % groupSize === 0 ? arpAccHex : pal.textMuted);
-    const numStr = (i + 1) < 10 ? `0${i + 1}` : `${i + 1}`;
-    ctx.fillText(numStr, bx, h - 2.8 * dpr);
-  }
 
   const rateLbl = ARP_RATE_LABELS[state.params.arp_rate_div || 1] || '1/8';
   const titleMap = ['4/4 MANUAL', `ARP UP • ${numBars}ST`, `ARP DOWN • ${numBars}ST`, 'JOROPO 6/8 SYNC', 'MERENGUE 5/8 SYNC'];
