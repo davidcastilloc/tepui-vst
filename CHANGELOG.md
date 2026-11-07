@@ -2,6 +2,16 @@
 
 Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
 
+## [1.18.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.17.0...v1.18.0) (2026-11-07)
+
+### Nuevas Funcionalidades (Features)
+
+* **ui:** migrate synthesizer interface to React 19 and @audio-ui/react with 6 hardware skins ([9264835](https://github.com/davidcastilloc/tepui-vst/commit/9264835c6c332f75fe724e10b6ef80109dd6caf5))
+
+# Changelog
+
+Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
+
 ## [1.17.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.16.1...v1.17.0) (2026-11-06)
 
 ### Nuevas Funcionalidades (Features)
