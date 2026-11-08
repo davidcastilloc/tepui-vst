@@ -2,6 +2,16 @@
 
 Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
 
+## [1.24.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.23.0...v1.24.0) (2026-11-08)
+
+### Nuevas Funcionalidades (Features)
+
+* **studio_bus_comp:** add native WebView2 GUI editor and standalone QA app ([53dd519](https://github.com/davidcastilloc/tepui-vst/commit/53dd5191e03bd8f8245658c0ada362aa2ad38910))
+
+# Changelog
+
+Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
+
 ## [1.23.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.22.0...v1.23.0) (2026-11-08)
 
 ### Nuevas Funcionalidades (Features)
