@@ -2216,8 +2216,28 @@ impl LiveParamStore {
 
     #[inline]
     pub fn set_arp_step_count(&self, count: u8) {
-        self.arp_step_count
-            .store((count.clamp(4, 16)) as u32, Ordering::Relaxed);
+        let c = count.clamp(4, 16);
+        self.arp_step_count.store(c as u32, Ordering::Relaxed);
+        if !self.is_arp_custom_ratchets_active() {
+            let defaults: [u8; 16] = if c == 16 {
+                [1, 1, 1, 2, 1, 1, 1, 2, 1, 1, 1, 2, 1, 1, 1, 3]
+            } else {
+                [1; 16]
+            };
+            for (i, &r) in defaults.iter().enumerate() {
+                self.arp_step_ratchets[i].store(r as u32, Ordering::Relaxed);
+            }
+        }
+        if !self.is_arp_custom_octaves_active() {
+            let defaults: [i8; 16] = if c == 16 {
+                [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]
+            } else {
+                [0; 16]
+            };
+            for (i, &o) in defaults.iter().enumerate() {
+                self.arp_step_octaves[i].store(o as i32, Ordering::Relaxed);
+            }
+        }
     }
     #[inline]
     pub fn get_arp_step_count(&self) -> u8 {

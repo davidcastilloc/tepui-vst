@@ -2532,7 +2532,44 @@ mod tests {
             }
         }
 
-        // 3. Verificar carriles de arpegiador por paso: Ratchet (1x..4x) y Octave (-1..+1) + persistencia TepuiPatch
+        // 3. Verificar carriles de arpegiador por paso: Ratchet (1x..4x) y Octave (-1..+1) en tiempo real sobre el motor de audio + persistencia TepuiPatch
+        handle_native_ipc_message(
+            "arp,1",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        handle_native_ipc_message(
+            "arpratchet,0,1",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        handle_native_ipc_message(
+            "arpoct,0,0",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        let mut vm_r1 = VoiceManager::new(sr, 16);
+        let mut fx_r1 = StereoFxRack::new(sr);
+        let mut rev_r1 = 0u32;
+        live_params.project_to_dsp(&mut vm_r1, &mut fx_r1, Some(120.0), &sample_buf, &mut rev_r1);
+        vm_r1.note_on(60, 0.9, &sample_buf);
+        let mut arp_r1_l = vec![0.0_f32; 6000];
+        let mut arp_r1_r = vec![0.0_f32; 6000];
+        vm_r1.process_block(&sample_buf, &mut arp_r1_l, &mut arp_r1_r);
+        assert_eq!(vm_r1.arp_ratchet_hits_count(), 0);
+
         handle_native_ipc_message(
             "arpratchet,0,3",
             &gui_midi_tx,
@@ -2542,6 +2579,78 @@ mod tests {
             &sample_rate,
             &None,
         );
+        let mut vm_r3 = VoiceManager::new(sr, 16);
+        let mut fx_r3 = StereoFxRack::new(sr);
+        let mut rev_r3 = 0u32;
+        live_params.project_to_dsp(&mut vm_r3, &mut fx_r3, Some(120.0), &sample_buf, &mut rev_r3);
+        vm_r3.note_on(60, 0.9, &sample_buf);
+        let mut arp_r3_l = vec![0.0_f32; 6000];
+        let mut arp_r3_r = vec![0.0_f32; 6000];
+        vm_r3.process_block(&sample_buf, &mut arp_r3_l, &mut arp_r3_r);
+        assert!(
+            vm_r3.arp_ratchet_hits_count() >= 2,
+            "arpratchet,0,3 debe disparar sub-repeticiones Ratchet en tiempo real (hits={})",
+            vm_r3.arp_ratchet_hits_count()
+        );
+        let ratch_diff: f32 = arp_r1_l
+            .iter()
+            .zip(arp_r3_l.iter())
+            .map(|(a, b)| (a - b).abs())
+            .sum();
+        assert!(
+            ratch_diff > 1.0,
+            "arpratchet,0,3 debe alterar la envolvente rítmica en el bloque de audio respecto a 1x (diff={})",
+            ratch_diff
+        );
+
+        // Verificar impacto real de arpoct,0,1 (+1 octava) vs arpoct,0,-1 (-1 octava) sobre la frecuencia fundamental sintetizada
+        handle_native_ipc_message(
+            "arpoct,0,1",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        let mut vm_oct_up = VoiceManager::new(sr, 16);
+        let mut fx_oct_up = StereoFxRack::new(sr);
+        let mut rev_up = 0u32;
+        live_params.project_to_dsp(&mut vm_oct_up, &mut fx_oct_up, Some(120.0), &sample_buf, &mut rev_up);
+        vm_oct_up.note_on(60, 0.9, &sample_buf);
+        let mut oct_up_l = vec![0.0_f32; 1024];
+        let mut oct_up_r = vec![0.0_f32; 1024];
+        vm_oct_up.process_block(&sample_buf, &mut oct_up_l, &mut oct_up_r);
+
+        handle_native_ipc_message(
+            "arpoct,0,-1",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        let mut vm_oct_dn = VoiceManager::new(sr, 16);
+        let mut fx_oct_dn = StereoFxRack::new(sr);
+        let mut rev_dn = 0u32;
+        live_params.project_to_dsp(&mut vm_oct_dn, &mut fx_oct_dn, Some(120.0), &sample_buf, &mut rev_dn);
+        vm_oct_dn.note_on(60, 0.9, &sample_buf);
+        let mut oct_dn_l = vec![0.0_f32; 1024];
+        let mut oct_dn_r = vec![0.0_f32; 1024];
+        vm_oct_dn.process_block(&sample_buf, &mut oct_dn_l, &mut oct_dn_r);
+
+        let oct_diff: f32 = oct_up_l
+            .iter()
+            .zip(oct_dn_l.iter())
+            .map(|(a, b)| (a - b).abs())
+            .sum();
+        assert!(
+            oct_diff > 5.0,
+            "arpoct,0,1 y arpoct,0,-1 deben transponer la frecuencia del paso en el motor de audio (diff={})",
+            oct_diff
+        );
+
         handle_native_ipc_message(
             "arpoct,2,-1",
             &gui_midi_tx,

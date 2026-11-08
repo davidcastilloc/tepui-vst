@@ -161,7 +161,7 @@ const state = {
 
 // Función universal e infalible para enviar IPC a Rust (cero excepciones)
 function sendIpc(msg) {
-  if (typeof window.ipc !== 'undefined' && window.ipc && typeof window.ipc.postMessage === 'function') {
+  if (typeof window.ipc !== 'undefined' && window.ipc && !window.ipc.__isPolyfill && typeof window.ipc.postMessage === 'function') {
     try {
       window.ipc.postMessage(msg);
       return true;
@@ -179,7 +179,7 @@ function sendIpc(msg) {
 // Polyfill de conveniencia
 if (typeof window.ipc === 'undefined') {
   try {
-    window.ipc = { postMessage: (msg) => sendIpc(msg) };
+    window.ipc = { __isPolyfill: true, postMessage: (msg) => sendIpc(msg) };
   } catch (_) {}
 }
 
