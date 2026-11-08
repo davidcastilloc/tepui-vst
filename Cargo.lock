@@ -28,7 +28,7 @@ dependencies = [
 
 [[package]]
 name = "ai_bridge"
-version = "1.22.0"
+version = "1.23.0"
 dependencies = [
  "arc-swap",
  "crossbeam-channel",
@@ -241,7 +241,7 @@ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "base_plugin_core"
-version = "1.22.0"
+version = "1.23.0"
 dependencies = [
  "dsp_core",
  "serde",
@@ -250,14 +250,14 @@ dependencies = [
 
 [[package]]
 name = "base_plugin_standalone"
-version = "1.22.0"
+version = "1.23.0"
 dependencies = [
  "base_plugin_core",
 ]
 
 [[package]]
 name = "base_plugin_webview"
-version = "1.22.0"
+version = "1.23.0"
 dependencies = [
  "base_plugin_core",
  "serde",
@@ -878,7 +878,7 @@ checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 
 [[package]]
 name = "dsp_core"
-version = "1.22.0"
+version = "1.23.0"
 
 [[package]]
 name = "dtoa"
@@ -2598,7 +2598,7 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
 name = "plugin_vst"
-version = "1.22.0"
+version = "1.23.0"
 dependencies = [
  "ai_bridge",
  "arc-swap",
@@ -3164,7 +3164,7 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "studio_bus_comp"
-version = "1.22.0"
+version = "1.23.0"
 dependencies = [
  "base_plugin_core",
  "base_plugin_standalone",
@@ -3221,7 +3221,7 @@ dependencies = [
 
 [[package]]
 name = "synth_core"
-version = "1.22.0"
+version = "1.23.0"
 dependencies = [
  "arc-swap",
 ]
@@ -4257,7 +4257,7 @@ checksum = "163b33ed8786455e2fa5d72f554057ce3f3182425434f756cd39c99839d88e23"
 
 [[package]]
 name = "xtask"
-version = "1.22.0"
+version = "1.23.0"
 dependencies = [
  "nih_plug_xtask",
 ]
