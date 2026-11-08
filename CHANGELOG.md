@@ -2,6 +2,16 @@
 
 Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
 
+## [1.21.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.20.0...v1.21.0) (2026-11-08)
+
+### Nuevas Funcionalidades (Features)
+
+* **synth:** micro-afinacion .scl, doble filtro serie/paralelo, delay ping-pong, acordes, exportacion MIDI y wavetable NPU ([393665d](https://github.com/davidcastilloc/tepui-vst/commit/393665dbacd773e8201388f79a47b171967b11c6))
+
+# Changelog
+
+Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
+
 ## [1.20.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.19.0...v1.20.0) (2026-11-08)
 
 ### Nuevas Funcionalidades (Features)
