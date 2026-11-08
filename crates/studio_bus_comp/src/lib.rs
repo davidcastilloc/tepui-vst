@@ -835,6 +835,10 @@ body {
   gap: 8px;
   cursor: ns-resize;
 }
+.knob-cell:focus-visible, .skin-btn:focus-visible, .bypass-btn:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: -2px;
+}
 .knob-lbl { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: var(--text-muted); }
 .knob-val { font-size: 11px; font-family: monospace; font-weight: 700; color: var(--text-primary); }
 .telemetry-pane {
@@ -891,7 +895,7 @@ body {
       <button class="skin-btn" data-set-skin="gunmetal">GUNMETAL</button>
       <button class="skin-btn" data-set-skin="phosphor">PHOSPHOR</button>
     </div>
-    <button id="btn-bypass" class="bypass-btn" data-param="8">ACTIVE (BYPASS OFF)</button>
+    <button id="btn-bypass" class="bypass-btn" data-param="8" aria-pressed="false" aria-label="Bypass Compressor">ACTIVE (BYPASS OFF)</button>
   </div>
 
   <div class="rack-grid">
@@ -944,22 +948,22 @@ body {
     <div class="telemetry-pane">
       <div class="section-tag">02 // REAL-TIME KNEE TRANSFER CURVE &amp; GAIN REDUCTION</div>
       <div class="curve-box">
-        <canvas id="comp-curve-canvas" width="340" height="220" style="width:100%;height:100%;"></canvas>
+        <canvas id="comp-curve-canvas" role="img" aria-label="Curva de transferencia VCA y reducción de ganancia en tiempo real" width="340" height="220" style="width:100%;height:100%;"></canvas>
       </div>
       <div class="meters-row">
         <div class="meter-bar-wrap">
           <span style="width:42px;">OUT L</span>
-          <div class="meter-track"><div id="meter-l" class="meter-fill"></div></div>
+          <div class="meter-track" role="meter" aria-label="Output Left Level" aria-valuemin="-60" aria-valuemax="0" aria-valuenow="-60"><div id="meter-l" class="meter-fill"></div></div>
           <span id="txt-l" style="width:58px;text-align:right;">-60.0 dB</span>
         </div>
         <div class="meter-bar-wrap">
           <span style="width:42px;">OUT R</span>
-          <div class="meter-track"><div id="meter-r" class="meter-fill"></div></div>
+          <div class="meter-track" role="meter" aria-label="Output Right Level" aria-valuemin="-60" aria-valuemax="0" aria-valuenow="-60"><div id="meter-r" class="meter-fill"></div></div>
           <span id="txt-r" style="width:58px;text-align:right;">-60.0 dB</span>
         </div>
         <div class="meter-bar-wrap">
           <span style="width:42px;">GR dB</span>
-          <div class="meter-track"><div id="meter-gr" class="meter-fill" style="background:#f59e0b;"></div></div>
+          <div class="meter-track" role="meter" aria-label="Gain Reduction dB" aria-valuemin="-24" aria-valuemax="0" aria-valuenow="0"><div id="meter-gr" class="meter-fill" style="background:#f59e0b;"></div></div>
           <span id="txt-gr" style="width:58px;text-align:right;">0.0 dB</span>
         </div>
       </div>
@@ -1002,6 +1006,8 @@ body {
     const plain = min + clamped * (max - min);
     const valEl = cell.querySelector('.knob-val');
     if (valEl) valEl.textContent = plain.toFixed(1) + unit;
+    cell.setAttribute('aria-valuenow', plain.toFixed(1));
+    cell.setAttribute('aria-valuetext', plain.toFixed(1) + unit);
     const line = cell.querySelector('.dial-line');
     if (line) {
       const deg = -135 + clamped * 270;
@@ -1010,6 +1016,12 @@ body {
   }
 
   document.querySelectorAll('.knob-cell').forEach(function(cell) {
+    const lblEl = cell.querySelector('.knob-lbl');
+    cell.setAttribute('role', 'slider');
+    cell.setAttribute('tabindex', '0');
+    cell.setAttribute('aria-label', lblEl ? lblEl.textContent : 'Knob');
+    cell.setAttribute('aria-valuemin', cell.getAttribute('data-min') || '0');
+    cell.setAttribute('aria-valuemax', cell.getAttribute('data-max') || '1');
     renderKnob(cell, parseFloat(cell.getAttribute('data-norm') || '0.5'));
     let startY = 0;
     let startNorm = 0.5;
@@ -1037,6 +1049,22 @@ body {
       dragging = false;
       sendIpc({ cmd: 'ParamGestureEnd', data: { param_id: paramId } });
     });
+
+    cell.addEventListener('keydown', function(e) {
+      const cur = parseFloat(cell.getAttribute('data-norm') || '0.5');
+      const step = e.shiftKey ? 0.005 : 0.025;
+      let next = cur;
+      if (e.key === 'ArrowUp' || e.key === 'ArrowRight') { next = Math.min(1, cur + step); }
+      else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') { next = Math.max(0, cur - step); }
+      else if (e.key === 'Home') { next = 0; }
+      else if (e.key === 'End') { next = 1; }
+      else { return; }
+      e.preventDefault();
+      renderKnob(cell, next);
+      sendIpc({ cmd: 'ParamGestureBegin', data: { param_id: paramId } });
+      sendIpc({ cmd: 'ParamSetValue', data: { param_id: paramId, value: next } });
+      sendIpc({ cmd: 'ParamGestureEnd', data: { param_id: paramId } });
+    });
   });
 
   const bypassBtn = document.getElementById('btn-bypass');
@@ -1045,6 +1073,7 @@ body {
     bypassBtn.addEventListener('click', function() {
       bypassed = !bypassed;
       bypassBtn.classList.toggle('active', bypassed);
+      bypassBtn.setAttribute('aria-pressed', bypassed ? 'true' : 'false');
       bypassBtn.textContent = bypassed ? 'BYPASSED' : 'ACTIVE (BYPASS OFF)';
       sendIpc({ cmd: 'ParamSetValue', data: { param_id: 8, value: bypassed ? 1.0 : 0.0 } });
     });
@@ -1098,9 +1127,9 @@ body {
         const elL = document.getElementById('meter-l');
         const elR = document.getElementById('meter-r');
         const elGr = document.getElementById('meter-gr');
-        if (elL) elL.style.width = pctL + '%';
-        if (elR) elR.style.width = pctR + '%';
-        if (elGr) elGr.style.width = pctGr + '%';
+        if (elL) { elL.style.width = pctL + '%'; if (elL.parentElement) elL.parentElement.setAttribute('aria-valuenow', dbL.toFixed(1)); }
+        if (elR) { elR.style.width = pctR + '%'; if (elR.parentElement) elR.parentElement.setAttribute('aria-valuenow', dbR.toFixed(1)); }
+        if (elGr) { elGr.style.width = pctGr + '%'; if (elGr.parentElement) elGr.parentElement.setAttribute('aria-valuenow', gr.toFixed(1)); }
         const txL = document.getElementById('txt-l');
         const txR = document.getElementById('txt-r');
         const txGr = document.getElementById('txt-gr');
@@ -1113,7 +1142,15 @@ body {
   }
 
   drawCurve();
-  setInterval(pollTelemetry, 40);
+  let lastPollMs = 0;
+  function rafTelemetryLoop(nowMs) {
+    if (!document.hidden && nowMs - lastPollMs >= 33) {
+      lastPollMs = nowMs;
+      pollTelemetry();
+    }
+    requestAnimationFrame(rafTelemetryLoop);
+  }
+  requestAnimationFrame(rafTelemetryLoop);
 })();
 </script>
 </body>

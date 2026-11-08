@@ -80,3 +80,13 @@
   padding: 12px;
   border-radius: 0;
 }
+
+.plugin-xypad-area {
+  position: relative;
+  overflow: clip;
+}
+
+.plugin-xypad-cursor {
+  left: clamp(4px, var(--xy-pad-x, 0%), calc(100% - 4px)) !important;
+  top: clamp(4px, var(--xy-pad-y, 100%), calc(100% - 4px)) !important;
+}
