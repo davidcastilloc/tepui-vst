@@ -2,6 +2,20 @@
 
 Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
 
+## [1.19.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.18.0...v1.19.0) (2026-11-08)
+
+### Nuevas Funcionalidades (Features)
+
+* **synth:** add 4 spectral warp modes, 3 master fx modes, xy macro pad, live mod rings, and 6-skin showcase ([8c50b42](https://github.com/davidcastilloc/tepui-vst/commit/8c50b429aca1582d9f8815383fdc404f1fc69568))
+
+### Documentación
+
+* **readme:** update repository screenshots for React 19 + @audio-ui/react and 6 hardware skins ([03d2f4f](https://github.com/davidcastilloc/tepui-vst/commit/03d2f4f42d16d244d24ed061e1606c29bb0736ab))
+
+# Changelog
+
+Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
+
 ## [1.18.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.17.0...v1.18.0) (2026-11-07)
 
 ### Nuevas Funcionalidades (Features)
