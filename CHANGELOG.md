@@ -2,6 +2,16 @@
 
 Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
 
+## [1.24.1](https://github.com/davidcastilloc/tepui-vst/compare/v1.24.0...v1.24.1) (2026-11-08)
+
+### Correcciones de Errores (Bug Fixes)
+
+* **webview:** isolate WebView2 UDF per host executable and pump HWND_MESSAGE in GenericWebViewEditor ([a91a648](https://github.com/davidcastilloc/tepui-vst/commit/a91a648cf2ffb06d33717245d731e90bc3848159))
+
+# Changelog
+
+Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
+
 ## [1.24.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.23.0...v1.24.0) (2026-11-08)
 
 ### Nuevas Funcionalidades (Features)
