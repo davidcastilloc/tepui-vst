@@ -2,6 +2,16 @@
 
 Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
 
+## [1.23.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.22.0...v1.23.0) (2026-11-08)
+
+### Nuevas Funcionalidades (Features)
+
+* **architecture:** plantilla modular desacoplada (dsp_core, base_plugin_core, base_plugin_webview, @plugin-base/ui-bridge) y plugin studio_bus_comp ([fca4028](https://github.com/davidcastilloc/tepui-vst/commit/fca4028084b1a34606f9e5c030b6aa608eae0a98))
+
+# Changelog
+
+Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
+
 ## [1.22.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.21.0...v1.22.0) (2026-11-08)
 
 ### Nuevas Funcionalidades (Features)
