@@ -332,7 +332,11 @@ El workspace provee una separación estricta entre la **Plantilla Base Agnóstic
 - [`crates/base_plugin_webview`](crates/base_plugin_webview/src/lib.rs): Host WebView serverless (`app://localhost/`), aislamiento de perfil multi-instancia (`%LOCALAPPDATA%/AudioPlugins/<Vendor>/<Plugin>/WebViewProfile`) y bus IPC tipado (`GuiToHostCommand` / `HostToGuiEvent`).
 - [`crates/base_plugin_standalone`](crates/base_plugin_standalone/src/lib.rs): Runner autónomo agnóstico `StandaloneRunner<E: DspEngine>`.
 - [`packages/base-plugin-ui`](packages/base-plugin-ui/src/index.ts): Librería de componentes React (`@plugin-base/ui-bridge`) sobre `@audio-ui/react` y `@audio-ui/core` (`PluginKnob` con gestos DAW de 3 fases + *debounce* de rueda de 200 ms, `PluginFader`, `PluginXYPad`, `PluginLevelMeter` a 60 FPS vía `vuMeterSource`, `PluginHeader` y `skins.css`).
-- [`crates/studio_bus_comp`](crates/studio_bus_comp/src/lib.rs): Segundo plugin completo del ecosistema (*Studio VCA Stereo Bus Compressor, Sidechain HPF & Tape Saturator*) compilable a `.vst3` y `.clap` (`cargo run --package xtask -- bundle studio_bus_comp --release`) con **0% dependencia** hacia `synth_core` o `ai_bridge`.
+- [`crates/studio_bus_comp`](crates/studio_bus_comp/src/lib.rs): Segundo plugin completo del ecosistema (*Studio VCA Stereo Bus Compressor, Sidechain HPF & Tape Saturator*) compilable a `.vst3`, `.clap` y app standalone (`studio_bus_comp_app`) (`cargo run --package xtask -- bundle studio_bus_comp --release`) con **0% dependencia** hacia `synth_core` o `ai_bridge`.
+
+<p align="center">
+  <img src="assets/screenshots/studio-bus-comp.png" alt="Studio VCA Bus Compressor — Decoupled Plugin Stack (dsp_core + base_plugin_core + base_plugin_webview)" width="90%">
+</p>
 
 ### 2. Recompilar la Interfaz React + `@audio-ui/react` (Opcional tras editar `ui/src/`)
 ```powershell
