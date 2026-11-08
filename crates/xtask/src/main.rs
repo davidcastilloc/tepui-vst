@@ -427,6 +427,75 @@ fn run_set_version(new_version: &str) -> nih_plug_xtask::Result<()> {
     Ok(())
 }
 
+/// Derives a deterministic 16-byte VST3 Class ID (UUID v5-style FNV-1a 128-bit)
+/// from a Reverse-DNS `CLAP_ID` so template users get a collision-free VST3 identity.
+pub fn derive_vst3_class_id_from_clap_id(clap_id: &str) -> [u8; 16] {
+    let mut h1: u64 = 0xcbf29ce484222325;
+    let mut h2: u64 = 0x84222325cbf29ce4;
+    for (idx, b) in clap_id.bytes().enumerate() {
+        h1 ^= u64::from(b);
+        h1 = h1.wrapping_mul(0x100000001b3);
+        h2 ^= u64::from(b.wrapping_add(idx as u8));
+        h2 = h2.wrapping_mul(0x100000001b3);
+    }
+    let mut out = [0u8; 16];
+    out[..8].copy_from_slice(&h1.to_be_bytes());
+    out[8..].copy_from_slice(&h2.to_be_bytes());
+    out[6] = (out[6] & 0x0f) | 0x50;
+    out[8] = (out[8] & 0x3f) | 0x80;
+    out
+}
+
+fn run_init_template(args: &[String]) -> nih_plug_xtask::Result<()> {
+    let mut plugin_name = String::from("MyCustomSynth");
+    let mut vendor_name = String::from("MyAudioLab");
+    let mut clap_id = String::from("com.myaudiolab.mycustomsynth");
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--name" if i + 1 < args.len() => {
+                plugin_name = args[i + 1].clone();
+                i += 2;
+            }
+            "--vendor" if i + 1 < args.len() => {
+                vendor_name = args[i + 1].clone();
+                i += 2;
+            }
+            "--id" if i + 1 < args.len() => {
+                clap_id = args[i + 1].clone();
+                i += 2;
+            }
+            _ => {
+                i += 1;
+            }
+        }
+    }
+
+    let vst3_id = derive_vst3_class_id_from_clap_id(&clap_id);
+    let bytes_fmt = vst3_id
+        .iter()
+        .map(|b| format!("0x{:02x}", b))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    println!("==================================================================");
+    println!(" TEPUI OPEN-SOURCE VST3 / CLAP TEMPLATE GENERATOR");
+    println!("==================================================================");
+    println!("  Plugin Name   : {}", plugin_name);
+    println!("  Vendor        : {}", vendor_name);
+    println!("  CLAP_ID       : {}", clap_id);
+    println!("  VST3_CLASS_ID : [{}]", bytes_fmt);
+    println!("------------------------------------------------------------------");
+    println!("Copia estos identificadores en crates/plugin_vst/src/lib.rs:");
+    println!("  const NAME: &'static str = \"{}\";", plugin_name);
+    println!("  const VENDOR: &'static str = \"{}\";", vendor_name);
+    println!("  const CLAP_ID: &'static str = \"{}\";", clap_id);
+    println!("  const VST3_CLASS_ID: [u8; 16] = [{}];", bytes_fmt);
+    println!("==================================================================");
+    Ok(())
+}
+
 fn main() -> nih_plug_xtask::Result<()> {
     if let Some(res) = try_run_self_extracting_mode() {
         return res;
@@ -444,6 +513,9 @@ fn main() -> nih_plug_xtask::Result<()> {
         if let Some(ver) = args.get(1) {
             return run_set_version(ver);
         }
+    }
+    if args.first().map(|s| s.as_str()) == Some("init-template") {
+        return run_init_template(&args[1..]);
     }
 
     nih_plug_xtask::main()?;
@@ -531,5 +603,15 @@ mod tests {
             .expect("unpack_sfx_entries should succeed with appended Authenticode signature");
         assert_eq!(unpacked_signed.len(), 3);
         assert_eq!(unpacked_signed[0].1, b"VST3_PAYLOAD_DATA");
+    }
+
+    #[test]
+    fn test_template_stack_vst3_class_id_derivation() {
+        let id_a = derive_vst3_class_id_from_clap_id("com.sabana.auyantepui");
+        let id_b = derive_vst3_class_id_from_clap_id("com.sabana.roraima");
+        assert_ne!(id_a, id_b);
+        assert_eq!(id_a, derive_vst3_class_id_from_clap_id("com.sabana.auyantepui"));
+        assert_eq!(id_a[6] & 0xf0, 0x50);
+        assert_eq!(id_a[8] & 0xc0, 0x80);
     }
 }

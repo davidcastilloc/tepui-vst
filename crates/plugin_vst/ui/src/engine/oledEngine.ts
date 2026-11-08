@@ -307,19 +307,17 @@ function syncCloudCreditsBadgeUI(oddObj) {
   if (modalPill) {
     modalPill.classList.toggle('tier-pro', isCustomProvider);
     if (isProTier) {
-      modalPill.innerText = `PRO CLOUD • ${cr} CR`;
+      modalPill.innerText = 'SUPPORTER PRO • PACKS';
     } else if (isCustomProvider || isLocalOnly) {
-      modalPill.innerText = tier;
-    } else if (cr < 5 || tier.includes('SIN CR')) {
-      modalPill.innerText = `SIN CRÉDITOS • ${cr} CR`;
+      modalPill.innerText = `${tier} • ILIMITADO`;
     } else {
-      modalPill.innerText = `COMMUNITY KV • ${cr} CR`;
+      modalPill.innerText = 'OPEN CORE • ILIMITADO';
     }
   }
 
   const quotaSum = document.getElementById('cloud-quota-summary');
   if (quotaSum) {
-    quotaSum.innerText = `Pool Comunitario KV: ${dailyNeurons} / 9,500 Neurons hoy (Caché KV global = 0 Neurons en hits • Samples .WAV IA = 5 CR)`;
+    quotaSum.innerText = `Motor DSP, Síntesis NPU Local (< 1 ms) y BYOK 100% libres y sin límites • Caché Comunitaria activa (${dailyNeurons} hits hoy)`;
   }
 }
 
@@ -5449,10 +5447,10 @@ function initAudioSettingsModal() {
   if (btnBuyCloud) {
     btnBuyCloud.addEventListener('click', () => {
       const devId = encodeURIComponent(state.deviceId || 'global');
-      const checkoutUrl = `https://tepui-vst.pc911itservices.workers.dev/?client_reference_id=${devId}#pricing`;
+      const checkoutUrl = `https://tepui-vst.pages.dev/?client_reference_id=${devId}#ediciones`;
       window.open(checkoutUrl, '_blank', 'noopener,noreferrer');
       showStatus(
-        `[OK] Abriendo Checkout seguro vinculado a tu equipo (${state.deviceId || 'global'}). Al completarse el pago, el webhook HMAC-SHA256 acreditará tus tokens automáticamente.`
+        `[OK] Abriendo catálogo oficial de Sound Packs .tepui, Edición Producer y Licencia SDK Comercial.`
       );
     });
   }
@@ -5463,10 +5461,10 @@ function initAudioSettingsModal() {
       const codeInp = document.getElementById('input-cloud-redeem-code');
       const code = codeInp && codeInp.value ? codeInp.value.trim() : '';
       if (!code) {
-        showStatus('Ingresa un código de recarga o licencia Cloud (ej. TEPUI-PRO-2026).', true);
+        showStatus('Ingresa una clave de Sound Pack oficial o Supporter Key (ej. TEPUI-PRO-2026).', true);
         return;
       }
-      showStatus('Verificando y acreditando código en TEPUI_CREDITS_KV...');
+      showStatus('Verificando y activando Sound Pack / Supporter Key...');
       try {
         const resp = await fetch('/api/redeem-cloud-code', {
           method: 'POST',

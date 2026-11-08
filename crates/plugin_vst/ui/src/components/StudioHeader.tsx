@@ -93,11 +93,11 @@ export const StudioHeader: React.FC = () => {
         <button
           id="btn-cloud-credits"
           className="btn-io btn-cloud-credits"
-          title="Selector de Proveedor IA Open Source (Community KV, Ollama Local, Gemini, Groq, OpenAI, Intel NPU)"
+          title="Motor 100% Open-Source Ilimitado (Local NPU + DSP Físico + BYOK Ollama/Gemini/Groq) &amp; Expansiones Oficiales"
           type="button"
         >
           <span className="cloud-dot"></span>
-          <span id="cloud-credits-text">AI: COMMUNITY KV</span>
+          <span id="cloud-credits-text">ENGINE: OPEN CORE</span>
         </button>
         <button
           id="btn-audio-settings"

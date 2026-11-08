@@ -22040,11 +22040,11 @@
           {
             id: "btn-cloud-credits",
             className: "btn-io btn-cloud-credits",
-            title: "Selector de Proveedor IA Open Source (Community KV, Ollama Local, Gemini, Groq, OpenAI, Intel NPU)",
+            title: "Motor 100% Open-Source Ilimitado (Local NPU + DSP F\xEDsico + BYOK Ollama/Gemini/Groq) & Expansiones Oficiales",
             type: "button",
             children: [
               /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("span", { className: "cloud-dot" }),
-              /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("span", { id: "cloud-credits-text", children: "AI: COMMUNITY KV" })
+              /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("span", { id: "cloud-credits-text", children: "ENGINE: OPEN CORE" })
             ]
           }
         ),
@@ -24185,16 +24185,16 @@
             children: /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "cloud-license-box", children: [
               /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "cloud-license-header", children: [
                 /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "field-label-group", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("label", { htmlFor: "select-ai-provider", children: "PROVEEDOR DE IA ABIERTO (OPEN SOURCE MULTI-LLM & NPU):" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "field-desc", children: "Pool Comunitario KV gratuito, Ollama GPU local, Gemini, Groq, OpenAI o 100% Intel NPU" })
+                  /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("label", { htmlFor: "select-ai-provider", children: "MOTOR IA 100% OPEN-SOURCE & SIN L\xCDMITES (NPU LOCAL / OLLAMA / BYOK):" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "field-desc", children: "S\xEDntesis ilimitada sin tax\xEDmetro: Intel NPU (< 1 ms), Ollama local, tu propia API Key o Cach\xE9 KV Comunitaria" })
                 ] }),
-                /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { id: "cloud-modal-tier-badge", className: "cloud-tier-pill", children: "COMMUNITY KV \u2022 20 CR" })
+                /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { id: "cloud-modal-tier-badge", className: "cloud-tier-pill", children: "OPEN CORE \u2022 ILIMITADO" })
               ] }),
               /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "setting-grid-2", children: [
                 /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "setting-field", children: [
                   /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "field-label-group", children: [
                     /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("label", { htmlFor: "select-ai-provider", children: "MOTOR / PROVEEDOR DE S\xCDNTESIS IA:" }),
-                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "field-desc", children: "Conecta cualquier LLM o sintetiza 100% offline" })
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "field-desc", children: "Conecta cualquier LLM propio o sintetiza 100% offline sin costo" })
                   ] }),
                   /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)(
                     "select",
@@ -24203,12 +24203,12 @@
                       className: "studio-select",
                       defaultValue: "community_edge",
                       children: [
-                        /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("option", { value: "community_edge", children: "TEPUI Community Edge (Gratis \u2022 KV Cache + 20/d\xEDa)" }),
+                        /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("option", { value: "community_edge", children: "TEPUI Open Community KV (100% Gratis \u2022 Cach\xE9 Global Compartida)" }),
                         /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("option", { value: "ollama_local", children: "Ollama Local (100% Offline en tu PC \u2022 http://127.0.0.1:11434)" }),
                         /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("option", { value: "gemini", children: "Google Gemini API (BYOK \u2022 Tier Gratuito en AI Studio)" }),
                         /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("option", { value: "groq", children: "Groq Cloud LPU (BYOK \u2022 Ultra-R\xE1pido ~150ms)" }),
                         /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("option", { value: "openai_compatible", children: "OpenAI / OpenRouter / Compatible (BYOK)" }),
-                        /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("option", { value: "local_npu", children: "100% Local Intel NPU + DSP F\xEDsico (Offline Instant\xE1neo)" })
+                        /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("option", { value: "local_npu", children: "100% Local Intel NPU + DSP F\xEDsico (Offline Instant\xE1neo < 1 ms)" })
                       ]
                     }
                   )
@@ -24233,8 +24233,8 @@
               /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "setting-grid-2", children: [
                 /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "setting-field", children: [
                   /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "field-label-group", children: [
-                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("label", { htmlFor: "input-ai-api-key", children: "API KEY (GEMINI / GROQ / OPENAI / OPENROUTER):" }),
-                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "field-desc", children: "Almacenada localmente (no requerida para KV, Ollama o NPU)" })
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("label", { htmlFor: "input-ai-api-key", children: "TU PROPIA API KEY (GEMINI / GROQ / OPENAI / OPENROUTER):" }),
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "field-desc", children: "100% privada en tu equipo (no requerida para NPU Local, Ollama ni KV)" })
                   ] }),
                   /* @__PURE__ */ (0, import_jsx_runtime38.jsx)(
                     "input",
@@ -24249,8 +24249,8 @@
                 ] }),
                 /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "setting-field", children: [
                   /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "field-label-group", children: [
-                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("label", { htmlFor: "input-ai-endpoint", children: "TEPUI_AI_GATEWAY_URL (SAMPLES .WAV IA):" }),
-                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "field-desc", children: "Endpoint para generaci\xF3n de samples .WAV one-shot (5 CR / WAV)" })
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("label", { htmlFor: "input-ai-endpoint", children: "ENDPOINT DE AUDIO / SELF-HOSTED GATEWAY (OPCIONAL):" }),
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "field-desc", children: "Conecta tu propio worker o nodo local de difusi\xF3n de samples .WAV" })
                   ] }),
                   /* @__PURE__ */ (0, import_jsx_runtime38.jsx)(
                     "input",
@@ -24268,8 +24268,8 @@
               /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "setting-grid-2", children: [
                 /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "setting-field", children: [
                   /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "field-label-group", children: [
-                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("label", { htmlFor: "input-cloud-redeem-code", children: "C\xD3DIGO DE RECARGA / LICENCIA CLOUD:" }),
-                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "field-desc", children: "Canjea un voucher de cr\xE9ditos o licencia Pro (ej. TEPUI-PRO-2026)" })
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("label", { htmlFor: "input-cloud-redeem-code", children: "CLAVE DE EXPANSI\xD3N OFICIAL / SUPPORTER KEY (.TEPUI):" }),
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "field-desc", children: "Activa Sound Packs de estudio grabados o tu pase Supporter Open-Source" })
                   ] }),
                   /* @__PURE__ */ (0, import_jsx_runtime38.jsx)(
                     "input",
@@ -24277,15 +24277,15 @@
                       type: "text",
                       id: "input-cloud-redeem-code",
                       className: "studio-select studio-text-input",
-                      placeholder: "TEPUI-PRO-XXXX-XXXX",
+                      placeholder: "TEPUI-PACK-XXXX-XXXX",
                       autoComplete: "off"
                     }
                   )
                 ] }),
                 /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "setting-field", children: [
                   /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "field-label-group", children: [
-                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("label", { htmlFor: "btn-redeem-cloud-code", children: "ACTIVACI\xD3N INSTANT\xC1NEA EN EDGE KV:" }),
-                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "field-desc", children: "Acredita saldo en TEPUI_CREDITS_KV sin reiniciar el DAW" })
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("label", { htmlFor: "btn-redeem-cloud-code", children: "DESBLOQUEO DE SOUND PACKS & EXPANSIONES:" }),
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "field-desc", children: "Activa expansiones oficiales de autor sin reiniciar tu DAW" })
                   ] }),
                   /* @__PURE__ */ (0, import_jsx_runtime38.jsx)(
                     "button",
@@ -24293,13 +24293,13 @@
                       id: "btn-redeem-cloud-code",
                       className: "btn-test-tone",
                       type: "button",
-                      children: /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { children: "+ CANJEAR C\xD3DIGO / RECARGAR CR\xC9DITOS" })
+                      children: /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { children: "+ ACTIVAR SOUND PACK / SUPPORTER KEY" })
                     }
                   )
                 ] })
               ] }),
               /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "cloud-license-actions", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { id: "cloud-quota-summary", className: "field-desc", children: "Pool Comunitario KV: 0 / 9,500 Neurons hoy (Cach\xE9 KV global = 0 Neurons en hits)" }),
+                /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { id: "cloud-quota-summary", className: "field-desc", children: "Motor DSP, S\xEDntesis NPU Local y BYOK 100% libres y sin l\xEDmites \u2022 Apoya el proyecto con Sound Packs o el SDK Comercial" }),
                 /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)(
                   "div",
                   {
@@ -24311,8 +24311,8 @@
                           id: "btn-buy-cloud-credits",
                           className: "btn-test-tone",
                           type: "button",
-                          title: "Abrir Checkout seguro con tu ID de dispositivo para recarga autom\xE1tica por Webhook",
-                          children: /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { children: "COMPRAR CR\xC9DITOS PRO" })
+                          title: "Explorar Sound Packs oficiales de estudio (.tepui), Edici\xF3n Producer y Licencia Comercial del Stack Plantilla",
+                          children: /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { children: "EXPLORAR SOUND PACKS & SDK" })
                         }
                       ),
                       /* @__PURE__ */ (0, import_jsx_runtime38.jsx)(
@@ -25049,18 +25049,16 @@
     if (modalPill) {
       modalPill.classList.toggle("tier-pro", isCustomProvider);
       if (isProTier) {
-        modalPill.innerText = `PRO CLOUD \u2022 ${cr} CR`;
+        modalPill.innerText = "SUPPORTER PRO \u2022 PACKS";
       } else if (isCustomProvider || isLocalOnly) {
-        modalPill.innerText = tier;
-      } else if (cr < 5 || tier.includes("SIN CR")) {
-        modalPill.innerText = `SIN CR\xC9DITOS \u2022 ${cr} CR`;
+        modalPill.innerText = `${tier} \u2022 ILIMITADO`;
       } else {
-        modalPill.innerText = `COMMUNITY KV \u2022 ${cr} CR`;
+        modalPill.innerText = "OPEN CORE \u2022 ILIMITADO";
       }
     }
     const quotaSum = document.getElementById("cloud-quota-summary");
     if (quotaSum) {
-      quotaSum.innerText = `Pool Comunitario KV: ${dailyNeurons} / 9,500 Neurons hoy (Cach\xE9 KV global = 0 Neurons en hits \u2022 Samples .WAV IA = 5 CR)`;
+      quotaSum.innerText = `Motor DSP, S\xEDntesis NPU Local (< 1 ms) y BYOK 100% libres y sin l\xEDmites \u2022 Cach\xE9 Comunitaria activa (${dailyNeurons} hits hoy)`;
     }
   }
   function refreshFooterOddText() {
@@ -29648,10 +29646,10 @@
     if (btnBuyCloud) {
       btnBuyCloud.addEventListener("click", () => {
         const devId = encodeURIComponent(state.deviceId || "global");
-        const checkoutUrl = `https://tepui-vst.pc911itservices.workers.dev/?client_reference_id=${devId}#pricing`;
+        const checkoutUrl = `https://tepui-vst.pages.dev/?client_reference_id=${devId}#ediciones`;
         window.open(checkoutUrl, "_blank", "noopener,noreferrer");
         showStatus(
-          `[OK] Abriendo Checkout seguro vinculado a tu equipo (${state.deviceId || "global"}). Al completarse el pago, el webhook HMAC-SHA256 acreditar\xE1 tus tokens autom\xE1ticamente.`
+          `[OK] Abriendo cat\xE1logo oficial de Sound Packs .tepui, Edici\xF3n Producer y Licencia SDK Comercial.`
         );
       });
     }
@@ -29661,10 +29659,10 @@
         const codeInp = document.getElementById("input-cloud-redeem-code");
         const code = codeInp && codeInp.value ? codeInp.value.trim() : "";
         if (!code) {
-          showStatus("Ingresa un c\xF3digo de recarga o licencia Cloud (ej. TEPUI-PRO-2026).", true);
+          showStatus("Ingresa una clave de Sound Pack oficial o Supporter Key (ej. TEPUI-PRO-2026).", true);
           return;
         }
-        showStatus("Verificando y acreditando c\xF3digo en TEPUI_CREDITS_KV...");
+        showStatus("Verificando y activando Sound Pack / Supporter Key...");
         try {
           const resp = await fetch("/api/redeem-cloud-code", {
             method: "POST",

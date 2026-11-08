@@ -265,11 +265,12 @@ tepui-vst/
 
 ### Guía Paso a Paso para Personalizar tu Propio Plugin
 
-#### Paso 1: Cambiar la Identidad del Plugin (`VST3` / `CLAP` / `Standalone`)
-Edita [`crates/plugin_vst/src/lib.rs`](crates/plugin_vst/src/lib.rs):
-1. Actualiza `NAME`, `VENDOR`, `URL` y `EMAIL` en `impl Plugin for TepuiPlugin`.
-2. Define un `CLAP_ID` único en reverso DNS (ej. `"com.tuestudio.mi-sintetizador"`) en `impl ClapPlugin`.
-3. Genera un UUID de 16 bytes nuevo para `VST3_CLASS_ID` en `impl Vst3Plugin` para que los DAWs lo reconozcan como un instrumento independiente.
+#### Paso 1: Cambiar la Identidad del Plugin con el Generador Automático (`xtask init-template`)
+Ejecuta el generador incluido en [`crates/xtask/src/main.rs`](crates/xtask/src/main.rs) para derivar automáticamente un `CLAP_ID` y un `VST3_CLASS_ID` de 16 bytes libre de colisiones:
+```powershell
+cargo run --package xtask -- init-template --name "MiSintetizador" --vendor "MiEstudioAudio" --id "com.miestudioaudio.misintetizador"
+```
+Luego pega las constantes generadas en [`crates/plugin_vst/src/lib.rs`](crates/plugin_vst/src/lib.rs) (`NAME`, `VENDOR`, `CLAP_ID` y `VST3_CLASS_ID`).
 
 #### Paso 2: Añadir un Nuevo Parámetro DSP Lock-Free
 1. **En [`crates/synth_core/`](crates/synth_core/src/)**: Implementa el algoritmo DSP en [`filter.rs`](crates/synth_core/src/filter.rs), [`voice.rs`](crates/synth_core/src/voice.rs) o [`fx.rs`](crates/synth_core/src/fx.rs) sin usar `Vec::push`, `Box::new` ni `Mutex::lock` dentro del bloque de audio.
@@ -355,6 +356,18 @@ El script [`installer/sign_binaries.ps1`](installer/sign_binaries.ps1) firma aut
 Cada push o Pull Request hacia `main` ejecuta automáticamente:
 1. **[`.github/workflows/ci.yml`](.github/workflows/ci.yml)**: Compila y ejecuta los 85 tests en **Windows x64**, **macOS** y **Linux x64**, empaqueta los bundles `TEPUI.vst3` y `TEPUI.clap`, y ejecuta la herramienta oficial **[`clap-validator`](https://github.com/free-audio/clap-validator)** verificando `0 failed` en las pruebas de concurrencia, parámetros y estado del estándar CLAP.
 2. **[`.github/workflows/release.yml`](.github/workflows/release.yml)**: Analiza los commits siguiendo [Conventional Commits](https://www.conventionalcommits.org/), incrementa la versión semántica en todos los `Cargo.toml`, actualiza [`CHANGELOG.md`](CHANGELOG.md), firma los binarios si hay certificado configurado y publica los paquetes de Windows, macOS y Linux en GitHub Releases.
+
+---
+
+## Modelo de Sostenibilidad Open-Source Honesto (Cero Taxímetros ni DRM Artificial)
+
+En un proyecto Open-Source, intentar cobrar micro-créditos por clic o depender de DRM local carece de sentido técnico (cualquiera puede recompilar el binario o conectar su propia API key) y deteriora la experiencia del músico. Por ello, **TEPUI** sigue el modelo de sostenibilidad transparente de proyectos referentes como *Vital*, *Ardour*, *VCV Rack* y *Blender*:
+
+| Nivel / Vía | Qué Incluye | Precio |
+| :--- | :--- | :--- |
+| **1. Community Open-Source (`MIT`)** | Motor DSP completo de 16 voces, las 6 skins de hardware, 1,250+ presets paramétricos, síntesis en silicio local (`< 1 ms`), conexión libre a Ollama/Gemini/Groq/OpenAI y código fuente íntegro sin ningún límite ni contador artificial. | **`$0 USD` (Gratis para siempre)** |
+| **2. Producer Sound Packs &amp; Supporter Pass** | Expansiones oficiales `.tepui` grabadas en estudio con micrófonos de condensador, bancos de Wavetables de autor, instaladores oficiales firmados 1-clic y apoyo directo al desarrollo independiente. | **`$19 USD` (Pago único)** |
+| **3. Commercial Plugin Template SDK (`B2B`)** | Licencia comercial white-label (sin obligación de atribución en la UI), generador `cargo xtask init-template` y soporte de arquitectura para marcas y estudios que lancen plugins comerciales de código cerrado basados en este stack. | **`$199 USD` (Por estudio)** |
 
 ---
 

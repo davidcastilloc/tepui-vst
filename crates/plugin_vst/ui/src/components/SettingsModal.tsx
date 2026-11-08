@@ -217,15 +217,14 @@ export const SettingsModal: React.FC = () => {
               <div className="cloud-license-header">
                 <div className="field-label-group">
                   <label htmlFor="select-ai-provider">
-                    PROVEEDOR DE IA ABIERTO (OPEN SOURCE MULTI-LLM &amp; NPU):
+                    MOTOR IA 100% OPEN-SOURCE &amp; SIN LÍMITES (NPU LOCAL / OLLAMA / BYOK):
                   </label>
                   <span className="field-desc">
-                    Pool Comunitario KV gratuito, Ollama GPU local, Gemini,
-                    Groq, OpenAI o 100% Intel NPU
+                    Síntesis ilimitada sin taxímetro: Intel NPU (&lt; 1 ms), Ollama local, tu propia API Key o Caché KV Comunitaria
                   </span>
                 </div>
                 <span id="cloud-modal-tier-badge" className="cloud-tier-pill">
-                  COMMUNITY KV • 20 CR
+                  OPEN CORE • ILIMITADO
                 </span>
               </div>
 
@@ -236,7 +235,7 @@ export const SettingsModal: React.FC = () => {
                       MOTOR / PROVEEDOR DE SÍNTESIS IA:
                     </label>
                     <span className="field-desc">
-                      Conecta cualquier LLM o sintetiza 100% offline
+                      Conecta cualquier LLM propio o sintetiza 100% offline sin costo
                     </span>
                   </div>
                   <select
@@ -245,7 +244,7 @@ export const SettingsModal: React.FC = () => {
                     defaultValue="community_edge"
                   >
                     <option value="community_edge">
-                      TEPUI Community Edge (Gratis • KV Cache + 20/día)
+                      TEPUI Open Community KV (100% Gratis • Caché Global Compartida)
                     </option>
                     <option value="ollama_local">
                       Ollama Local (100% Offline en tu PC •
@@ -261,7 +260,7 @@ export const SettingsModal: React.FC = () => {
                       OpenAI / OpenRouter / Compatible (BYOK)
                     </option>
                     <option value="local_npu">
-                      100% Local Intel NPU + DSP Físico (Offline Instantáneo)
+                      100% Local Intel NPU + DSP Físico (Offline Instantáneo &lt; 1 ms)
                     </option>
                   </select>
                 </div>
@@ -287,10 +286,10 @@ export const SettingsModal: React.FC = () => {
                 <div className="setting-field">
                   <div className="field-label-group">
                     <label htmlFor="input-ai-api-key">
-                      API KEY (GEMINI / GROQ / OPENAI / OPENROUTER):
+                      TU PROPIA API KEY (GEMINI / GROQ / OPENAI / OPENROUTER):
                     </label>
                     <span className="field-desc">
-                      Almacenada localmente (no requerida para KV, Ollama o NPU)
+                      100% privada en tu equipo (no requerida para NPU Local, Ollama ni KV)
                     </span>
                   </div>
                   <input
@@ -305,11 +304,10 @@ export const SettingsModal: React.FC = () => {
                 <div className="setting-field">
                   <div className="field-label-group">
                     <label htmlFor="input-ai-endpoint">
-                      TEPUI_AI_GATEWAY_URL (SAMPLES .WAV IA):
+                      ENDPOINT DE AUDIO / SELF-HOSTED GATEWAY (OPCIONAL):
                     </label>
                     <span className="field-desc">
-                      Endpoint para generación de samples .WAV one-shot (5 CR /
-                      WAV)
+                      Conecta tu propio worker o nodo local de difusión de samples .WAV
                     </span>
                   </div>
                   <input
@@ -327,18 +325,17 @@ export const SettingsModal: React.FC = () => {
                 <div className="setting-field">
                   <div className="field-label-group">
                     <label htmlFor="input-cloud-redeem-code">
-                      CÓDIGO DE RECARGA / LICENCIA CLOUD:
+                      CLAVE DE EXPANSIÓN OFICIAL / SUPPORTER KEY (.TEPUI):
                     </label>
                     <span className="field-desc">
-                      Canjea un voucher de créditos o licencia Pro (ej.
-                      TEPUI-PRO-2026)
+                      Activa Sound Packs de estudio grabados o tu pase Supporter Open-Source
                     </span>
                   </div>
                   <input
                     type="text"
                     id="input-cloud-redeem-code"
                     className="studio-select studio-text-input"
-                    placeholder="TEPUI-PRO-XXXX-XXXX"
+                    placeholder="TEPUI-PACK-XXXX-XXXX"
                     autoComplete="off"
                   />
                 </div>
@@ -346,10 +343,10 @@ export const SettingsModal: React.FC = () => {
                 <div className="setting-field">
                   <div className="field-label-group">
                     <label htmlFor="btn-redeem-cloud-code">
-                      ACTIVACIÓN INSTANTÁNEA EN EDGE KV:
+                      DESBLOQUEO DE SOUND PACKS &amp; EXPANSIONES:
                     </label>
                     <span className="field-desc">
-                      Acredita saldo en TEPUI_CREDITS_KV sin reiniciar el DAW
+                      Activa expansiones oficiales de autor sin reiniciar tu DAW
                     </span>
                   </div>
                   <button
@@ -357,15 +354,14 @@ export const SettingsModal: React.FC = () => {
                     className="btn-test-tone"
                     type="button"
                   >
-                    <span>+ CANJEAR CÓDIGO / RECARGAR CRÉDITOS</span>
+                    <span>+ ACTIVAR SOUND PACK / SUPPORTER KEY</span>
                   </button>
                 </div>
               </div>
 
               <div className="cloud-license-actions">
                 <span id="cloud-quota-summary" className="field-desc">
-                  Pool Comunitario KV: 0 / 9,500 Neurons hoy (Caché KV global =
-                  0 Neurons en hits)
+                  Motor DSP, Síntesis NPU Local y BYOK 100% libres y sin límites • Apoya el proyecto con Sound Packs o el SDK Comercial
                 </span>
                 <div
                   style={{ display: "flex", gap: "8px", alignItems: "center" }}
@@ -374,9 +370,9 @@ export const SettingsModal: React.FC = () => {
                     id="btn-buy-cloud-credits"
                     className="btn-test-tone"
                     type="button"
-                    title="Abrir Checkout seguro con tu ID de dispositivo para recarga automática por Webhook"
+                    title="Explorar Sound Packs oficiales de estudio (.tepui), Edición Producer y Licencia Comercial del Stack Plantilla"
                   >
-                    <span>COMPRAR CRÉDITOS PRO</span>
+                    <span>EXPLORAR SOUND PACKS &amp; SDK</span>
                   </button>
                   <button
                     id="btn-verify-cloud-license"

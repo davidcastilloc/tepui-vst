@@ -671,26 +671,53 @@
         </div>
 
         <div class="code-panel motion-item">
-          <h3 class="block-heading">MODO BYOK OPEN-SOURCE</h3>
+          <h3 class="block-heading">OPEN-SOURCE HONESTO &amp; STACK PLANTILLA</h3>
           <p>
-            TEPUI opera 100% gratis con la caché comunitaria compartida o conectando tu propio proveedor compatible con OpenAI (Groq, Ollama local, OpenAI, Anthropic o Cloudflare Workers AI):
+            Cero taxímetros y cero bloqueos artificiales: el motor DSP, la síntesis en silicio local (&lt; 1 ms) y el modo BYOK (Ollama, Gemini, Groq) son 100% libres. Monetizamos de forma honesta mediante Sound Packs de estudio grabados (.tepui) y nuestra Licencia SDK Comercial para marcas de audio:
           </p>
-          <pre><code>{
-  "ai_provider": "groq-or-ollama-byok",
-  "local_fallback": "karplus-wavetable",
-  "zero_alloc_audio_thread": true,
-  "sample_rate_hz": 48000,
-  "custom_wavetable_points": 64
-}</code></pre>
+          <pre><code># Genera tu propio VST3 / CLAP a partir del stack plantilla:
+cargo run --package xtask -- init-template \
+  --name "MiSynth" \
+  --vendor "MiEstudio" \
+  --id "com.miestudio.misynth"</code></pre>
         </div>
+      </div>
+
+      <div id="ediciones" style="margin-top: 36px;">
+        <table class="spec-table motion-item" aria-label="Ediciones y modelo de sostenibilidad open-source">
+          <thead>
+            <tr>
+              <th>EDICIÓN / LICENCIA</th>
+              <th>QUÉ INCLUYE</th>
+              <th>PRECIO</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>1. Community Open-Source (MIT)</strong></td>
+              <td>Motor DSP de 16 voces completo, 6 skins de hardware, 1,250+ presets paramétricos, síntesis NPU local (&lt; 1 ms) y conexión BYOK (Ollama/Gemini/Groq) 100% ilimitada.</td>
+              <td><strong>$0 USD (Gratis para siempre)</strong></td>
+            </tr>
+            <tr>
+              <td><strong>2. Producer Sound Packs &amp; Supporter Pass</strong></td>
+              <td>Expansiones acústicas grabadas en estudio (.tepui), bancos de Wavetables de autor, instaladores 1-clic firmados y apoyo directo al desarrollo independiente.</td>
+              <td><strong>$19 USD (Pago único)</strong></td>
+            </tr>
+            <tr>
+              <td><strong>3. Commercial Plugin Template SDK (B2B)</strong></td>
+              <td>Licencia comercial white-label para estudios y marcas que utilicen el stack plantilla (Rust + nih-plug + @audio-ui/react + 7-Gate Certifier) en plugins comerciales de código cerrado.</td>
+              <td><strong>$199 USD (Por estudio)</strong></td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
   </section>
 
   <div class="page-shell">
     <footer class="site-footer">
-      <p><strong>TEPUI AUDIO LABS</strong> — Sintetizador Wavetable, Karplus-Strong y Estación Modular en Rust.</p>
-      <a href="https://github.com/davidcastilloc/tepui-vst/releases/latest">Release v1.19.0 en GitHub</a>
+      <p><strong>TEPUI AUDIO LABS</strong> — Sintetizador Wavetable, Karplus-Strong &amp; Stack Plantilla Open-Source en Rust.</p>
+      <a href="https://github.com/davidcastilloc/tepui-vst/releases/latest">Release v1.21.0 en GitHub</a>
     </footer>
   </div>
 
