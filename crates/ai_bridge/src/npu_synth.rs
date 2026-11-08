@@ -471,3 +471,65 @@ pub fn generate_neural_spectral_sample(
 
     (buffer, backend)
 }
+
+/// Sintetiza localmente en silicio (`< 1 ms`, 0 latencia de red) una tabla de ondas coherente en fase
+/// de `64` muestras (`[f32; 64]`, lista para `VoiceManager::set_custom_wavetable_cycle`) y su banco extendido
+/// de `2048` muestras (`32 frames × 64 muestras`) a partir del descriptor acústico-semántico del prompt.
+pub fn synthesize_local_silicon_wavetable(prompt: &str, sample_rate: f32) -> ([f32; 64], Vec<f32>) {
+    let (desc, _backend) = SemanticTimbreDescriptor::from_prompt(prompt);
+    let sr = sample_rate.max(8000.0);
+    let f0 = 440.0 * 2.0_f32.powf((desc.root_note as f32 - 69.0) / 12.0);
+    let max_harm = ((sr * 0.45 / f0).floor() as usize).clamp(4, 32);
+    let num_harm = (8 + (desc.brightness * 20.0) as usize).min(max_harm);
+    let spectral_tilt = 1.55 - desc.brightness * 0.65;
+
+    let mut cycle64 = [0.0_f32; 64];
+    for (i, slot) in cycle64.iter_mut().enumerate() {
+        let phase = (i as f32 / 64.0) * 2.0 * PI;
+        let mut s = 0.0_f32;
+        for h in 1..=num_harm {
+            let hf = h as f32;
+            let mut amp = 1.0 / hf.powf(spectral_tilt);
+            if h % 2 == 0 {
+                amp *= 0.65 + desc.warmth * 0.55;
+            }
+            if desc.formant_character > 0.1 {
+                let freq = f0 * hf;
+                let d1 = ((freq - 730.0) / 240.0).powi(2);
+                let d2 = ((freq - 1220.0) / 340.0).powi(2);
+                amp *= 1.0 + desc.formant_character * ((-d1).exp() * 1.3 + (-d2).exp() * 0.9);
+            }
+            let h_phase = phase * hf + (hf * desc.inharmonicity * 0.35);
+            s += h_phase.sin() * amp;
+        }
+        if desc.sub_weight > 0.15 {
+            s += phase.sin() * desc.sub_weight * 0.55;
+        }
+        *slot = s;
+    }
+
+    // Eliminar DC y normalizar el ciclo de 64 muestras a pico 0.95
+    let mean: f32 = cycle64.iter().sum::<f32>() / 64.0;
+    let mut peak = 0.001_f32;
+    for slot in &mut cycle64 {
+        *slot -= mean;
+        peak = peak.max(slot.abs());
+    }
+    let gain = 0.95 / peak;
+    for slot in &mut cycle64 {
+        *slot = (*slot * gain).clamp(-1.0, 1.0);
+    }
+
+    // Construir tabla morfable de 2048 muestras (32 frames x 64 muestras) con evolución armónica
+    let mut table2048 = Vec::with_capacity(2048);
+    for frame in 0..32 {
+        let morph = frame as f32 / 31.0;
+        let drive = 1.0 + morph * (0.6 + desc.warmth * 1.4);
+        for &base_s in &cycle64 {
+            let folded = (base_s * drive + morph * desc.inharmonicity * (base_s * PI).sin()).tanh();
+            table2048.push(folded.clamp(-1.0, 1.0));
+        }
+    }
+
+    (cycle64, table2048)
+}

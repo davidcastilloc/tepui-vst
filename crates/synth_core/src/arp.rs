@@ -596,6 +596,124 @@ impl TepuiArpeggiator {
         self.samples_until_step = self.samples_until_step.saturating_sub(frames);
         None
     }
+
+    /// Exporta el patrón activo del arpegiador (velocidades, octavas, ratchets y compás) como un archivo
+    /// Standard MIDI File (`.mid` SMF Format 0, 480 TPQN) listo para arrastrar o guardar en el DAW.
+    /// Esta función se invoca exclusivamente desde el hilo de UI/IPC (fuera del callback de audio).
+    pub fn encode_arp_pattern_to_smf_midi(&self, root_note: u8) -> Vec<u8> {
+        fn push_vlq(buf: &mut Vec<u8>, mut val: u32) {
+            let mut bytes = [0u8; 4];
+            let mut count = 1;
+            bytes[0] = (val & 0x7F) as u8;
+            val >>= 7;
+            while val > 0 && count < 4 {
+                bytes[count] = ((val & 0x7F) as u8) | 0x80;
+                val >>= 7;
+                count += 1;
+            }
+            for i in (0..count).rev() {
+                buf.push(bytes[i]);
+            }
+        }
+
+        let tpqn: u32 = 480;
+        let step_ticks = (tpqn as f32 * self.rate_division.beat_fraction()).round() as u32;
+        let step_ticks = step_ticks.max(60);
+        let active_steps = self.step_count.clamp(4, 16);
+
+        let mut track_data = Vec::with_capacity(256);
+        // Meta-evento Tempo (FF 51 03 tt tt tt)
+        let us_per_quarter = (60_000_000.0 / self.bpm.clamp(40.0, 260.0)).round() as u32;
+        track_data.extend_from_slice(&[
+            0x00,
+            0xFF,
+            0x51,
+            0x03,
+            ((us_per_quarter >> 16) & 0xFF) as u8,
+            ((us_per_quarter >> 8) & 0xFF) as u8,
+            (us_per_quarter & 0xFF) as u8,
+        ]);
+
+        let mut sorted = [0u8; 16];
+        let held_cnt = self.collect_sorted_notes(&mut sorted);
+        let chord: [u8; 4] = if held_cnt > 0 {
+            [
+                sorted[0],
+                sorted[1.min(held_cnt - 1)],
+                sorted[2.min(held_cnt - 1)],
+                sorted[3.min(held_cnt - 1)],
+            ]
+        } else {
+            let r = root_note.clamp(24, 96);
+            [r, r + 4, r + 7, r + 12]
+        };
+
+        let mut pending_rest_ticks = 0u32;
+        for step in 0..active_steps {
+            let base_note = match self.mode {
+                ArpMode::Off | ArpMode::Up => chord[step % 4],
+                ArpMode::Down => chord[3 - (step % 4)],
+                ArpMode::Joropo => match step % 6 {
+                    0 => chord[0].saturating_sub(12).max(24),
+                    1 => chord[3],
+                    2 => chord[1],
+                    3 => chord[2],
+                    4 => (chord[3] + 12).min(108),
+                    _ => chord[0],
+                },
+                ArpMode::Merengue => match step % 5 {
+                    0 => chord[0],
+                    1 => chord[1],
+                    2 => chord[2],
+                    3 => chord[3],
+                    _ => (chord[3] + 12).min(108),
+                },
+            };
+            let oct_shift = (self.step_octaves[step] as i32) * 12;
+            let note = (base_note as i32 + oct_shift).clamp(12, 120) as u8;
+            let accent = if self.has_custom_accents {
+                self.custom_step_accents[step].clamp(0.05, 1.0)
+            } else {
+                Self::default_accents_for_mode(self.mode)[step % 12]
+            };
+            let vel_u8 = ((accent * 127.0).round() as u8).clamp(10, 127);
+            let ratchets = self.step_ratchets[step].clamp(1, 4) as u32;
+            let sub_ticks = (step_ticks / ratchets).max(16);
+            let gate_ratio = self.step_gates[step].clamp(0.15, 0.95);
+            let on_ticks = ((sub_ticks as f32 * gate_ratio).round() as u32).clamp(8, sub_ticks - 2);
+            let off_ticks = sub_ticks.saturating_sub(on_ticks);
+
+            for r_idx in 0..ratchets {
+                let hit_vel = if r_idx == 0 {
+                    vel_u8
+                } else {
+                    ((vel_u8 as f32 * 0.88).round() as u8).clamp(10, 127)
+                };
+                push_vlq(&mut track_data, pending_rest_ticks);
+                track_data.extend_from_slice(&[0x90, note, hit_vel]);
+                push_vlq(&mut track_data, on_ticks);
+                track_data.extend_from_slice(&[0x80, note, 0x00]);
+                pending_rest_ticks = off_ticks;
+            }
+        }
+
+        // End of Track (FF 2F 00)
+        push_vlq(&mut track_data, pending_rest_ticks);
+        track_data.extend_from_slice(&[0xFF, 0x2F, 0x00]);
+
+        let mut smf = Vec::with_capacity(22 + track_data.len());
+        // Header chunk MThd (length 6, format 0, 1 track, division = 480 TPQN)
+        smf.extend_from_slice(b"MThd");
+        smf.extend_from_slice(&6u32.to_be_bytes());
+        smf.extend_from_slice(&0u16.to_be_bytes());
+        smf.extend_from_slice(&1u16.to_be_bytes());
+        smf.extend_from_slice(&(tpqn as u16).to_be_bytes());
+        // Track chunk MTrk
+        smf.extend_from_slice(b"MTrk");
+        smf.extend_from_slice(&(track_data.len() as u32).to_be_bytes());
+        smf.extend_from_slice(&track_data);
+        smf
+    }
 }
 
 #[cfg(test)]
@@ -634,5 +752,11 @@ mod tests {
             ratchet_triggered,
             "Ratchet subdivision should trigger extra hit and bump ratchet_hits_count"
         );
+
+        let smf = arp.encode_arp_pattern_to_smf_midi(60);
+        assert!(smf.starts_with(b"MThd"));
+        assert_eq!(&smf[14..18], b"MTrk");
+        assert!(smf.ends_with(&[0xFF, 0x2F, 0x00]));
+        assert!(smf.len() > 64);
     }
 }

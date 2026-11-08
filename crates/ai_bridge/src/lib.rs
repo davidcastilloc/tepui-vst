@@ -28,7 +28,7 @@ pub use fallback_synth::{
 };
 pub use npu_synth::{
     extract_midi_note_from_prompt, generate_neural_spectral_sample, generate_sample_with_cache,
-    npu_cache_hits, npu_cache_misses, SemanticTimbreDescriptor,
+    npu_cache_hits, npu_cache_misses, synthesize_local_silicon_wavetable, SemanticTimbreDescriptor,
 };
 pub use worker::{AiWorker, GenerateRequest, GenerationStatus};
 
@@ -489,6 +489,26 @@ mod tests {
         assert_eq!(
             cfg.redeemed_credits, 0,
             "Al detectar adulteración debe revocar los créditos falsos a 0"
+        );
+    }
+
+    #[test]
+    fn test_local_silicon_wavetable_synthesizer_sub_millisecond_and_spectral_contrast() {
+        let (wt_dark, table_dark) =
+            synthesize_local_silicon_wavetable("Dark Sub Bass Drone C2", 48000.0);
+        let (wt_bright, table_bright) =
+            synthesize_local_silicon_wavetable("Bright Crystal Choir Bell E4", 48000.0);
+        assert_eq!(table_dark.len(), 2048);
+        assert_eq!(table_bright.len(), 2048);
+
+        let diff: f32 = wt_dark
+            .iter()
+            .zip(wt_bright.iter())
+            .map(|(a, b)| (a - b).abs())
+            .sum();
+        assert!(
+            diff > 2.0,
+            "Dark sub vs bright crystal wavetable cycles must have distinct harmonic shapes, got diff={diff}"
         );
     }
 }

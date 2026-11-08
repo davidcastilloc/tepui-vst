@@ -11,6 +11,8 @@ pub enum FilterMode {
     Ladder24dB,
     Comb,
     Formant,
+    DualSerialHpLp,
+    DualParallelLpBp,
     Bypass,
 }
 
@@ -25,6 +27,8 @@ impl FilterMode {
             4 => Self::Ladder24dB,
             5 => Self::Comb,
             6 => Self::Formant,
+            7 => Self::DualSerialHpLp,
+            8 => Self::DualParallelLpBp,
             _ => Self::Lowpass,
         }
     }
@@ -39,12 +43,21 @@ impl FilterMode {
             Self::Ladder24dB => 4,
             Self::Comb => 5,
             Self::Formant => 6,
+            Self::DualSerialHpLp => 7,
+            Self::DualParallelLpBp => 8,
         }
     }
 
     #[inline]
     pub fn is_advanced_model(self) -> bool {
-        matches!(self, Self::Ladder24dB | Self::Comb | Self::Formant)
+        matches!(
+            self,
+            Self::Ladder24dB
+                | Self::Comb
+                | Self::Formant
+                | Self::DualSerialHpLp
+                | Self::DualParallelLpBp
+        )
     }
 }
 
@@ -58,6 +71,10 @@ pub struct StateVariableFilter {
     // Estados internos integradores SVF 2-polos
     ic1eq: f32,
     ic2eq: f32,
+
+    // Estados internos del filtro secundario para topología Dual Serie (HP -> Ladder LP)
+    dual_hp_ic1: f32,
+    dual_hp_ic2: f32,
 
     // Estados internos Ladder 24dB/oct (4 polos en cascada tipo Moog)
     ladder_s: [f32; 4],
@@ -92,6 +109,8 @@ impl Default for StateVariableFilter {
             mode: FilterMode::Lowpass,
             ic1eq: 0.0,
             ic2eq: 0.0,
+            dual_hp_ic1: 0.0,
+            dual_hp_ic2: 0.0,
             ladder_s: [0.0; 4],
             comb_buf: [0.0; 2048],
             comb_pos: 0,
@@ -205,6 +224,8 @@ impl StateVariableFilter {
     pub fn reset(&mut self) {
         self.ic1eq = 0.0;
         self.ic2eq = 0.0;
+        self.dual_hp_ic1 = 0.0;
+        self.dual_hp_ic2 = 0.0;
         self.ladder_s = [0.0; 4];
         if self.comb_dirty {
             self.comb_buf = [0.0; 2048];
@@ -322,6 +343,86 @@ impl StateVariableFilter {
                 self.ic2eq = sum;
                 Self::fast_tanh(sum * 2.1 + input * 0.12)
             }
+            FilterMode::DualSerialHpLp => {
+                // Doble Filtro en Serie (DUAL:S): Highpass 2-polos resonante (cutoff * 0.25) -> Ladder 24dB Lowpass
+                let g_hp = (self.g * 0.25).clamp(0.001, 0.85);
+                let k_hp = (self.k * 0.85).clamp(0.12, 1.5);
+                let a1_hp = 1.0 / (1.0 + g_hp * (g_hp + k_hp));
+                let a2_hp = g_hp * a1_hp;
+                let a3_hp = g_hp * a2_hp;
+                let v3_hp = input - self.dual_hp_ic2;
+                let v1_hp = a1_hp * self.dual_hp_ic1 + a2_hp * v3_hp;
+                let v2_hp = self.dual_hp_ic2 + a2_hp * self.dual_hp_ic1 + a3_hp * v3_hp;
+                self.dual_hp_ic1 = 2.0 * v1_hp - self.dual_hp_ic1;
+                self.dual_hp_ic2 = 2.0 * v2_hp - self.dual_hp_ic2;
+                if self.dual_hp_ic1.abs() < 1e-15 {
+                    self.dual_hp_ic1 = 0.0;
+                }
+                if self.dual_hp_ic2.abs() < 1e-15 {
+                    self.dual_hp_ic2 = 0.0;
+                }
+                let hp_out = input - k_hp * v1_hp - v2_hp;
+
+                // Etapa 2 en serie: Ladder 24dB Lowpass con saturación cálida
+                let g1 = self.g / (1.0 + self.g);
+                let g2 = g1 * g1;
+                let g3 = g2 * g1;
+                let g4 = g2 * g2;
+                let k_moog = ((self.resonance - 0.5) / 9.5).clamp(0.0, 1.0) * 3.65;
+                let s_est = g3 * self.ladder_s[0]
+                    + g2 * self.ladder_s[1]
+                    + g1 * self.ladder_s[2]
+                    + self.ladder_s[3];
+                let fb = Self::fast_tanh(s_est);
+                let u = Self::fast_tanh(hp_out * 1.45 - k_moog * fb) / (1.0 + k_moog * g4);
+                let mut x = u;
+                for st in &mut self.ladder_s {
+                    let v = (x - *st) * g1;
+                    let y = v + *st;
+                    *st = y + v;
+                    if st.abs() < 1e-15 {
+                        *st = 0.0;
+                    }
+                    x = y;
+                }
+                self.ic1eq = v1_hp;
+                self.ic2eq = x;
+                x * (1.0 + k_moog * 0.25)
+            }
+            FilterMode::DualParallelLpBp => {
+                // Doble Filtro en Paralelo (DUAL:P): SVF Lowpass + Resonador Vocal Formant BP
+                let v3 = input - self.ic2eq;
+                let v1 = self.a1 * self.ic1eq + self.a2 * v3;
+                let v2 = self.ic2eq + self.a2 * self.ic1eq + self.a3 * v3;
+                self.ic1eq = 2.0 * v1 - self.ic1eq;
+                self.ic2eq = 2.0 * v2 - self.ic2eq;
+                if self.ic1eq.abs() < 1e-15 {
+                    self.ic1eq = 0.0;
+                }
+                if self.ic2eq.abs() < 1e-15 {
+                    self.ic2eq = 0.0;
+                }
+
+                const WEIGHTS: [f32; 3] = [1.0, 0.72, 0.45];
+                let mut fmt_sum = 0.0_f32;
+                for (b, &weight) in WEIGHTS.iter().enumerate() {
+                    let fv3 = input - self.formant_ic2[b];
+                    let fv1 = self.formant_a1[b] * self.formant_ic1[b] + self.formant_a2[b] * fv3;
+                    let fv2 = self.formant_ic2[b]
+                        + self.formant_a2[b] * self.formant_ic1[b]
+                        + self.formant_a3[b] * fv3;
+                    self.formant_ic1[b] = 2.0 * fv1 - self.formant_ic1[b];
+                    self.formant_ic2[b] = 2.0 * fv2 - self.formant_ic2[b];
+                    if self.formant_ic1[b].abs() < 1e-15 {
+                        self.formant_ic1[b] = 0.0;
+                    }
+                    if self.formant_ic2[b].abs() < 1e-15 {
+                        self.formant_ic2[b] = 0.0;
+                    }
+                    fmt_sum += fv1 * weight;
+                }
+                Self::fast_tanh(v2 * 0.65 + fmt_sum * 1.35)
+            }
         }
     }
 }
@@ -411,6 +512,49 @@ mod tests {
             diff > 5.0,
             "Comb filter at 96kHz must distinguish 55Hz (1745 smp) from 110Hz (872 smp), got diff={}",
             diff
+        );
+    }
+
+    #[test]
+    fn test_dual_serial_and_parallel_filter_topologies_produce_distinct_responses() {
+        let sr = 48000.0;
+        let mut f_serial = StateVariableFilter::new(sr);
+        f_serial.mode = FilterMode::DualSerialHpLp;
+        f_serial.set_cutoff(1200.0);
+        f_serial.set_resonance(2.8);
+
+        let mut f_parallel = StateVariableFilter::new(sr);
+        f_parallel.mode = FilterMode::DualParallelLpBp;
+        f_parallel.set_cutoff(1200.0);
+        f_parallel.set_resonance(2.8);
+
+        let mut f_lp = StateVariableFilter::new(sr);
+        f_lp.mode = FilterMode::Lowpass;
+        f_lp.set_cutoff(1200.0);
+        f_lp.set_resonance(2.8);
+
+        let mut diff_serial_lp = 0.0_f32;
+        let mut diff_parallel_lp = 0.0_f32;
+        let mut diff_serial_parallel = 0.0_f32;
+        for i in 0..512 {
+            let phase = (i as f32 * 180.0 / sr).fract();
+            let x = phase * 2.0 - 1.0;
+            let ys = f_serial.process_sample(x);
+            let yp = f_parallel.process_sample(x);
+            let ylp = f_lp.process_sample(x);
+            assert!(ys.is_finite() && yp.is_finite());
+            diff_serial_lp += (ys - ylp).abs();
+            diff_parallel_lp += (yp - ylp).abs();
+            diff_serial_parallel += (ys - yp).abs();
+        }
+        assert!(diff_serial_lp > 1.0, "DualSerialHpLp must differ from SVF LP");
+        assert!(
+            diff_parallel_lp > 1.0,
+            "DualParallelLpBp must differ from SVF LP"
+        );
+        assert!(
+            diff_serial_parallel > 1.0,
+            "DualSerialHpLp and DualParallelLpBp must differ from each other"
         );
     }
 }

@@ -8,9 +8,26 @@ use crate::filter::FilterMode;
 use crate::lfo::{LfoShape, LfoState, LfoTarget};
 use crate::resampler::ResamplingQuality;
 use crate::rt_primitives::OnePoleSmoother;
-use crate::voice::{SampleRegionOverride, Voice};
+use crate::voice::{
+    parse_scala_scl_cents, tuning_cents_for_note, SampleRegionOverride, Voice,
+};
 
 pub const DEFAULT_MAX_VOICES: usize = 16;
+
+/// Intervalos en semitonos para el Generador de Acordes & Rasgueo Llanero (`chord_mode`).
+/// - `0` = `CHORD:OFF` (`&[0]`)
+/// - `1` = `CHORD:MIN7` (`&[0, 3, 7, 10]`)
+/// - `2` = `CHORD:MAJ9` (`&[0, 4, 7, 11, 14]`)
+/// - `3` = `CHORD:STRUM` (Voicing de Cuatro / Arpa Llanera Venezolana `&[0, 7, 12, 16]`)
+#[inline]
+pub fn expand_chord_intervals(chord_mode: u8) -> &'static [i8] {
+    match chord_mode {
+        1 => &[0, 3, 7, 10],
+        2 => &[0, 4, 7, 11, 14],
+        3 => &[0, 7, 12, 16],
+        _ => &[0],
+    }
+}
 
 #[derive(Debug)]
 pub struct VoiceManager {
@@ -90,6 +107,12 @@ pub struct VoiceManager {
     resonance_smoother: OnePoleSmoother,
     wt_pos_smoother: OnePoleSmoother,
     wt_warp_smoother: OnePoleSmoother,
+
+    // Micro-Afinación / Temperamentos (.scl), Atenuversores Bipolares 5x5 y Modo Acorde
+    tuning_mode: u8,
+    custom_tuning_cents: [f32; 12],
+    mod_matrix_weights: [f32; 25],
+    chord_mode: u8,
 }
 
 impl Default for VoiceManager {
@@ -170,7 +193,76 @@ impl VoiceManager {
             resonance_smoother: OnePoleSmoother::new(0.707, 4.0, sample_rate),
             wt_pos_smoother: OnePoleSmoother::new(0.0, 4.0, sample_rate),
             wt_warp_smoother: OnePoleSmoother::new(0.0, 4.0, sample_rate),
+            tuning_mode: 0,
+            custom_tuning_cents: [0.0; 12],
+            mod_matrix_weights: [1.0; 25],
+            chord_mode: 0,
         }
+    }
+
+    /// Configura el temperamento microtonal activo (`0` = 12-TET, `1` = Just Intonation 5-Limit,
+    /// `2` = Joropo Llanero Harp, `3` = Ethnic Quarter-Tone / Maqam, `4` = Custom Scala `.scl`).
+    #[inline]
+    pub fn set_tuning_mode(&mut self, mode: u8) {
+        let clamped = mode.min(4);
+        if self.tuning_mode != clamped {
+            self.tuning_mode = clamped;
+            for voice in &mut self.voices {
+                voice.tuning_cents =
+                    tuning_cents_for_note(voice.note, self.tuning_mode, &self.custom_tuning_cents);
+            }
+        }
+    }
+
+    #[inline]
+    pub fn tuning_mode(&self) -> u8 {
+        self.tuning_mode
+    }
+
+    /// Carga una escala microtonal en formato Scala (`.scl`) y activa `tuning_mode = 4`.
+    pub fn load_scala_scl(&mut self, scl_text: &str) {
+        self.custom_tuning_cents = parse_scala_scl_cents(scl_text);
+        self.tuning_mode = 4;
+        for voice in &mut self.voices {
+            voice.tuning_cents =
+                tuning_cents_for_note(voice.note, self.tuning_mode, &self.custom_tuning_cents);
+        }
+    }
+
+    /// Configura el peso bipolar (`-1.0..=1.0`) de una celda individual (`0..25`) de la Matriz de Modulación `5×5`.
+    #[inline]
+    pub fn set_mod_matrix_weight(&mut self, cell_idx: usize, weight: f32) {
+        if cell_idx < 25 && weight.is_finite() {
+            self.mod_matrix_weights[cell_idx] = weight.clamp(-1.0, 1.0);
+        }
+    }
+
+    /// Sincroniza los 25 pesos bipolares (`-1.0..=1.0`) de la Matriz `5×5`.
+    #[inline]
+    pub fn set_mod_matrix_weights(&mut self, weights: &[f32; 25]) {
+        for (dst, &src) in self.mod_matrix_weights.iter_mut().zip(weights.iter()) {
+            *dst = if src.is_finite() {
+                src.clamp(-1.0, 1.0)
+            } else {
+                1.0
+            };
+        }
+    }
+
+    #[inline]
+    pub fn mod_matrix_weight(&self, cell_idx: usize) -> f32 {
+        self.mod_matrix_weights.get(cell_idx).copied().unwrap_or(1.0)
+    }
+
+    /// Configura el modo de acordes / rasgueo (`0` = Off, `1` = Min7, `2` = Maj9, `3` = Llanero Strum).
+    #[inline]
+    pub fn set_chord_mode(&mut self, mode: u8) {
+        self.chord_mode = mode.min(3);
+    }
+
+    #[inline]
+    pub fn chord_mode(&self) -> u8 {
+        self.chord_mode
     }
 
     /// Registra una forma de onda de ciclo único (`64` muestras) dibujada a mano en el visor OLED (0 asignaciones dinámicas).
@@ -1190,6 +1282,8 @@ impl VoiceManager {
                 0.0
             };
             voice.osc_b_level = self.osc_b_level;
+            voice.tuning_cents =
+                tuning_cents_for_note(note, self.tuning_mode, &self.custom_tuning_cents);
             voice.note_on_with_root_and_glide(
                 note,
                 velocity,
@@ -1401,7 +1495,9 @@ impl VoiceManager {
                     if row_bits != 0 {
                         for (c, dest_slot) in dest_sums.iter_mut().enumerate() {
                             if (row_bits & (1 << c)) != 0 {
-                                *dest_slot += src_val;
+                                let cell_idx = r * 5 + c;
+                                let weight = self.mod_matrix_weights[cell_idx];
+                                *dest_slot += src_val * weight;
                             }
                         }
                     }
@@ -1741,6 +1837,54 @@ mod tests {
         assert!(
             (pos_after_freeze - pos_before_freeze).abs() < 1e-5,
             "Granular Freeze must freeze at the current playhead ({pos_before_freeze}), got {pos_after_freeze}"
+        );
+    }
+
+    #[test]
+    fn test_micro_tuning_temperaments_scala_scl_and_bipolar_mod_matrix_weights() {
+        let buf = make_test_sample();
+        let mut vm_12tet = VoiceManager::new(48000.0, 16);
+        vm_12tet.set_tuning_mode(0); // 12-TET
+        vm_12tet.note_on(64, 0.9, &buf); // E4 (tercera mayor)
+
+        let mut vm_joropo = VoiceManager::new(48000.0, 16);
+        vm_joropo.set_tuning_mode(2); // Joropo Llanero Harp (-11.5 cents en tercera mayor)
+        vm_joropo.note_on(64, 0.9, &buf);
+
+        assert!(
+            (vm_12tet.voices[0].base_ratio - vm_joropo.voices[0].base_ratio).abs() > 1e-4,
+            "Joropo Llanero temperament must alter playback ratio of E4 vs 12-TET"
+        );
+
+        let scl = "! arpa_llanera.scl\n12-note custom scale\n 12\n 112.0\n 203.91\n 315.64\n 386.31\n 498.04\n 590.22\n 701.96\n 813.69\n 884.36\n 1017.60\n 1088.27\n 2/1\n";
+        vm_joropo.load_scala_scl(scl);
+        assert_eq!(vm_joropo.tuning_mode(), 4);
+        assert!((vm_joropo.voices[0].tuning_cents - (-13.69)).abs() < 0.05);
+
+        // Verificar pesos bipolares (-1.0 vs +1.0) en la matriz de modulación 5x5
+        let mut vm_pos = VoiceManager::new(48000.0, 16);
+        vm_pos.update_filter_params(1500.0, 1.5, FilterMode::Lowpass);
+        vm_pos.set_mod_wheel(0.9);
+        vm_pos.set_mod_matrix_mask(1 << (4 * 5 + 1)); // MOD W (fila 4) -> CUTOFF (col 1)
+        vm_pos.set_mod_matrix_weight(4 * 5 + 1, 1.0);
+        vm_pos.note_on(60, 0.9, &buf);
+
+        let mut vm_neg = VoiceManager::new(48000.0, 16);
+        vm_neg.update_filter_params(1500.0, 1.5, FilterMode::Lowpass);
+        vm_neg.set_mod_wheel(0.9);
+        vm_neg.set_mod_matrix_mask(1 << (4 * 5 + 1)); // MOD W (fila 4) -> CUTOFF (col 1)
+        vm_neg.set_mod_matrix_weight(4 * 5 + 1, -1.0);
+        vm_neg.note_on(60, 0.9, &buf);
+
+        let mut l1 = vec![0.0; 256];
+        let mut r1 = vec![0.0; 256];
+        let mut l2 = vec![0.0; 256];
+        let mut r2 = vec![0.0; 256];
+        vm_pos.process_block(&buf, &mut l1, &mut r1);
+        vm_neg.process_block(&buf, &mut l2, &mut r2);
+        assert!(
+            vm_pos.voices[0].base_cutoff_hz > vm_neg.voices[0].base_cutoff_hz * 1.5,
+            "Positive vs negative bipolar mod matrix weight must invert cutoff modulation"
         );
     }
 }

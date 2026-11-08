@@ -23454,6 +23454,16 @@
               "COMP\xC1S: ",
               /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("strong", { id: "arp-meter-label", children: "4/4 FREE" })
             ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+              "button",
+              {
+                id: "btn-arp-midi",
+                className: "oled-pill-btn amber",
+                title: "Exportar patr\xF3n del Arpegiador como clip MIDI (.mid SMF) listo para tu DAW",
+                type: "button",
+                children: "MIDI\u2197"
+              }
+            ),
             /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("span", { className: "arp-stat", children: [
               "STEPS: ",
               /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("strong", { id: "arp-steps-count", children: "0" })
@@ -23854,6 +23864,26 @@
               title: "Portamento Exponencial / Modo Legato & MPE Per-Note Expression (OFF / PORTA 85ms / LEGATO 140ms)",
               type: "button",
               children: "GLIDE:OFF"
+            }
+          ),
+          /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
+            "button",
+            {
+              id: "btn-tuning-mode",
+              className: "tb-btn",
+              title: "Micro-Afinaci\xF3n & Temperamentos Scala (.scl): 12-TET / Just Intonation / Arpa Llanera / Maqam Cuarto de Tono",
+              type: "button",
+              children: "TUNE:12T"
+            }
+          ),
+          /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
+            "button",
+            {
+              id: "btn-chord-mode",
+              className: "tb-btn",
+              title: "Armonizador Polif\xF3nico y Rasgueo Llanero: OFF / MIN7 / MAJ9 / STRUM",
+              type: "button",
+              children: "CHORD:OFF"
             }
           ),
           /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
@@ -25589,7 +25619,9 @@
   var LFO_SHAPE_LABELS = ["SINE", "TRI", "SAW", "RAMP", "SQR", "S&H"];
   var GRANULAR_MODE_LABELS = ["GRAN:OFF", "GRAN:CLOUD", "GRAN:FREEZE"];
   var WT_WARP_MODE_LABELS = ["WARP:FOLD", "WARP:ASYM", "WARP:SYNC", "WARP:QUANT"];
-  var FX_BUS_MODE_LABELS = ["FX:CANYON", "FX:PHASER", "FX:TAPE"];
+  var FX_BUS_MODE_LABELS = ["FX:CANYON", "FX:PHASER", "FX:TAPE", "FX:DELAY"];
+  var TUNING_MODE_LABELS = ["TUNE:12T", "TUNE:JUST", "TUNE:HARP", "TUNE:MAQAM"];
+  var CHORD_MODE_LABELS = ["CHORD:OFF", "CHORD:MIN7", "CHORD:MAJ9", "CHORD:STRUM"];
   var ARP_RATE_LABELS = ["1/4", "1/8", "1/16", "1/8T", "1/16D"];
   function updateWtWarpModeUI(warpMode) {
     const wm = Math.max(0, Math.min(3, Math.round(Number(warpMode) || 0)));
@@ -25602,7 +25634,7 @@
     }
   }
   function updateFxModeUI(fxMode) {
-    const fm = Math.max(0, Math.min(2, Math.round(Number(fxMode) || 0)));
+    const fm = Math.max(0, Math.min(3, Math.round(Number(fxMode) || 0)));
     state.params.fx_mode = fm;
     synthStore.setFxMode(fm);
     const btn = document.getElementById("btn-fx-bus-mode");
@@ -25877,7 +25909,7 @@
     });
     const modelBtn = document.getElementById("btn-svf-model");
     if (modelBtn) {
-      const MODEL_CYCLE = [0, 4, 5, 6];
+      const MODEL_CYCLE = [0, 4, 5, 6, 7, 8];
       modelBtn.addEventListener("click", () => {
         const cur = state.params.filter_mode || 0;
         const curBase = cur >= 4 ? cur : 0;
@@ -25890,7 +25922,7 @@
     }
   }
   function updateFilterModeUI(mode) {
-    const m = Math.max(0, Math.min(6, Math.round(Number(mode) || 0)));
+    const m = Math.max(0, Math.min(8, Math.round(Number(mode) || 0)));
     state.params.filter_mode = m;
     synthStore.setFilterMode(m);
     document.querySelectorAll(".mode-btn").forEach((btn) => {
@@ -25907,7 +25939,9 @@
         3: "MODEL:BYP",
         4: "LADDER 24",
         5: "COMB K-S",
-        6: "FORMANT"
+        6: "FORMANT",
+        7: "DUAL:S",
+        8: "DUAL:P"
       };
       modelBtn.innerText = labels[m] || "MODEL:SVF";
       modelBtn.classList.toggle("active", m >= 4);
@@ -25920,7 +25954,9 @@
         3: "BYPASS",
         4: "MOOG 24dB",
         5: "COMB DLY",
-        6: "A-E-I-O-U"
+        6: "A-E-I-O-U",
+        7: "HP\u2192LP 24",
+        8: "LP\u2016FORM"
       };
       slopeBadge.innerText = slopes[m] || "12/24 dB";
     }
@@ -25972,10 +26008,66 @@
     const fxModeBtn = document.getElementById("btn-fx-bus-mode");
     if (fxModeBtn) {
       fxModeBtn.addEventListener("click", () => {
-        const nextFx = ((state.params.fx_mode || 0) + 1) % 3;
+        const nextFx = ((state.params.fx_mode || 0) + 1) % 4;
         updateFxModeUI(nextFx);
         sendIpc(`fxmode,${nextFx}`);
         showParamHudTooltip(fxModeBtn, "MASTER FX BUS", FX_BUS_MODE_LABELS[nextFx]);
+        setTimeout(hideParamHudTooltip, 950);
+      });
+    }
+    const arpMidiBtn = document.getElementById("btn-arp-midi");
+    if (arpMidiBtn) {
+      arpMidiBtn.addEventListener("click", () => {
+        sendIpc("arpmidi:export");
+        try {
+          const steps = synthStore.getState().arpSteps || [0.95, 0.48, 0.78, 0.92, 0.52, 0.86, 0.95, 0.48];
+          const rootNote = Math.max(24, Math.min(96, Math.round(state.params.root_note || 60)));
+          const intervals = [0, 4, 7, 12];
+          const trk = [0, 255, 81, 3, 7, 161, 32];
+          steps.forEach((velNorm, i) => {
+            const note = Math.max(0, Math.min(127, rootNote + intervals[i % intervals.length]));
+            const vel = Math.max(1, Math.min(127, Math.round((Number(velNorm) || 0.8) * 127)));
+            trk.push(0, 144, note, vel, 96, 128, note, 0, 24);
+          });
+          trk.push(0, 255, 47, 0);
+          const len = trk.length;
+          const smf = new Uint8Array([
+            77,
+            84,
+            104,
+            100,
+            0,
+            0,
+            0,
+            6,
+            0,
+            0,
+            0,
+            1,
+            1,
+            224,
+            77,
+            84,
+            114,
+            107,
+            len >>> 24 & 255,
+            len >>> 16 & 255,
+            len >>> 8 & 255,
+            len & 255,
+            ...trk
+          ]);
+          const blob = new Blob([smf], { type: "audio/midi" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "tepui_arp_pattern.mid";
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(url), 1500);
+        } catch (_) {
+        }
+        showParamHudTooltip(arpMidiBtn, "ARP MIDI EXPORT", "SMF .MID READY");
         setTimeout(hideParamHudTooltip, 950);
       });
     }
@@ -28403,6 +28495,32 @@
         refreshFooterOddText();
       });
     }
+    const tuningBtn = document.getElementById("btn-tuning-mode");
+    if (tuningBtn) {
+      let tuningStep = 0;
+      tuningBtn.addEventListener("click", () => {
+        tuningStep = (tuningStep + 1) % TUNING_MODE_LABELS.length;
+        state.params.tuning_mode = tuningStep;
+        tuningBtn.innerText = TUNING_MODE_LABELS[tuningStep];
+        tuningBtn.classList.toggle("active", tuningStep > 0);
+        sendIpc(`tuning,${tuningStep}`);
+        showParamHudTooltip(tuningBtn, "MICRO-TUNING (.SCL)", TUNING_MODE_LABELS[tuningStep]);
+        setTimeout(hideParamHudTooltip, 950);
+      });
+    }
+    const chordBtn = document.getElementById("btn-chord-mode");
+    if (chordBtn) {
+      let chordStep = 0;
+      chordBtn.addEventListener("click", () => {
+        chordStep = (chordStep + 1) % CHORD_MODE_LABELS.length;
+        state.params.chord_mode = chordStep;
+        chordBtn.innerText = CHORD_MODE_LABELS[chordStep];
+        chordBtn.classList.toggle("active", chordStep > 0);
+        sendIpc(`chordmode,${chordStep}`);
+        showParamHudTooltip(chordBtn, "CHORD HARMONIZER", CHORD_MODE_LABELS[chordStep]);
+        setTimeout(hideParamHudTooltip, 950);
+      });
+    }
     const midiLearnBtn = document.getElementById("btn-midi-learn");
     if (midiLearnBtn) {
       const LEARN_CYCLE_PARAMS = ["cutoff", "resonance", "wt_pos", "wt_warp", "drive", "ott", "macro1", null];
@@ -28924,9 +29042,22 @@
       };
       const SRC_NAMES = ["LFO 1", "LFO 2", "ENV 2", "VEL", "MOD W"];
       const DST_NAMES = ["CUTOFF", "RESONANCE", "WAVETABLE POS", "PITCH / VIBRATO", "OTT / FX MIX"];
+      const WEIGHT_CYCLE = [1, -0.75, 0.5, -0.5];
       pins.forEach((pinEl, colIdx) => {
-        pinEl.title = `${SRC_NAMES[rowIdx] || "SRC"} \u2192 ${DST_NAMES[colIdx] || "DST"} (Clic para activar/desactivar ruta)`;
-        pinEl.addEventListener("click", () => applyMatrixPin(colIdx, false));
+        pinEl.title = `${SRC_NAMES[rowIdx] || "SRC"} \u2192 ${DST_NAMES[colIdx] || "DST"} (Clic: ruta ON/OFF \u2022 Shift+Clic: peso bipolar)`;
+        let weightStep = 0;
+        pinEl.addEventListener("click", (ev) => {
+          if (ev.shiftKey) {
+            weightStep = (weightStep + 1) % WEIGHT_CYCLE.length;
+            const w = WEIGHT_CYCLE[weightStep];
+            const cellIdx = rowIdx * 5 + colIdx;
+            sendIpc(`moddepth,${cellIdx},${w.toFixed(2)}`);
+            showParamHudTooltip(pinEl, `${SRC_NAMES[rowIdx]} \u2192 ${DST_NAMES[colIdx]}`, `DEPTH: ${w > 0 ? "+" : ""}${Math.round(w * 100)}%`);
+            setTimeout(hideParamHudTooltip, 950);
+            return;
+          }
+          applyMatrixPin(colIdx, false);
+        });
       });
       const lbl = rowEl.querySelector(".m-lbl");
       if (lbl) {

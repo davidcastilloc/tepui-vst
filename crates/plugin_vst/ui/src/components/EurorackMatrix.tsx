@@ -1023,6 +1023,14 @@ export const EurorackMatrix: React.FC = () => {
             <span className="arp-stat">
               COMPÁS: <strong id="arp-meter-label">4/4 FREE</strong>
             </span>
+            <button
+              id="btn-arp-midi"
+              className="oled-pill-btn amber"
+              title="Exportar patrón del Arpegiador como clip MIDI (.mid SMF) listo para tu DAW"
+              type="button"
+            >
+              MIDI↗
+            </button>
             <span className="arp-stat">
               STEPS: <strong id="arp-steps-count">0</strong>
             </span>

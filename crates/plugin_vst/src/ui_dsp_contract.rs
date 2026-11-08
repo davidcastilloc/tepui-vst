@@ -118,6 +118,7 @@ pub enum SynthControlId {
     BtnArpModeCycle,
     BtnArpRate,
     BtnArpSeqSteps,
+    BtnArpMidiExport,
     GroupArpModeButtons,
 
     // --- MÓDULO 6: OTT, DRIVE, CANYON REVERB & MASTER RECORDER ---
@@ -142,6 +143,8 @@ pub enum SynthControlId {
     BtnVelocityUp,
     BtnSustainPedal,
     BtnGlideLegato,
+    BtnTuningMode,
+    BtnChordMode,
     BtnMidiLearn,
     WheelPitchBend,
     WheelModulation,
@@ -198,6 +201,7 @@ impl SynthControlId {
         Self::BtnArpModeCycle,
         Self::BtnArpRate,
         Self::BtnArpSeqSteps,
+        Self::BtnArpMidiExport,
         Self::GroupArpModeButtons,
         Self::OledReverbFx,
         Self::BtnFxBusMode,
@@ -218,6 +222,8 @@ impl SynthControlId {
         Self::BtnVelocityUp,
         Self::BtnSustainPedal,
         Self::BtnGlideLegato,
+        Self::BtnTuningMode,
+        Self::BtnChordMode,
         Self::BtnMidiLearn,
         Self::WheelPitchBend,
         Self::WheelModulation,
@@ -527,6 +533,12 @@ impl SynthControlId {
                 stimulus_ipc: "arpseq,16",
                 impact: DspImpactProof::ParamStoreMutates,
             },
+            Self::BtnArpMidiExport => SynthControlSpec {
+                dom_token: "btn-arp-midi",
+                ipc_prefix: "arpmidi:",
+                stimulus_ipc: "arpmidi:export",
+                impact: DspImpactProof::ParamStoreMutates,
+            },
             Self::GroupArpModeButtons => SynthControlSpec {
                 dom_token: "data-arp",
                 ipc_prefix: "arp,",
@@ -649,6 +661,18 @@ impl SynthControlId {
                 dom_token: "btn-glide-legato",
                 ipc_prefix: "glide,",
                 stimulus_ipc: "glide,2",
+                impact: DspImpactProof::ParamStoreMutates,
+            },
+            Self::BtnTuningMode => SynthControlSpec {
+                dom_token: "btn-tuning-mode",
+                ipc_prefix: "tuning,",
+                stimulus_ipc: "tuning,2",
+                impact: DspImpactProof::WaveformMutates,
+            },
+            Self::BtnChordMode => SynthControlSpec {
+                dom_token: "btn-chord-mode",
+                ipc_prefix: "chordmode,",
+                stimulus_ipc: "chordmode,1",
                 impact: DspImpactProof::ParamStoreMutates,
             },
             Self::BtnMidiLearn => SynthControlSpec {
@@ -774,6 +798,14 @@ pub const CANONICAL_IPC_PREFIXES: &[&str] = &[
     "wtwarpmode:",
     "fxmode,",
     "fxmode:",
+    "tuning,",
+    "tuning:",
+    "chordmode,",
+    "chordmode:",
+    "moddepth,",
+    "moddepth:",
+    "arpmidi:",
+    "arpmidi,",
     "midi_learn:",
     "midi_learn,",
     "drag_wav_export",
@@ -865,6 +897,13 @@ pub enum IpcCommand {
     SetGranularMode(u8),
     SetWtWarpMode(u8),
     SetFxMode(u8),
+    SetTuningMode(u8),
+    SetChordMode(u8),
+    SetModMatrixWeight {
+        cell_idx: usize,
+        weight: f32,
+    },
+    ExportArpMidi,
     ArmMidiLearn(String),
     DragWavExport,
     SetArpSteps(Vec<f32>),
@@ -1046,8 +1085,45 @@ impl IpcCommand {
             .or_else(|| trimmed.strip_prefix("fxmode:"))
         {
             if let Ok(v) = rest.trim().parse::<u8>() {
-                return Some(Self::SetFxMode(v.min(2)));
+                return Some(Self::SetFxMode(v.min(3)));
             }
+        }
+        if let Some(rest) = trimmed
+            .strip_prefix("tuning,")
+            .or_else(|| trimmed.strip_prefix("tuning:"))
+        {
+            if let Ok(v) = rest.trim().parse::<u8>() {
+                return Some(Self::SetTuningMode(v.min(4)));
+            }
+        }
+        if let Some(rest) = trimmed
+            .strip_prefix("chordmode,")
+            .or_else(|| trimmed.strip_prefix("chordmode:"))
+        {
+            if let Ok(v) = rest.trim().parse::<u8>() {
+                return Some(Self::SetChordMode(v.min(3)));
+            }
+        }
+        if let Some(rest) = trimmed
+            .strip_prefix("moddepth,")
+            .or_else(|| trimmed.strip_prefix("moddepth:"))
+        {
+            let mut parts = rest.split(',');
+            if let (Some(c), Some(w)) = (parts.next(), parts.next()) {
+                if let (Ok(cell_idx), Ok(weight)) =
+                    (c.trim().parse::<usize>(), w.trim().parse::<f32>())
+                {
+                    if cell_idx < 25 {
+                        return Some(Self::SetModMatrixWeight {
+                            cell_idx,
+                            weight: weight.clamp(-1.0, 1.0),
+                        });
+                    }
+                }
+            }
+        }
+        if trimmed == "arpmidi:export" || trimmed.starts_with("arpmidi:") || trimmed.starts_with("arpmidi,") {
+            return Some(Self::ExportArpMidi);
         }
         if let Some(rest) = trimmed.strip_prefix("wtdraw:") {
             let cmd = rest.trim();
@@ -1634,6 +1710,8 @@ mod tests {
             let rev_before = live_params.get_revision();
             let note_for_test = if matches!(ctrl, SynthControlId::BtnSvfKeytrack) {
                 84
+            } else if matches!(ctrl, SynthControlId::BtnTuningMode) {
+                64
             } else {
                 60
             };
@@ -2690,6 +2768,138 @@ mod tests {
             css.contains(".xy-pad.tepui-xy-pad") && css.contains(".knob-mod-ring-svg"),
             "style.css debe estilizar el XY Macro Pad y los anillos de modulación en vivo"
         );
+    }
+
+    #[test]
+    fn test_v1_20_micro_tuning_dual_filters_ping_pong_delay_chord_mode_mod_depth_and_midi_export() {
+        let sr = 48000.0_f32;
+        let samples: Vec<f32> = (0..12000)
+            .map(|i| {
+                let t = i as f32 / sr;
+                let w = std::f32::consts::TAU * 220.0 * t;
+                (0.55 * w.sin() + 0.25 * (w * 2.0).sin() + 0.15 * (w * 3.0).sin()) * 0.70
+            })
+            .collect();
+        let sample_buf = SampleBuffer::new_mono(samples, sr, 60);
+
+        let (gui_midi_tx, gui_midi_rx) = crossbeam_channel::bounded(64);
+        let live_params = Arc::new(LiveParamStore::default());
+        let ai_worker = Arc::new(AiWorker::new(sr));
+        let sample_rate = Arc::new(AtomicU32::new(sr.to_bits()));
+        let params = Arc::new(SamplerParams::new_linked(
+            live_params.clone(),
+            Some(ai_worker.clone()),
+            Some(sample_rate.clone()),
+        ));
+
+        // 1. Micro-Tuning IPC ("tuning,2")
+        handle_native_ipc_message(
+            "tuning,2",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        assert_eq!(live_params.get_tuning_mode(), 2);
+
+        // 2. Dual Filter Topologies ("m,7" DualSerialHpLp & "m,8" DualParallelLpBp)
+        handle_native_ipc_message(
+            "m,7",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        assert_eq!(live_params.get_filter_mode(), synth_core::FilterMode::DualSerialHpLp);
+
+        handle_native_ipc_message(
+            "m,8",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        assert_eq!(live_params.get_filter_mode(), synth_core::FilterMode::DualParallelLpBp);
+
+        // 3. Stereo Ping-Pong Delay ("fxmode,3")
+        handle_native_ipc_message(
+            "fxmode,3",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        assert_eq!(live_params.get_fx_mode(), 3);
+
+        // 4. Bipolar Mod Matrix Attenuverter ("moddepth,21,-0.85")
+        handle_native_ipc_message(
+            "moddepth,21,-0.85",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        assert!((live_params.get_mod_matrix_weight(21) - (-0.85)).abs() < 1e-4);
+        assert_ne!(live_params.get_mod_matrix_mask() & (1 << 21), 0);
+
+        let mut vm = VoiceManager::new(sr, 16);
+        let mut fx = StereoFxRack::new(sr);
+        let mut rev = 0u32;
+        live_params.project_to_dsp(&mut vm, &mut fx, Some(125.0), &sample_buf, &mut rev);
+        assert_eq!(vm.tuning_mode(), 2);
+        assert!((vm.mod_matrix_weight(21) - (-0.85)).abs() < 1e-4);
+        assert_eq!(fx.fx_mode(), 3);
+
+        // 5. Chord & Llanero Strum Generator ("chordmode,3" -> 4 notas simultáneas en NoteOn)
+        handle_native_ipc_message(
+            "chordmode,3",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        assert_eq!(live_params.get_chord_mode(), 3);
+        handle_native_ipc_message(
+            "1,60,0.90",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        let mut triggered_notes = Vec::new();
+        while let Ok(evt) = gui_midi_rx.try_recv() {
+            if let crate::GuiMidiEvent::NoteOn(n, _) = evt {
+                triggered_notes.push(n);
+            }
+        }
+        assert_eq!(triggered_notes, vec![60, 67, 72, 76]);
+
+        // 6. Exportación de Clip MIDI (.mid SMF Format 0) desde el Arpegiador ("arpmidi:export")
+        let exports_before = live_params.get_arp_midi_exports();
+        handle_native_ipc_message(
+            "arpmidi:export",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        assert_eq!(live_params.get_arp_midi_exports(), exports_before + 1);
     }
 }
 

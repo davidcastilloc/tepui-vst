@@ -902,7 +902,7 @@ impl SamplerParams {
             filter_mode: IntParam::new(
                 "Filter Mode",
                 0, // 0 = Lowpass
-                IntRange::Linear { min: 0, max: 6 },
+                IntRange::Linear { min: 0, max: 8 },
             ),
 
             gain: FloatParam::new(
@@ -1062,7 +1062,7 @@ impl SamplerParams {
     }
 
     pub fn get_filter_mode(&self) -> FilterMode {
-        FilterMode::from_index(self.filter_mode.value().clamp(0, 6) as u8)
+        FilterMode::from_index(self.filter_mode.value().clamp(0, 8) as u8)
     }
 }
 
@@ -1174,6 +1174,12 @@ pub struct LiveParamStore {
     pub last_learned_cc: AtomicI32,
     pub wav_drag_exports_count: AtomicU32,
 
+    // 7. Micro-Afinación (.scl), Modo Acorde/Rasgueo Llanero, Atenuversores Bipolares 5x5 y Exportación MIDI (.mid)
+    pub tuning_mode: AtomicU32,
+    pub chord_mode: AtomicU32,
+    pub mod_matrix_weights: [AtomicU32; 25],
+    pub arp_midi_exports_count: AtomicU32,
+
     pub active_keyzones_mask: AtomicU32,
     pub lfo_mod_value: AtomicU32,
     pub playhead_norm: AtomicU32,
@@ -1276,6 +1282,10 @@ impl Default for LiveParamStore {
             midi_learn_bindings_count: AtomicU32::new(0),
             last_learned_cc: AtomicI32::new(-1),
             wav_drag_exports_count: AtomicU32::new(0),
+            tuning_mode: AtomicU32::new(0),
+            chord_mode: AtomicU32::new(0),
+            mod_matrix_weights: std::array::from_fn(|_| AtomicU32::new(1.0_f32.to_bits())),
+            arp_midi_exports_count: AtomicU32::new(0),
             active_keyzones_mask: AtomicU32::new(0),
             lfo_mod_value: AtomicU32::new(0.0_f32.to_bits()),
             playhead_norm: AtomicU32::new(0.0_f32.to_bits()),
@@ -1433,11 +1443,11 @@ impl LiveParamStore {
 
     #[inline]
     pub fn set_filter_mode(&self, val: i32) {
-        self.filter_mode.store(val.clamp(0, 6), Ordering::Relaxed);
+        self.filter_mode.store(val.clamp(0, 8), Ordering::Relaxed);
     }
     #[inline]
     pub fn get_filter_mode(&self) -> FilterMode {
-        FilterMode::from_index(self.filter_mode.load(Ordering::Relaxed).clamp(0, 6) as u8)
+        FilterMode::from_index(self.filter_mode.load(Ordering::Relaxed).clamp(0, 8) as u8)
     }
 
     #[inline]
@@ -2275,11 +2285,88 @@ impl LiveParamStore {
 
     #[inline]
     pub fn set_fx_mode(&self, mode: u8) {
-        self.fx_mode.store((mode.min(2)) as u32, Ordering::Relaxed);
+        self.fx_mode.store((mode.min(3)) as u32, Ordering::Relaxed);
     }
     #[inline]
     pub fn get_fx_mode(&self) -> u8 {
-        (self.fx_mode.load(Ordering::Relaxed).min(2)) as u8
+        (self.fx_mode.load(Ordering::Relaxed).min(3)) as u8
+    }
+
+    #[inline]
+    pub fn set_tuning_mode(&self, mode: u8) {
+        self.tuning_mode
+            .store((mode.min(4)) as u32, Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_tuning_mode(&self) -> u8 {
+        (self.tuning_mode.load(Ordering::Relaxed).min(4)) as u8
+    }
+
+    #[inline]
+    pub fn set_chord_mode(&self, mode: u8) {
+        self.chord_mode
+            .store((mode.min(3)) as u32, Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_chord_mode(&self) -> u8 {
+        (self.chord_mode.load(Ordering::Relaxed).min(3)) as u8
+    }
+
+    #[inline]
+    pub fn set_mod_matrix_weight(&self, cell_idx: usize, weight: f32) {
+        if cell_idx < 25 && weight.is_finite() {
+            let clamped = weight.clamp(-1.0, 1.0);
+            self.mod_matrix_weights[cell_idx].store(clamped.to_bits(), Ordering::Relaxed);
+        }
+    }
+    #[inline]
+    pub fn get_mod_matrix_weight(&self, cell_idx: usize) -> f32 {
+        if cell_idx < 25 {
+            f32::from_bits(self.mod_matrix_weights[cell_idx].load(Ordering::Relaxed))
+        } else {
+            1.0
+        }
+    }
+    #[inline]
+    pub fn get_mod_matrix_weights(&self) -> [f32; 25] {
+        let mut out = [1.0_f32; 25];
+        for (i, slot) in self.mod_matrix_weights.iter().enumerate() {
+            let v = f32::from_bits(slot.load(Ordering::Relaxed));
+            out[i] = if v.is_finite() {
+                v.clamp(-1.0, 1.0)
+            } else {
+                1.0
+            };
+        }
+        out
+    }
+
+    #[inline]
+    pub fn bump_arp_midi_exports(&self) {
+        self.arp_midi_exports_count.fetch_add(1, Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_arp_midi_exports(&self) -> u32 {
+        self.arp_midi_exports_count.load(Ordering::Relaxed)
+    }
+
+    /// Exporta el patrón activo del arpegiador de 16 pasos como un archivo Standard MIDI File (`.mid` SMF Format 0).
+    pub fn export_arp_midi_bytes(&self) -> Vec<u8> {
+        self.bump_arp_midi_exports();
+        let mut arp = synth_core::TepuiArpeggiator::new(48000.0);
+        arp.set_mode(self.get_arp_mode());
+        arp.set_bpm(self.get_arp_bpm());
+        arp.set_rate_division(ArpRateDivision::from_u8(self.get_arp_rate_div()));
+        arp.set_step_count(self.get_arp_step_count() as usize);
+        let accents = self.get_arp_step_accents();
+        arp.set_step_accents(&accents, self.is_arp_custom_accents_active());
+        let ratchets = self.get_arp_step_ratchets();
+        let octaves = self.get_arp_step_octaves();
+        for i in 0..16 {
+            arp.set_step_ratchet(i, ratchets[i]);
+            arp.set_step_octave(i, octaves[i]);
+        }
+        arp.encode_arp_pattern_to_smf_midi(self.get_root_note().clamp(12, 108) as u8)
     }
 
     #[inline]
@@ -2738,6 +2825,10 @@ impl LiveParamStore {
             self.get_lfo_target(),
         );
         voice_manager.set_mod_matrix_mask(self.get_mod_matrix_mask());
+        let weights = self.get_mod_matrix_weights();
+        voice_manager.set_mod_matrix_weights(&weights);
+        voice_manager.set_tuning_mode(self.get_tuning_mode());
+        voice_manager.set_chord_mode(self.get_chord_mode());
         voice_manager.update_vital_serum_params(
             self.get_wt_pos(),
             self.get_wt_warp(),

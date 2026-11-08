@@ -66,6 +66,68 @@ impl SampleRegionOverride {
     }
 }
 
+/// Temperamentos microtonales de 12 notas (desviaciones en cents respecto a 12-TET).
+/// - `0` = `12-TET Standard` (`[0.0; 12]`)
+/// - `1` = `Just Intonation 5-Limit` (armónicos puros 9/8, 5/4, 4/3, 3/2, 5/3, 15/8)
+/// - `2` = `Joropo Llanero Harp Temperament` (terceras y sextas resonantes de arpa llanera venezolana)
+/// - `3` = `Ethnic Quarter-Tone / Maqam` (segundas y séptimas neutrales microtonales)
+pub const JUST_INTONATION_5_LIMIT_CENTS: [f32; 12] = [
+    0.0, 11.73, 3.91, 15.64, -13.69, -1.96, -9.78, 1.96, 13.69, -15.64, 17.60, -11.73,
+];
+pub const JOROPO_LLANERO_HARP_CENTS: [f32; 12] = [
+    0.0, -6.0, 3.91, 12.0, -11.50, -1.96, -8.0, 1.96, 8.50, -13.20, -4.50, -9.80,
+];
+pub const ETHNIC_QUARTER_TONE_CENTS: [f32; 12] = [
+    0.0, -24.0, 4.0, -35.0, -14.0, -2.0, -31.0, 2.0, -28.0, -16.0, -48.0, -12.0,
+];
+
+/// Retorna la desviación microtonal en cents (`-100.0..=100.0`) para una nota MIDI según el modo activo.
+#[inline]
+pub fn tuning_cents_for_note(note: u8, tuning_mode: u8, custom_cents: &[f32; 12]) -> f32 {
+    let pc = (note as usize) % 12;
+    match tuning_mode {
+        1 => JUST_INTONATION_5_LIMIT_CENTS[pc],
+        2 => JOROPO_LLANERO_HARP_CENTS[pc],
+        3 => ETHNIC_QUARTER_TONE_CENTS[pc],
+        4 => custom_cents[pc].clamp(-100.0, 100.0),
+        _ => 0.0,
+    }
+}
+
+/// Parsea una definición de escala Scala (`.scl`) en texto y retorna las desviaciones en cents (`[f32; 12]`)
+/// respecto a 12-TET para las 12 clases de altura cromáticas. Se invoca fuera del hilo de audio.
+pub fn parse_scala_scl_cents(scl_text: &str) -> [f32; 12] {
+    let mut cents_dev = [0.0_f32; 12];
+    let mut non_comment_idx = 0usize;
+    let mut pitch_idx = 1usize; // El grado 0 (unísono 1/1 = 0.0 cents) es implícito en archivos .scl
+    for raw_line in scl_text.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('!') {
+            continue;
+        }
+        non_comment_idx += 1;
+        if non_comment_idx <= 2 {
+            // Línea 1 = descripción, Línea 2 = número de notas
+            continue;
+        }
+        if pitch_idx >= 12 {
+            break;
+        }
+        let token = line.split_whitespace().next().unwrap_or("");
+        let abs_cents = if let Some((num_s, den_s)) = token.split_once('/') {
+            let num = num_s.parse::<f32>().unwrap_or(1.0);
+            let den = den_s.parse::<f32>().unwrap_or(1.0).max(1e-6);
+            1200.0 * (num / den).max(1e-6).log2()
+        } else {
+            token.parse::<f32>().unwrap_or((pitch_idx as f32) * 100.0)
+        };
+        let eq_cents = (pitch_idx as f32) * 100.0;
+        cents_dev[pitch_idx] = (abs_cents - eq_cents).clamp(-100.0, 100.0);
+        pitch_idx += 1;
+    }
+    cents_dev
+}
+
 #[derive(Debug, Clone)]
 pub struct Voice {
     pub note: u8,
@@ -77,6 +139,7 @@ pub struct Voice {
     playback_pos: f64,
     pub base_ratio: f64,
     playback_ratio: f64,
+    pub tuning_cents: f32,
 
     // Expresividad Musical: Glide / Portamento Exponencial + MPE Per-Note Pitch Bend & Polyphonic Aftertouch
     pub glide_current_note: f32,
@@ -132,6 +195,7 @@ impl Voice {
             playback_pos: 0.0,
             base_ratio: 1.0,
             playback_ratio: 1.0,
+            tuning_cents: 0.0,
             glide_current_note: 60.0,
             glide_time_s: 0.0,
             per_note_bend_semitones: 0.0,
@@ -227,7 +291,7 @@ impl Voice {
         self.base_ratio = calculate_playback_ratio(
             note,
             root_note,
-            buffer.tune_cents,
+            buffer.tune_cents + self.tuning_cents,
             buffer.sample_rate,
             self.sample_rate,
         );
@@ -254,7 +318,7 @@ impl Voice {
         self.base_ratio = calculate_playback_ratio(
             self.note,
             root_note,
-            buffer.tune_cents,
+            buffer.tune_cents + self.tuning_cents,
             buffer.sample_rate,
             self.sample_rate,
         );

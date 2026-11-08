@@ -98,6 +98,22 @@ export const TepuiKeyboardDeck: React.FC = () => {
             GLIDE:OFF
           </button>
           <button
+            id="btn-tuning-mode"
+            className="tb-btn"
+            title="Micro-Afinación &amp; Temperamentos Scala (.scl): 12-TET / Just Intonation / Arpa Llanera / Maqam Cuarto de Tono"
+            type="button"
+          >
+            TUNE:12T
+          </button>
+          <button
+            id="btn-chord-mode"
+            className="tb-btn"
+            title="Armonizador Polifónico y Rasgueo Llanero: OFF / MIN7 / MAJ9 / STRUM"
+            type="button"
+          >
+            CHORD:OFF
+          </button>
+          <button
             id="btn-midi-learn"
             className="tb-btn"
             title="MIDI Learn Directo (o haz Clic Derecho sobre cualquier perilla/fader y mueve un CC físico)"

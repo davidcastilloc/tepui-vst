@@ -228,10 +228,10 @@ impl StereoFxRack {
         }
     }
 
-    /// Configura el modo de carácter del bus espacial (`0` = Canyon, `1` = 6-Stage Stereo Phaser, `2` = Analog Tape Flutter).
+    /// Configura el modo de carácter del bus espacial (`0` = Canyon, `1` = 6-Stage Stereo Phaser, `2` = Analog Tape Flutter, `3` = Stereo Ping-Pong Delay).
     #[inline]
     pub fn set_fx_mode(&mut self, mode: u8) {
-        self.fx_mode = mode.min(2);
+        self.fx_mode = mode.min(3);
     }
 
     #[inline]
@@ -414,8 +414,16 @@ impl StereoFxRack {
         let (delay_l_ms, delay_r_ms) = self.delay_times_ms();
         let delay_l_samples = ((delay_l_ms * 0.001) * sr).clamp(64.0, (DELAY_BUF_LEN - 8) as f32);
         let delay_r_samples = ((delay_r_ms * 0.001) * sr).clamp(64.0, (DELAY_BUF_LEN - 8) as f32);
-        let feedback = if self.fx_mode == 2 { 0.44_f32 } else { 0.36_f32 };
-        let damp = if self.fx_mode == 2 { 0.62_f32 } else { 0.35_f32 }; // Filtro paso-bajo más cálido en modo Tape
+        let feedback = match self.fx_mode {
+            3 => 0.62_f32,
+            2 => 0.44_f32,
+            _ => 0.36_f32,
+        };
+        let damp = match self.fx_mode {
+            3 => 0.24_f32, // Eco ping-pong más articulado en FX:DELAY
+            2 => 0.62_f32, // Filtro paso-bajo más cálido en modo Tape
+            _ => 0.35_f32,
+        };
 
         let rev_feedback = 0.84_f32; // Decaimiento acústico tipo Cañón de Tepui / Sala de Concierto
         let rev_damp = 0.28_f32;
@@ -573,11 +581,65 @@ impl StereoFxRack {
                 self.reverb_tail_energy * 0.995 + (diff_l.abs() + diff_r.abs()) * 0.005,
             );
 
-            let wet_l = ch_l * 0.42 + self.lp_state_l * 0.48 + diff_l * 0.58;
-            let wet_r = ch_r * 0.42 + self.lp_state_r * 0.48 + diff_r * 0.58;
+            let (wet_l, wet_r) = if self.fx_mode == 3 {
+                // Modo 3 (FX:DELAY): Stereo Ping-Pong Delay dominante con eco rítmico definido
+                (
+                    ch_l * 0.14 + self.lp_state_l * 0.92 + diff_l * 0.18,
+                    ch_r * 0.14 + self.lp_state_r * 0.92 + diff_r * 0.18,
+                )
+            } else {
+                (
+                    ch_l * 0.42 + self.lp_state_l * 0.48 + diff_l * 0.58,
+                    ch_r * 0.42 + self.lp_state_r * 0.48 + diff_r * 0.58,
+                )
+            };
 
             left[i] = dry_l * (1.0 - mix * 0.30) + wet_l * mix;
             right[i] = dry_r * (1.0 - mix * 0.30) + wet_r * mix;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fx_mode_delay_ping_pong_produces_distinct_stereo_echo() {
+        let mut fx_canyon = StereoFxRack::new(48000.0);
+        fx_canyon.set_mix(0.65);
+        fx_canyon.set_fx_mode(0);
+
+        let mut fx_delay = StereoFxRack::new(48000.0);
+        fx_delay.set_mix(0.65);
+        fx_delay.set_fx_mode(3);
+        assert_eq!(fx_delay.fx_mode(), 3);
+
+        let mut l0 = vec![0.0_f32; 1024];
+        let mut r0 = vec![0.0_f32; 1024];
+        for i in 0..128 {
+            let s = (i as f32 * 0.15).sin() * 0.8;
+            l0[i] = s;
+            r0[i] = s * 0.5;
+        }
+        let mut l3 = l0.clone();
+        let mut r3 = r0.clone();
+
+        fx_canyon.process_block(&mut l0, &mut r0);
+        fx_delay.process_block(&mut l3, &mut r3);
+
+        let diff: f32 = l0
+            .iter()
+            .zip(l3.iter())
+            .map(|(a, b)| (a - b).abs())
+            .sum::<f32>()
+            + r0.iter()
+                .zip(r3.iter())
+                .map(|(a, b)| (a - b).abs())
+                .sum::<f32>();
+        assert!(
+            diff > 0.5,
+            "FX:DELAY (mode 3) must produce a distinct stereo output from FX:CANYON (mode 0), got diff={diff}"
+        );
     }
 }

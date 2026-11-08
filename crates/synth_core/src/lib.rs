@@ -27,8 +27,10 @@ pub use fx::StereoFxRack;
 pub use lfo::{LfoShape, LfoState, LfoTarget, DEFAULT_MOD_MATRIX_MASK};
 pub use resampler::{calculate_playback_ratio, hermite_interpolate_4p, ResamplingQuality};
 pub use rt_primitives::{OnePoleSmoother, SeqLockArray};
-pub use voice::{SampleRegionOverride, Voice};
-pub use voice_manager::VoiceManager;
+pub use voice::{
+    parse_scala_scl_cents, tuning_cents_for_note, SampleRegionOverride, Voice,
+};
+pub use voice_manager::{expand_chord_intervals, VoiceManager};
 pub use wav::{base64_decode, base64_encode, decode_wav, encode_wav_f32, encode_wav_pcm16};
 
 #[cfg(test)]

@@ -942,7 +942,9 @@ const LFO_TARGET_LABELS = ['LFO → CUTOFF', 'LFO → VIBRATO', 'LFO → TREMOLO
 const LFO_SHAPE_LABELS = ['SINE', 'TRI', 'SAW', 'RAMP', 'SQR', 'S&H'];
 const GRANULAR_MODE_LABELS = ['GRAN:OFF', 'GRAN:CLOUD', 'GRAN:FREEZE'];
 const WT_WARP_MODE_LABELS = ['WARP:FOLD', 'WARP:ASYM', 'WARP:SYNC', 'WARP:QUANT'];
-const FX_BUS_MODE_LABELS = ['FX:CANYON', 'FX:PHASER', 'FX:TAPE'];
+const FX_BUS_MODE_LABELS = ['FX:CANYON', 'FX:PHASER', 'FX:TAPE', 'FX:DELAY'];
+const TUNING_MODE_LABELS = ['TUNE:12T', 'TUNE:JUST', 'TUNE:HARP', 'TUNE:MAQAM'];
+const CHORD_MODE_LABELS = ['CHORD:OFF', 'CHORD:MIN7', 'CHORD:MAJ9', 'CHORD:STRUM'];
 const ARP_RATE_LABELS = ['1/4', '1/8', '1/16', '1/8T', '1/16D'];
 
 function updateWtWarpModeUI(warpMode) {
@@ -957,7 +959,7 @@ function updateWtWarpModeUI(warpMode) {
 }
 
 function updateFxModeUI(fxMode) {
-  const fm = Math.max(0, Math.min(2, Math.round(Number(fxMode) || 0)));
+  const fm = Math.max(0, Math.min(3, Math.round(Number(fxMode) || 0)));
   state.params.fx_mode = fm;
   synthStore.setFxMode(fm);
   const btn = document.getElementById('btn-fx-bus-mode');
@@ -1272,7 +1274,7 @@ function initFilterModes() {
 
   const modelBtn = document.getElementById('btn-svf-model');
   if (modelBtn) {
-    const MODEL_CYCLE = [0, 4, 5, 6];
+    const MODEL_CYCLE = [0, 4, 5, 6, 7, 8];
     modelBtn.addEventListener('click', () => {
       const cur = state.params.filter_mode || 0;
       const curBase = cur >= 4 ? cur : 0;
@@ -1286,7 +1288,7 @@ function initFilterModes() {
 }
 
 function updateFilterModeUI(mode) {
-  const m = Math.max(0, Math.min(6, Math.round(Number(mode) || 0)));
+  const m = Math.max(0, Math.min(8, Math.round(Number(mode) || 0)));
   state.params.filter_mode = m;
   synthStore.setFilterMode(m);
   document.querySelectorAll('.mode-btn').forEach((btn) => {
@@ -1303,7 +1305,9 @@ function updateFilterModeUI(mode) {
       3: 'MODEL:BYP',
       4: 'LADDER 24',
       5: 'COMB K-S',
-      6: 'FORMANT'
+      6: 'FORMANT',
+      7: 'DUAL:S',
+      8: 'DUAL:P'
     };
     modelBtn.innerText = labels[m] || 'MODEL:SVF';
     modelBtn.classList.toggle('active', m >= 4);
@@ -1316,7 +1320,9 @@ function updateFilterModeUI(mode) {
       3: 'BYPASS',
       4: 'MOOG 24dB',
       5: 'COMB DLY',
-      6: 'A-E-I-O-U'
+      6: 'A-E-I-O-U',
+      7: 'HP→LP 24',
+      8: 'LP‖FORM'
     };
     slopeBadge.innerText = slopes[m] || '12/24 dB';
   }
@@ -1377,10 +1383,48 @@ function initOscilloscope() {
   const fxModeBtn = document.getElementById('btn-fx-bus-mode');
   if (fxModeBtn) {
     fxModeBtn.addEventListener('click', () => {
-      const nextFx = ((state.params.fx_mode || 0) + 1) % 3;
+      const nextFx = ((state.params.fx_mode || 0) + 1) % 4;
       updateFxModeUI(nextFx);
       sendIpc(`fxmode,${nextFx}`);
       showParamHudTooltip(fxModeBtn, 'MASTER FX BUS', FX_BUS_MODE_LABELS[nextFx]);
+      setTimeout(hideParamHudTooltip, 950);
+    });
+  }
+
+  const arpMidiBtn = document.getElementById('btn-arp-midi');
+  if (arpMidiBtn) {
+    arpMidiBtn.addEventListener('click', () => {
+      sendIpc('arpmidi:export');
+      try {
+        const steps = synthStore.getState().arpSteps || [0.95, 0.48, 0.78, 0.92, 0.52, 0.86, 0.95, 0.48];
+        const rootNote = Math.max(24, Math.min(96, Math.round(state.params.root_note || 60)));
+        const intervals = [0, 4, 7, 12];
+        const trk = [0x00, 0xFF, 0x51, 0x03, 0x07, 0xA1, 0x20];
+        steps.forEach((velNorm, i) => {
+          const note = Math.max(0, Math.min(127, rootNote + intervals[i % intervals.length]));
+          const vel = Math.max(1, Math.min(127, Math.round((Number(velNorm) || 0.8) * 127)));
+          trk.push(0x00, 0x90, note, vel, 0x60, 0x80, note, 0x00, 0x18);
+        });
+        trk.push(0x00, 0xFF, 0x2F, 0x00);
+        const len = trk.length;
+        const smf = new Uint8Array([
+          0x4D, 0x54, 0x68, 0x64, 0x00, 0x00, 0x00, 0x06,
+          0x00, 0x00, 0x00, 0x01, 0x01, 0xE0,
+          0x4D, 0x54, 0x72, 0x6B,
+          (len >>> 24) & 0xFF, (len >>> 16) & 0xFF, (len >>> 8) & 0xFF, len & 0xFF,
+          ...trk
+        ]);
+        const blob = new Blob([smf], { type: 'audio/midi' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'tepui_arp_pattern.mid';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1500);
+      } catch (_) {}
+      showParamHudTooltip(arpMidiBtn, 'ARP MIDI EXPORT', 'SMF .MID READY');
       setTimeout(hideParamHudTooltip, 950);
     });
   }
@@ -4134,6 +4178,36 @@ function initKeyboardEvents() {
     });
   }
 
+  // Botón Micro-Afinación & Temperamentos Scala (.scl)
+  const tuningBtn = document.getElementById('btn-tuning-mode');
+  if (tuningBtn) {
+    let tuningStep = 0;
+    tuningBtn.addEventListener('click', () => {
+      tuningStep = (tuningStep + 1) % TUNING_MODE_LABELS.length;
+      state.params.tuning_mode = tuningStep;
+      tuningBtn.innerText = TUNING_MODE_LABELS[tuningStep];
+      tuningBtn.classList.toggle('active', tuningStep > 0);
+      sendIpc(`tuning,${tuningStep}`);
+      showParamHudTooltip(tuningBtn, 'MICRO-TUNING (.SCL)', TUNING_MODE_LABELS[tuningStep]);
+      setTimeout(hideParamHudTooltip, 950);
+    });
+  }
+
+  // Botón Armonizador Polifónico & Rasgueo Llanero
+  const chordBtn = document.getElementById('btn-chord-mode');
+  if (chordBtn) {
+    let chordStep = 0;
+    chordBtn.addEventListener('click', () => {
+      chordStep = (chordStep + 1) % CHORD_MODE_LABELS.length;
+      state.params.chord_mode = chordStep;
+      chordBtn.innerText = CHORD_MODE_LABELS[chordStep];
+      chordBtn.classList.toggle('active', chordStep > 0);
+      sendIpc(`chordmode,${chordStep}`);
+      showParamHudTooltip(chordBtn, 'CHORD HARMONIZER', CHORD_MODE_LABELS[chordStep]);
+      setTimeout(hideParamHudTooltip, 950);
+    });
+  }
+
   // Botón MIDI Learn directo en la barra de teclado
   const midiLearnBtn = document.getElementById('btn-midi-learn');
   if (midiLearnBtn) {
@@ -4695,9 +4769,22 @@ function initLfoAndKeyzoneControls() {
 
     const SRC_NAMES = ['LFO 1', 'LFO 2', 'ENV 2', 'VEL', 'MOD W'];
     const DST_NAMES = ['CUTOFF', 'RESONANCE', 'WAVETABLE POS', 'PITCH / VIBRATO', 'OTT / FX MIX'];
+    const WEIGHT_CYCLE = [1.0, -0.75, 0.50, -0.50];
     pins.forEach((pinEl, colIdx) => {
-      pinEl.title = `${SRC_NAMES[rowIdx] || 'SRC'} → ${DST_NAMES[colIdx] || 'DST'} (Clic para activar/desactivar ruta)`;
-      pinEl.addEventListener('click', () => applyMatrixPin(colIdx, false));
+      pinEl.title = `${SRC_NAMES[rowIdx] || 'SRC'} → ${DST_NAMES[colIdx] || 'DST'} (Clic: ruta ON/OFF • Shift+Clic: peso bipolar)`;
+      let weightStep = 0;
+      pinEl.addEventListener('click', (ev) => {
+        if (ev.shiftKey) {
+          weightStep = (weightStep + 1) % WEIGHT_CYCLE.length;
+          const w = WEIGHT_CYCLE[weightStep];
+          const cellIdx = rowIdx * 5 + colIdx;
+          sendIpc(`moddepth,${cellIdx},${w.toFixed(2)}`);
+          showParamHudTooltip(pinEl, `${SRC_NAMES[rowIdx]} → ${DST_NAMES[colIdx]}`, `DEPTH: ${w > 0 ? '+' : ''}${Math.round(w * 100)}%`);
+          setTimeout(hideParamHudTooltip, 950);
+          return;
+        }
+        applyMatrixPin(colIdx, false);
+      });
     });
     const lbl = rowEl.querySelector('.m-lbl');
     if (lbl) {

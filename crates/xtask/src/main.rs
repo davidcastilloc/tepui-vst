@@ -53,10 +53,15 @@ fn unpack_sfx_entries(image: &[u8]) -> Option<Vec<(String, Vec<u8>)>> {
     if image.len() < 20 {
         return None;
     }
-    let trailer_start = image.len() - 20;
-    if &image[trailer_start + 8..] != SFX_MAGIC {
+    let search_floor = image.len().saturating_sub(65536);
+    let magic_pos = image[search_floor..]
+        .windows(SFX_MAGIC.len())
+        .rposition(|w| w == SFX_MAGIC)
+        .map(|rel| search_floor + rel)?;
+    if magic_pos < 8 {
         return None;
     }
+    let trailer_start = magic_pos - 8;
     let mut off_bytes = [0u8; 8];
     off_bytes.copy_from_slice(&image[trailer_start..trailer_start + 8]);
     let payload_start = u64::from_le_bytes(off_bytes) as usize;
@@ -518,5 +523,13 @@ mod tests {
         assert_eq!(unpacked[1].1, b"CLAP_PAYLOAD_DATA");
         assert_eq!(unpacked[2].0, "tepui_studio.exe");
         assert_eq!(unpacked[2].1, b"STUDIO_PAYLOAD_DATA");
+
+        // Also verify Authenticode-signed SFX images where signtool appends a PKCS#7 signature block
+        let mut signed_image = image.clone();
+        signed_image.extend_from_slice(&[0x30u8; 4096]);
+        let unpacked_signed = unpack_sfx_entries(&signed_image)
+            .expect("unpack_sfx_entries should succeed with appended Authenticode signature");
+        assert_eq!(unpacked_signed.len(), 3);
+        assert_eq!(unpacked_signed[0].1, b"VST3_PAYLOAD_DATA");
     }
 }

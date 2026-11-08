@@ -43,7 +43,7 @@
     [
       "@semantic-release/exec",
       {
-        "prepareCmd": "cargo run --package xtask -- set-version ${nextRelease.version} && cargo build --release -p plugin_vst --bins && cargo run --package xtask -- bundle plugin_vst --release && powershell -NoProfile -Command \"Compress-Archive -Path target/bundled/TEPUI.vst3,target/bundled/TEPUI.clap,target/release/tepui_studio.exe,README.md,LICENSE,CHANGELOG.md -DestinationPath target/bundled/TEPUI-GranSabana-Windows-x64.zip -Force\""
+        "prepareCmd": "cargo run --package xtask -- set-version ${nextRelease.version} && cargo build --release -p plugin_vst --bins && cargo run --package xtask -- bundle plugin_vst --release && powershell -NoProfile -ExecutionPolicy Bypass -File installer/sign_binaries.ps1 && powershell -NoProfile -Command \"Compress-Archive -Path target/bundled/TEPUI.vst3,target/bundled/TEPUI.clap,target/release/tepui_studio.exe,README.md,LICENSE,CHANGELOG.md -DestinationPath target/bundled/TEPUI-GranSabana-Windows-x64.zip -Force\""
       }
     ],
     [

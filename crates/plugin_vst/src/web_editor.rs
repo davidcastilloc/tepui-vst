@@ -1406,7 +1406,7 @@ pub fn set_param_from_client(
             live_params.bump_revision();
         }
         "filter_mode" => {
-            let mode = (norm_val.round() as i32).clamp(0, 6);
+            let mode = (norm_val.round() as i32).clamp(0, 8);
             live_params.set_filter_mode(mode);
             live_params.bump_revision();
             if let Some(tx) = gui_param_tx {
@@ -1628,7 +1628,16 @@ pub(crate) fn handle_native_ipc_message(
             {
                 let clamped_vel = vel.clamp(0.01, 1.0);
                 live_params.record_velocity_event(clamped_vel);
-                let _ = gui_midi_tx.try_send(GuiMidiEvent::NoteOn(note, clamped_vel));
+                let intervals = synth_core::expand_chord_intervals(live_params.get_chord_mode());
+                for (idx, &semi) in intervals.iter().enumerate() {
+                    let chord_note = (note as i32 + semi as i32).clamp(0, 127) as u8;
+                    let voice_vel = if idx == 0 {
+                        clamped_vel
+                    } else {
+                        (clamped_vel * 0.88).clamp(0.05, 1.0)
+                    };
+                    let _ = gui_midi_tx.try_send(GuiMidiEvent::NoteOn(chord_note, voice_vel));
+                }
                 return;
             }
         }
@@ -1690,7 +1699,11 @@ pub(crate) fn handle_native_ipc_message(
 
     if let Some(rest) = note_off_rest {
         if let Ok(note) = rest.trim().parse::<u8>() {
-            let _ = gui_midi_tx.try_send(GuiMidiEvent::NoteOff(note));
+            let intervals = synth_core::expand_chord_intervals(live_params.get_chord_mode());
+            for &semi in intervals {
+                let chord_note = (note as i32 + semi as i32).clamp(0, 127) as u8;
+                let _ = gui_midi_tx.try_send(GuiMidiEvent::NoteOff(chord_note));
+            }
             return;
         }
     }
@@ -2047,13 +2060,13 @@ pub(crate) fn handle_native_ipc_message(
         }
     }
 
-    // 4a-fxmode. Ultra-fast compact path: "fxmode,<0..2>" (Master Bus FX Character: Canyon / 6-Stage Phaser / Analog Tape)
+    // 4a-fxmode. Ultra-fast compact path: "fxmode,<0..3>" (Master Bus FX Character: Canyon / 6-Stage Phaser / Analog Tape / Stereo Ping-Pong Delay)
     let fxmode_rest = trimmed
         .strip_prefix("fxmode,")
         .or_else(|| trimmed.strip_prefix("fxmode:"));
     if let Some(rest) = fxmode_rest {
         if let Ok(mode) = rest.trim().parse::<u8>() {
-            let m = mode.min(2);
+            let m = mode.min(3);
             live_params.set_fx_mode(m);
             if m > 0 && live_params.get_space_mix() < 0.05 {
                 live_params.set_space_mix(0.32);
@@ -2062,6 +2075,67 @@ pub(crate) fn handle_native_ipc_message(
             live_params.bump_revision();
             return;
         }
+    }
+
+    // 4a-tuning. Ultra-fast compact path: "tuning,<0..3>" (Micro-Tuning / Temperaments: 12-TET / Just 5-Limit / Joropo Harp / Ethnic Maqam)
+    let tuning_rest = trimmed
+        .strip_prefix("tuning,")
+        .or_else(|| trimmed.strip_prefix("tuning:"));
+    if let Some(rest) = tuning_rest {
+        if let Ok(mode) = rest.trim().parse::<u8>() {
+            live_params.set_tuning_mode(mode.min(3));
+            live_params.bump_gui_param_sync();
+            live_params.bump_revision();
+            return;
+        }
+    }
+
+    // 4a-chordmode. Ultra-fast compact path: "chordmode,<0..3>" (Chord & Llanero Strum Generator: Off / Min7 / Maj9 / Strum)
+    let chordmode_rest = trimmed
+        .strip_prefix("chordmode,")
+        .or_else(|| trimmed.strip_prefix("chordmode:"));
+    if let Some(rest) = chordmode_rest {
+        if let Ok(mode) = rest.trim().parse::<u8>() {
+            live_params.set_chord_mode(mode.min(3));
+            live_params.bump_gui_param_sync();
+            live_params.bump_revision();
+            return;
+        }
+    }
+
+    // 4a-moddepth. Ultra-fast compact path: "moddepth,<cellIdx>,<-1.0..1.0>" (Bipolar 5x5 Mod Matrix Attenuverter)
+    let moddepth_rest = trimmed
+        .strip_prefix("moddepth,")
+        .or_else(|| trimmed.strip_prefix("moddepth:"));
+    if let Some(rest) = moddepth_rest {
+        let mut parts = rest.split(',');
+        if let (Some(c_str), Some(w_str)) = (parts.next(), parts.next()) {
+            if let (Ok(cell_idx), Ok(weight)) =
+                (c_str.trim().parse::<usize>(), w_str.trim().parse::<f32>())
+            {
+                if cell_idx < 25 {
+                    let row = (cell_idx / 5) as u32;
+                    let col = (cell_idx % 5) as u32;
+                    live_params.set_mod_matrix_weight(cell_idx, weight.clamp(-1.0, 1.0));
+                    if weight.abs() > 0.02 {
+                        live_params.toggle_mod_matrix_pin(row, col, Some(true));
+                    }
+                    live_params.bump_gui_param_sync();
+                    live_params.bump_revision();
+                    return;
+                }
+            }
+        }
+    }
+
+    // 4a-arpmidi. Ultra-fast compact path: "arpmidi:export" (Standard MIDI File .mid Clip Export from 16-Step Arpeggiator)
+    if trimmed == "arpmidi:export" || trimmed.starts_with("arpmidi:") || trimmed.starts_with("arpmidi,") {
+        let smf_bytes = live_params.export_arp_midi_bytes();
+        let out_path = std::env::temp_dir().join("tepui-arp-pattern.mid");
+        let _ = std::fs::write(&out_path, &smf_bytes);
+        live_params.bump_patch_io_count();
+        live_params.bump_revision();
+        return;
     }
 
     // 4a-arpratchet. Ultra-fast compact path: "arpratchet,<idx>,<1..4>" (Arp Step Ratchet Subdivision)

@@ -214,7 +214,7 @@ impl AiSamplerPlugin {
                         self.last_daw.resonance = self.params.resonance.value();
                     }
                     GuiParamId::FilterMode => {
-                        let mode = (normalized.round() as i32).clamp(0, 6);
+                        let mode = (normalized.round() as i32).clamp(0, 8);
                         self.live_params.set_filter_mode(mode);
                         self.last_daw.filter_mode = self.params.filter_mode.value();
                     }
