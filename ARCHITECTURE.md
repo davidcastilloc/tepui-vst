@@ -1,74 +1,51 @@
-# Arquitectura de Ingeniería — TEPUI Neural Chromatic Sampler
+# Arquitectura de Ingeniería — TEPUI // Gran Sabana Sonic Lab & Reference VST/CLAP Stack
 
-Este documento describe las decisiones arquitectónicas, las garantías de tiempo real (*real-time safety*), el flujo de señal DSP y los mecanismos de comunicación entre hilos que componen **TEPUI // Gran Sabana Sonic Lab**.
+Este documento detalla las decisiones arquitectónicas, las garantías de seguridad en tiempo real (*real-time audio safety*), el flujo de señal DSP, el sistema de diseño industrial **Flush Architectural Grid (`@audio-ui/react`)** y las **7 Compuertas de Certificación UI↔DSP** que convierten a **TEPUI** en un instrumento de nivel estudio y en un stack plantilla open-source para plugins de audio en Rust.
 
 ---
 
 ## 1. Principios de Diseño en Tiempo Real (Real-Time Audio Safety)
 
-El callback de procesamiento de audio (`AiSamplerPlugin::process()`) opera bajo restricciones estrictas de latencia determinista (típicamente bloques de `64` a `512` muestras a `44.1 kHz` – `192 kHz`, equivalentes a `< 1.3 ms` por bloque). Para evitar *dropouts*, *xruns* o inversión de prioridad:
+El callback de procesamiento de audio (`TepuiPlugin::process()`) opera bajo restricciones deterministas estrictas (bloques de `64` a `512` muestras a `44.1 kHz` – `192 kHz`, equivalentes a `< 1.3 ms` por bloque). Para impedir *dropouts*, *xruns* o inversión de prioridad:
 
 1. **Cero Asignaciones Dinámicas en el Hilo de Audio (`assert_process_allocs`)**:
-   - Todas las estructuras del camino crítico (`VoiceManager`, `Voice`, `HermiteResampler`, `SvfFilter`, `AdsrEnvelope`, `LfoEngine`, `TepuiArpeggiator`, `StereoFxRack` y el buffer auxiliar mono) se prealocan durante `Plugin::initialize()` o `Default::default()`.
-   - La característica `assert_process_allocs` de `nih_plug` intercepta el asignador global en compilaciones de depuración/prueba y aborta inmediatamente si ocurre cualquier `alloc` o `dealloc` dentro de `process()`.
-2. **Sincronización Lock-Free y Contención Cero**:
-   - Los parámetros continuos y discretos se comparten entre el hilo de audio, el host DAW y el editor WebView2 a través de [`LiveParamStore`](crates/plugin_vst/src/params.rs), utilizando exclusivamente variables atómicas (`AtomicU32` con conversión binaria `f32::to_bits()` / `f32::from_bits()` y `AtomicI32` con `Ordering::Relaxed`).
-   - Los eventos discretos de baja latencia (teclado virtual/QWERTY `GuiMidiEvent` y cambios de parámetros `WebGuiEvent`) viajan por colas acotadas prealocadas (`crossbeam_channel::bounded`) drenadas con `try_recv()`.
-   - La grabadora Master en vivo (`LiveMasterRecorder`) prealoca `720,000` frames estéreo al iniciar el plugin y emplea `Mutex::try_lock()` desde el hilo de audio: si el hilo de interfaz está exportando el archivo WAV, el callback de audio jamás espera ni se bloquea.
+   - Todas las estructuras del camino crítico (`VoiceManager`, `Voice`, `HermiteResampler`, `SvfFilter`, `AdsrEnvelope`, `LfoEngine`, `ArpEngine`, `StereoFxRack` y buffers de trabajo) se prealocan durante `Plugin::initialize()` o `Default::default()`.
+   - Cuando el hilo de síntesis (`AiWorker`) entrega un nuevo `Arc<SampleBuffer>`, el buffer saliente se envía por una cola acotada (`garbage_tx`) hacia un hilo recolector de fondo para que `drop()` jamás se ejecute dentro del hilo de audio en tiempo real.
+2. **Sincronización Lock-Free (< 15 ns) y Lectura Consistente (`SeqLock`)**:
+   - Todos los parámetros continuos, modos discretos, máscara de la matriz `5×5` y pesos bipolares por celda (`mod_matrix_weights: [AtomicU32; 25]`) residen en [`LiveParamStore`](crates/plugin_vst/src/params.rs) mediante variables atómicas (`AtomicU32` / `AtomicI32` con `Ordering::Relaxed`).
+   - Al inicio de cada bloque de audio, [`LiveParamStore::project_to_dsp`](crates/plugin_vst/src/params.rs) proyecta el estado atómico hacia `VoiceManager` y `StereoFxRack` en una sola pasada sin bloqueos.
+   - La telemetría de dominio operativo (`OddTelemetry`) utiliza un protocolo **SeqLock** sin bloqueos para publicar métricas de RMS, pitch detectado, voces activas y contadores de eventos hacia la interfaz a `60 FPS`.
+3. **Grabación Master No Bloqueante (`LiveMasterRecorder`)**:
+   - Prealoca `720,000` frames estéreo al iniciar el plugin y utiliza `Mutex::try_lock()` desde el callback de audio: si el hilo de UI está serializando el archivo `.wav`, el hilo de audio jamás espera.
 
 ---
 
-## 2. Topología de la Cadena de Señal DSP (`crates/synth_core`)
+## 2. Topología Completa de la Cadena de Señal DSP (`crates/synth_core/`)
 
 ```mermaid
 flowchart TD
-    A["Entrada MIDI Sample-Accurate\n(NoteOn, NoteOff, CC#1, CC#11, CC#64, CC#74, Aftertouch, PitchBend)"] --> B["TepuiArpeggiator\n(Off / Up / Down / Joropo 6/8 / Merengue 5/8)"]
-    B --> C["Ruteador de Keyzones\n(Low C0-B2 | Mid C3-B4 | High C5-G8 | Primary)"]
-    C --> D[" Banco Polifónico de 16 Voces\n(Hermite 4-Point + 2x Oversampling + De-click 5ms)"]
-    D --> E["Filtro SVF ZDF TPT por Voz\n(12 dB/oct LP / HP / BP + Modulación LFO/CC74/Aftertouch)"]
-    E --> F["Envolvente ADSR Exponencial por Voz\n+ Modulación de Tremolo Estéreo en Cuadratura"]
-    F --> G["StereoFxRack Master\n(Chorus en Cuadratura + Ping-Pong Delay + Reverb Cañón del Tepui)"]
-    G --> H["Master Gain + Soft Clipper Analógico (>0.95) + Sanitizador IEEE 754"]
-    H --> I["LiveMasterRecorder (try_lock)\n+ Upmix Acústico Multicanal (Estéreo / 5.1 / 7.1)"]
+    A["Entrada MIDI Sample-Accurate + Armonizador (#btn-chord-mode)\n(NoteOn/Off, CHORD:MIN7/MAJ9/STRUM, PitchBend, CC#1, CC#64, CC#74, Aftertouch, MPE)"] --> B["ArpEngine Polifónico (12 / 16 Pasos)\n(Off / Up / Down / Joropo 6/8 / Merengue 5/8\n+ Carriles VEL / RATCH 1x..4x / OCT ±1 + Exportador .mid SMF)"]
+    B --> C["Ruteador Tri-Zone & Micro-Afinación (.scl)\n(12-TET / Just 5-Limit / Arpa Llanera / Maqam / Custom .scl)"]
+    C --> D["Banco Polifónico de 16 Voces × Super-Unison (1..8V)\n• OSC A: Hermite 4-Point + 2x Oversampling + Wavetable 3D (64×32)\n• 4 Modos Spectral Warp (Fold / Asym / Sync / Quant)\n• OSC B + Sub -1 Oct + FM Cruzada A←B + Nube Granular 4-Grain Hann"]
+    D --> E["9 Topologías de Filtrado Por Voz (filter.rs)\n• 0..3: Cytomic SVF ZDF (LP / HP / BP / Bypass)\n• 4: Moog Ladder 24dB • 5: Karplus-Strong Comb • 6: Formant Vocal A-E-I-O-U\n• 7: Dual Serie (HP 2-Pole → Ladder LP 24dB)\n• 8: Dual Paralelo (SVF LP ‖ Formant 3-Band)"]
+    E --> F["Doble Envolvente ADSR (Curva Exp/Lin/Log + Legato)\n+ Matriz de Modulación 5×5 con Atenuversores Bipolares (-100%..+100%)"]
+    F --> G["StereoFxRack Master (fx.rs)\n• Drive Analógico + Compresor Multibanda OTT 3-Band\n• 4 Modos Espaciales: FX:CANYON / FX:PHASER / FX:TAPE / FX:DELAY (Ping-Pong Sync)"]
+    G --> H["Master Gain + Soft Clipper Analógico + Sanitizador IEEE 754\n+ Analizador FFT 64 Bandas + LiveMasterRecorder (.wav 32-bit Float)"]
 ```
 
-### 2.1 Resampling Hermite con Centinelas y 2x Oversampling
-- Cada [`SampleBuffer`](crates/synth_core/src/buffer.rs) añade automáticamente **2 muestras centinela en cero (`0.0`)** al final de los vectores `left` y `right`.
-- Esto permite que [`HermiteResampler`](crates/synth_core/src/resampler.rs) lea siempre los 4 puntos adyacentes (`y0, y1, y2, y3`) sin comprobaciones condicionales de límites dentro del bucle por muestra.
-- Cuando la transposición cromática supera `1.25x` (+4 semitonos), el motor evalúa dos sub-pasos Hermite a mitad de intervalo y los promedia mediante un filtro de media móvil de fase lineal, mitigando el *aliasing* por plegamiento espectral en registros altos.
+---
 
-### 2.2 Filtro SVF Zero-Delay Feedback (TPT)
-- Implementado en [`filter.rs`](crates/synth_core/src/filter.rs) siguiendo la formulación trapezoidal de Vadim Zavalishin.
-- Los coeficientes `g` y `k` se recalculan únicamente cuando cambia la frecuencia de corte efectiva (modulada por el LFO, `CC#74` o `Aftertouch`) o la resonancia, evitando llamadas trigonométricas `tan()` redundantes en cada muestra.
-- Los integradores de estado (`ic1eq`, `ic2eq`) purgan valores subnormales (`|x| < 1e-15`) a `0.0` en cada iteración para evitar penalizaciones de microcódigo en CPUs x86_64.
+## 3. Síntesis en Silicio Local (`< 1 ms`) y Modelado Físico (`crates/ai_bridge/`)
 
-### 2.3 Reverberación Algorítmica "Cañón del Tepui" (`StereoFxRack`)
-- Implementada en [`fx.rs`](crates/synth_core/src/fx.rs), combina:
-  1. **Chorus Estéreo en Cuadratura** (`0.65 Hz`, desfase de `90°` entre L y R con interpolación lineal fraccional).
-  2. **Ping-Pong Cross-Delay** (`330 ms` L / `460 ms` R) con filtro pasa-bajos de absorción atmosférica en el lazo de retroalimentación.
-  3. **Tanque de Reverberación "Cañón del Tepui"**: 4 filtros Comb en paralelo con amortiguación (`damping = 0.28`, `feedback = 0.84`) seguidos de 2 difusores All-Pass en serie por canal, escalados dinámicamente hasta tasas de muestreo superiores a `192 kHz` sin reasignar memoria.
+1. **Síntesis Instantánea de Wavetables en Silicio Local ([`synthesize_local_silicon_wavetable`](crates/ai_bridge/src/npu_synth.rs))**:
+   - Genera en `< 1 ms` y sin conexión de red un ciclo base de 64 muestras alineado en fase (`[f32; 64]`) más una tabla morfable completa de 32 frames (`2048` muestras) a partir de descriptores en lenguaje natural (`acid`, `reese`, `choir`, `arpa`, `bell`, etc.).
+2. **Modelado Físico Venezolano y Hub Multi-Proveedor IA**:
+   - Modela físicamente **Cuatro Venezolano**, **Arpa Llanera**, **Bandola Llanera**, **Maracas Capachos**, **Tambor Cumaco**, **Quitiplás de Barlovento** y **Furruco Zuliano**, además de conectarse opcionalmente a **Cloudflare Community Edge KV**, **Ollama Local**, **Google Gemini**, **Groq Cloud LPU** u **OpenAI / OpenRouter**.
 
 ---
 
-## 3. Síntesis y Modelado Físico Venezolano (`crates/ai_bridge`)
+## 4. Sistema de Diseño Industrial: Flush Architectural Grid (`crates/plugin_vst/ui/`)
 
-El crate [`ai_bridge`](crates/ai_bridge/src/lib.rs) ejecuta un hilo trabajador en segundo plano (`AiWorker`) para que la síntesis de muestras nunca afecte al hilo de audio:
-
-- **Modelado Físico de Cuerdas Venezolanas**:
-  - **Cuatro Venezolano (`C4`)**: Síntesis de cuerda pulsada de nylon con formantes de caja de cedro y golpe de charrasqueo.
-  - **Arpa Llanera (`C4`)**: Serie armónica cristalina con inharmonicidad ligera y ataque de uña/yema.
-  - **Bandola Llanera (`A3`)**: Ataque percusivo de pajuela (*jalao*) y énfasis en el 2.º, 3.º y 5.º armónico de su caja periforme.
-- **Modelado Físico de Percusión y Sub-Bajos Venezolanos**:
-  - **Maracas Llaneras / Capachos (`C4`)**: Doble golpe granular de semillas de capacho con resonancias huecas de tapara (`1.48 kHz` y `3.12 kHz`).
-  - **Tambor Cumaco (`C3`)**: Modos circulares de membrana de cuero (funciones de Bessel `1.00`, `1.593`, `2.136`) con caída de tono al impacto + golpe agudo de *laures* (palos sobre madera).
-  - **Quitiplás de Barlovento (`C4`)**: Tubos cilíndricos de bambú (*Pujao* y *Prima*) con modos impares y transitorio de entrechoque a los `42 ms`.
-  - **Furruco Zuliano Sub (`C2`)**: Excitación *stick-slip* de verada encerada acoplada a un resonador sub-grave sostenible con bucle activo.
-
----
-
-## 4. Interfaz WebView2 Serverless y Persistencia (`crates/plugin_vst`)
-
-- **Protocolo Personalizado `tepui://localhost/`**:
-  - En lugar de abrir sockets TCP locales (propensos a bloqueos por firewall o colisiones de puerto cuando se instancian múltiples pistas del plugin en un DAW), [`web_editor.rs`](crates/plugin_vst/src/web_editor.rs) registra el esquema en memoria `tepui://` directamente en WebView2.
-- **Formato de Patch `.tepui`**:
-  - [`TepuiPatch`](crates/plugin_vst/src/params.rs) encapsula en un único archivo JSON autocontenido la muestra principal en WAV IEEE Float 32-bit Base64, las 3 Keyzones (`LOW`, `MID`, `HIGH`) en Base64 y todos los parámetros del motor (`ADSR`, `SVF`, `LFO`, `ArpMode`, `SpaceMix`, `Region/Loop`).
+- **Primitivas `@audio-ui/react`**: Construido sobre componentes accesibles y deterministas (`Knob`, `Fader`, `Plot`, `Envelope`, `StepSequencer`, `XYPad`, `Meter`, `Piano`) en [`crates/plugin_vst/ui/src/components/`](crates/plugin_vst/ui/src/components/).
+- **Retícula Continua de `1px` y Contención Estricta (`1280 × 820 px`)**: Sin sub-cajas anidadas ni sombras redundantes, verificando automáticamente `overflowCount = 0` y `truncatedTitles = 0` en las **6 skins de hardware** (`skin-minimal`, `skin-dark`, `skin-retro`, `skin-synth70`, `skin-gunmetal`, `skin-phosphor`).
+- **Las 7 Compuertas de Certificación UI↔DSP ([`ui_dsp_contract.rs`](crates/plugin_vst/src/ui_dsp_contract.rs))**: Garantizan en tiempo de test que cada elemento del DOM tenga un contrato IPC válido y produzca un impacto medible en la señal de audio DSP.
