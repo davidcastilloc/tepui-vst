@@ -7,5 +7,8 @@ description = "Domain-agnostic serverless WebView host, isolated UDF profile res
 
 [dependencies]
 base_plugin_core = { path = "../base_plugin_core" }
+nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git" }
+raw_window_handle_06 = { package = "raw-window-handle", version = "0.6" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+wry = "0.47"

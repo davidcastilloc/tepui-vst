@@ -3,10 +3,15 @@ name = "studio_bus_comp"
 version = "1.22.0"
 edition = "2021"
 license = "MIT"
-description = "Reference VCA Bus Compressor, Sidechain HPF, and Tape Saturator VST3/CLAP plugin built 100% on the decoupled base_plugin_core + dsp_core stack with zero synth/AI coupling."
+description = "Reference VCA Bus Compressor, Sidechain HPF, and Tape Saturator VST3/CLAP/Standalone plugin built 100% on the decoupled base_plugin_core + dsp_core stack with zero synth/AI coupling."
+default-run = "studio_bus_comp_app"
 
 [lib]
 crate-type = ["cdylib", "lib"]
+
+[[bin]]
+name = "studio_bus_comp_app"
+path = "src/bin/studio_bus_comp_app.rs"
 
 [dependencies]
 dsp_core = { path = "../dsp_core" }

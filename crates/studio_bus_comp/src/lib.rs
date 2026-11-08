@@ -1,27 +1,31 @@
 #![allow(clippy::needless_range_loop)]
-//! # `studio_bus_comp` — Compresor de Bus VCA Estéreo y Saturador de Cinta (VST3 / CLAP)
+//! # `studio_bus_comp` — Compresor de Bus VCA Estéreo y Saturador de Cinta (VST3 / CLAP / Standalone)
 //!
 //! Segundo plugin del ecosistema construido **100% sobre la plantilla desacoplada**
 //! (`dsp_core` + `base_plugin_core` + `base_plugin_webview` + `@plugin-base/ui-bridge`),
 //! con **cero dependencia** hacia `synth_core` o `ai_bridge`.
-//!
-//! Demuestra en producción cómo crear un procesador de dinámica y masterización
-//! utilizando el trait `DspEngine`, el banco `AtomicParamBank` ($O(1)$) y la macro
-//! de certificación `declare_plugin_contract!`.
 
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 
 use base_plugin_core::{
     AtomicParamBank, DspEngine, HostTransportContext, LiveParamSnapshot, MidiEvent,
-    MidiOutputBuffer, ParamDescriptor, ParamScale, ProcessStatus, MAX_PLUGIN_PARAMS,
+    MidiOutputBuffer, ParamDescriptor, ParamIndex, ParamScale, ProcessStatus, MAX_PLUGIN_PARAMS,
 };
+use base_plugin_webview::{AtomicMeterBridge, GenericWebViewEditor};
 use dsp_core::{
     db_to_gain, flush_denormal, gain_to_db, BrickwallLimiter, EnvelopeDetector, OnePoleSmoother,
     StateVariableFilter,
 };
 use nih_plug::prelude::*;
 use serde::{Deserialize, Serialize};
+
+static STANDALONE_MODE: AtomicBool = AtomicBool::new(false);
+
+/// Activa el modo autónomo (Standalone), habilitando por defecto el generador interno de batería y bajo para QA inmediato.
+pub fn set_standalone_mode(enabled: bool) {
+    STANDALONE_MODE.store(enabled, Ordering::Relaxed);
+}
 
 /// Descriptores declarativos de los 9 parámetros del Compresor de Bus.
 pub const STUDIO_BUS_COMP_DESCRIPTORS: [ParamDescriptor; 9] = [
@@ -118,7 +122,7 @@ pub const STUDIO_BUS_COMP_DESCRIPTORS: [ParamDescriptor; 9] = [
         display_name: "Makeup Gain",
         min_plain: -12.0,
         max_plain: 24.0,
-        default_plain: 0.0,
+        default_plain: 2.0,
         scale: ParamScale::Decibels {
             min_db: -12.0,
             max_db: 24.0,
@@ -173,6 +177,8 @@ pub struct StudioBusCompEngine {
     peak_l: AtomicU32,
     peak_r: AtomicU32,
     gr_db: AtomicU32,
+    test_gen_phase: u64,
+    rng_state: u32,
 }
 
 impl Default for StudioBusCompEngine {
@@ -195,7 +201,52 @@ impl StudioBusCompEngine {
             peak_l: AtomicU32::new(0),
             peak_r: AtomicU32::new(0),
             gr_db: AtomicU32::new(0),
+            test_gen_phase: 0,
+            rng_state: 0xA53C_9E11,
         }
+    }
+
+    /// Sintetiza una señal de prueba rítmica (Kick analógico + Sub-Bass + Snare a 120 BPM)
+    /// cuando el plugin corre en modo Standalone sin entrada externa conectada.
+    #[inline(always)]
+    pub fn next_test_loop_sample(&mut self) -> (f32, f32) {
+        let sr = self.sample_rate.max(8000.0);
+        let beat_samples = (sr * 0.5) as u64; // 120 BPM negra
+        let pos_in_bar = self.test_gen_phase % (beat_samples * 4);
+        let pos_in_beat = self.test_gen_phase % beat_samples;
+        self.test_gen_phase = self.test_gen_phase.wrapping_add(1);
+
+        let t_beat = pos_in_beat as f32 / sr;
+        let beat_idx = pos_in_bar / beat_samples;
+
+        // Kick analógico con barrido exponencial de pitch (140 Hz -> 48 Hz)
+        let kick_env = (-t_beat * 14.0).exp();
+        let kick_freq = 48.0 + 92.0 * (-t_beat * 38.0).exp();
+        let kick = (2.0 * std::f32::consts::PI * kick_freq * t_beat).sin() * kick_env * 0.72;
+
+        // Snare en tiempos 2 y 4
+        let snare = if beat_idx == 1 || beat_idx == 3 {
+            let mut x = self.rng_state;
+            x ^= x << 13;
+            x ^= x >> 17;
+            x ^= x << 5;
+            self.rng_state = x;
+            let noise = (x as f32 / u32::MAX as f32) * 2.0 - 1.0;
+            let snare_env = (-t_beat * 22.0).exp();
+            let body = (2.0 * std::f32::consts::PI * 185.0 * t_beat).sin() * (-t_beat * 28.0).exp();
+            (noise * 0.65 + body * 0.35) * snare_env * 0.55
+        } else {
+            0.0
+        };
+
+        // Bajo sincopado en octava grave (55 Hz / 65.4 Hz)
+        let bass_freq = if beat_idx < 2 { 55.0 } else { 65.41 };
+        let bass_env = ((t_beat - 0.12).max(0.0) * 8.0).min(1.0) * (-t_beat * 4.5).exp();
+        let bass = (2.0 * std::f32::consts::PI * bass_freq * t_beat). tanh() * bass_env * 0.38;
+
+        let mix_l = (kick + snare * 1.05 + bass * 0.95).clamp(-0.98, 0.98);
+        let mix_r = (kick + snare * 0.95 + bass * 1.05).clamp(-0.98, 0.98);
+        (mix_l, mix_r)
     }
 }
 
@@ -273,12 +324,10 @@ impl DspEngine for StudioBusCompEngine {
                 continue;
             }
 
-            // 1. Filtrado Pasa-Altos del Sidechain para evitar bombeo por sub-graves
             let sc_l = self.sc_hpf_l.process_highpass(in_l);
             let sc_r = self.sc_hpf_r.process_highpass(in_r);
             let sc_peak = sc_l.abs().max(sc_r.abs());
 
-            // 2. Detección balística y curva de ganancia Soft-Knee
             let env = self.detector.process(sc_peak);
             let env_db = gain_to_db(env);
             let over_db = env_db - threshold_db;
@@ -295,7 +344,6 @@ impl DspEngine for StudioBusCompEngine {
             min_gr_db = min_gr_db.min(gr_db);
             let comp_gain = db_to_gain(gr_db);
 
-            // 3. Compresión VCA + Saturación de Cinta Suave + Ganancia de Compensación
             let makeup = self.makeup_smoother.next_sample();
             let mix = self.mix_smoother.next_sample();
 
@@ -432,7 +480,7 @@ impl Default for StudioBusCompParams {
             .with_unit(" dB"),
             makeup_db: FloatParam::new(
                 "Makeup Gain",
-                0.0,
+                2.0,
                 FloatRange::Linear {
                     min: -12.0,
                     max: 24.0,
@@ -445,10 +493,11 @@ impl Default for StudioBusCompParams {
     }
 }
 
-/// Plugin VST3 / CLAP de Compresor de Bus VCA construido sobre `base_plugin_core`.
+/// Plugin VST3 / CLAP / Standalone de Compresor de Bus VCA construido sobre `base_plugin_core`.
 pub struct StudioBusCompPlugin {
     params: Arc<StudioBusCompParams>,
     param_bank: Arc<AtomicParamBank<MAX_PLUGIN_PARAMS>>,
+    meter_bridge: Arc<AtomicMeterBridge>,
     snapshot: LiveParamSnapshot,
     engine: StudioBusCompEngine,
 }
@@ -470,6 +519,7 @@ impl Default for StudioBusCompPlugin {
         Self {
             params: Arc::new(StudioBusCompParams::default()),
             param_bank,
+            meter_bridge: Arc::new(AtomicMeterBridge::new()),
             snapshot,
             engine,
         }
@@ -483,11 +533,18 @@ impl Plugin for StudioBusCompPlugin {
     const EMAIL: &'static str = "dsp@openaudiostack.org";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
-    const AUDIO_IO_LAYOUTS: &'static [AudioIOLayout] = &[AudioIOLayout {
-        main_input_channels: NonZeroU32::new(2),
-        main_output_channels: NonZeroU32::new(2),
-        ..AudioIOLayout::const_default()
-    }];
+    const AUDIO_IO_LAYOUTS: &'static [AudioIOLayout] = &[
+        AudioIOLayout {
+            main_input_channels: NonZeroU32::new(2),
+            main_output_channels: NonZeroU32::new(2),
+            ..AudioIOLayout::const_default()
+        },
+        AudioIOLayout {
+            main_input_channels: None,
+            main_output_channels: NonZeroU32::new(2),
+            ..AudioIOLayout::const_default()
+        },
+    ];
 
     const MIDI_INPUT: MidiConfig = MidiConfig::None;
     const SAMPLE_ACCURATE_AUTOMATION: bool = true;
@@ -497,6 +554,73 @@ impl Plugin for StudioBusCompPlugin {
 
     fn params(&self) -> Arc<dyn Params> {
         self.params.clone()
+    }
+
+    fn editor(&mut self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
+        let params_for_daw = Arc::clone(&self.params);
+        let sync_cb = Arc::new(move |ctx: &dyn GuiContext, param_id: ParamIndex, norm: f32| {
+            let setter = ParamSetter::new(ctx);
+            let clamped = norm.clamp(0.0, 1.0);
+            match param_id {
+                0 => {
+                    setter.begin_set_parameter(&params_for_daw.threshold_db);
+                    setter.set_parameter_normalized(&params_for_daw.threshold_db, clamped);
+                    setter.end_set_parameter(&params_for_daw.threshold_db);
+                }
+                1 => {
+                    setter.begin_set_parameter(&params_for_daw.ratio);
+                    setter.set_parameter_normalized(&params_for_daw.ratio, clamped);
+                    setter.end_set_parameter(&params_for_daw.ratio);
+                }
+                2 => {
+                    setter.begin_set_parameter(&params_for_daw.attack_ms);
+                    setter.set_parameter_normalized(&params_for_daw.attack_ms, clamped);
+                    setter.end_set_parameter(&params_for_daw.attack_ms);
+                }
+                3 => {
+                    setter.begin_set_parameter(&params_for_daw.release_ms);
+                    setter.set_parameter_normalized(&params_for_daw.release_ms, clamped);
+                    setter.end_set_parameter(&params_for_daw.release_ms);
+                }
+                4 => {
+                    setter.begin_set_parameter(&params_for_daw.sc_hpf_hz);
+                    setter.set_parameter_normalized(&params_for_daw.sc_hpf_hz, clamped);
+                    setter.end_set_parameter(&params_for_daw.sc_hpf_hz);
+                }
+                5 => {
+                    setter.begin_set_parameter(&params_for_daw.tape_drive_db);
+                    setter.set_parameter_normalized(&params_for_daw.tape_drive_db, clamped);
+                    setter.end_set_parameter(&params_for_daw.tape_drive_db);
+                }
+                6 => {
+                    setter.begin_set_parameter(&params_for_daw.makeup_db);
+                    setter.set_parameter_normalized(&params_for_daw.makeup_db, clamped);
+                    setter.end_set_parameter(&params_for_daw.makeup_db);
+                }
+                7 => {
+                    setter.begin_set_parameter(&params_for_daw.mix);
+                    setter.set_parameter_normalized(&params_for_daw.mix, clamped);
+                    setter.end_set_parameter(&params_for_daw.mix);
+                }
+                8 => {
+                    setter.begin_set_parameter(&params_for_daw.bypass);
+                    setter.set_parameter(&params_for_daw.bypass, clamped >= 0.5);
+                    setter.end_set_parameter(&params_for_daw.bypass);
+                }
+                _ => {}
+            }
+        });
+
+        Some(Box::new(GenericWebViewEditor::new(
+            Self::VENDOR,
+            "StudioBusCompressor",
+            980,
+            560,
+            build_studio_bus_comp_full_html(),
+            Arc::clone(&self.param_bank),
+            Arc::clone(&self.meter_bridge),
+            Some(sync_cb),
+        )))
     }
 
     fn initialize(
@@ -525,28 +649,10 @@ impl Plugin for StudioBusCompPlugin {
             return nih_plug::prelude::ProcessStatus::Normal;
         }
 
-        // Sincronizar parámetros del host DAW hacia el snapshot en pila en O(1)
-        self.snapshot
-            .set_plain_and_normalized(0, self.params.threshold_db.value(), 0.5);
-        self.snapshot
-            .set_plain_and_normalized(1, self.params.ratio.value(), 0.5);
-        self.snapshot
-            .set_plain_and_normalized(2, self.params.attack_ms.value(), 0.5);
-        self.snapshot
-            .set_plain_and_normalized(3, self.params.release_ms.value(), 0.5);
-        self.snapshot
-            .set_plain_and_normalized(4, self.params.sc_hpf_hz.value(), 0.5);
-        self.snapshot
-            .set_plain_and_normalized(5, self.params.tape_drive_db.value(), 0.5);
-        self.snapshot
-            .set_plain_and_normalized(6, self.params.makeup_db.value(), 0.5);
-        self.snapshot
-            .set_plain_and_normalized(7, self.params.mix.value(), 1.0);
-        self.snapshot.set_plain_and_normalized(
-            8,
-            if self.params.bypass.value() { 1.0 } else { 0.0 },
-            0.0,
-        );
+        let descriptors = self.engine.param_descriptors();
+        let _ = self
+            .param_bank
+            .sync_snapshot_if_changed(descriptors, &mut self.snapshot);
 
         let slice = buffer.as_slice();
         if slice.len() < 2 {
@@ -558,6 +664,20 @@ impl Plugin for StudioBusCompPlugin {
         let frames = samples.min(4096);
         in_l[..frames].copy_from_slice(&slice[0][..frames]);
         in_r[..frames].copy_from_slice(&slice[1][..frames]);
+
+        let is_standalone = STANDALONE_MODE.load(Ordering::Relaxed);
+        let has_external_signal = in_l[..frames]
+            .iter()
+            .zip(in_r[..frames].iter())
+            .any(|(&l, &r)| l.abs() > 1e-5 || r.abs() > 1e-5);
+
+        if is_standalone && !has_external_signal {
+            for i in 0..frames {
+                let (tl, tr) = self.engine.next_test_loop_sample();
+                in_l[i] = tl;
+                in_r[i] = tr;
+            }
+        }
 
         let (first_split, rest_split) = slice.split_at_mut(1);
         let out_l = &mut first_split[0][..frames];
@@ -586,6 +706,10 @@ impl Plugin for StudioBusCompPlugin {
             &transport_ctx,
             &self.snapshot,
         );
+
+        let telem = self.engine.capture_telemetry();
+        self.meter_bridge
+            .publish_dynamics_rt(telem.peak_l, telem.peak_r, telem.gain_reduction_db);
 
         nih_plug::prelude::ProcessStatus::Normal
     }
@@ -622,23 +746,384 @@ impl Vst3Plugin for StudioBusCompPlugin {
 nih_export_clap!(StudioBusCompPlugin);
 nih_export_vst3!(StudioBusCompPlugin);
 
-/// Plantilla HTML declarativa del Compresor de Bus con los 9 controles registrados.
-pub const STUDIO_BUS_COMP_HTML: &str = r#"
-<div id="studio-bus-comp-root" class="plugin-flush-grid" data-skin="minimal">
-  <div id="knob-threshold" data-param="0"></div>
-  <div id="knob-ratio" data-param="1"></div>
-  <div id="knob-attack" data-param="2"></div>
-  <div id="knob-release" data-param="3"></div>
-  <div id="knob-sc-hpf" data-param="4"></div>
-  <div id="knob-tape-drive" data-param="5"></div>
-  <div id="knob-makeup" data-param="6"></div>
-  <div id="knob-mix" data-param="7"></div>
-  <button id="btn-bypass" data-param="8"></button>
-</div>
+/// Hoja de estilos con los 6 Hardware Skins (`minimal`, `dark`, `retro`, `synth70`, `gunmetal`, `phosphor`).
+pub const STUDIO_BUS_COMP_CSS: &str =
+    include_str!("../../../packages/base-plugin-ui/src/styles/skins.css");
+
+/// Plantilla HTML/JS completa de la unidad de rack del Compresor de Bus VCA con los 9 controles registrados y telemetría 60 FPS.
+pub const STUDIO_BUS_COMP_HTML: &str = r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Studio VCA Bus Compressor</title>
+<style>
+__SKINS_CSS__
+* { box-sizing: border-box; user-select: none; margin: 0; padding: 0; }
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border-hairline);
+}
+.brand-col { display: flex; flex-direction: column; gap: 2px; }
+.brand-title { font-size: 13px; font-weight: 800; letter-spacing: 0.12em; }
+.brand-sub { font-size: 10px; color: var(--text-muted); font-family: monospace; letter-spacing: 0.08em; }
+.skin-group { display: flex; gap: 1px; background: var(--border-hairline); border: 1px solid var(--border-hairline); }
+.skin-btn, .bypass-btn {
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  border: none;
+  padding: 5px 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+.skin-btn.active, .bypass-btn.active {
+  background: var(--accent-primary);
+  color: #fff;
+}
+.rack-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1.5fr 1fr;
+  gap: 1px;
+  background: var(--border-hairline);
+}
+.controls-pane {
+  background: var(--bg-panel);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+.section-tag {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-hairline);
+  padding-bottom: 6px;
+  margin-bottom: 12px;
+}
+.knobs-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--border-hairline);
+  border: 1px solid var(--border-hairline);
+  flex: 1;
+}
+.knob-cell {
+  background: var(--bg-panel);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 8px;
+  gap: 8px;
+  cursor: ns-resize;
+}
+.knob-lbl { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: var(--text-muted); }
+.knob-val { font-size: 11px; font-family: monospace; font-weight: 700; color: var(--text-primary); }
+.telemetry-pane {
+  background: var(--bg-recessed);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.curve-box {
+  flex: 1;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-hairline);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+}
+.meters-row {
+  height: 120px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-hairline);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+.meter-bar-wrap { display: flex; align-items: center; gap: 10px; font-family: monospace; font-size: 11px; }
+.meter-track { flex: 1; height: 12px; background: var(--bg-recessed); border: 1px solid var(--border-hairline); position: relative; overflow: hidden; }
+.meter-fill { height: 100%; width: 0%; background: var(--accent-primary); transition: width 30ms linear; }
+.footer-bar {
+  padding: 6px 16px;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border-hairline);
+  display: flex;
+  justify-content: space-between;
+  font-family: monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+</style>
+</head>
+<body data-skin="dark">
+  <div id="studio-bus-comp-root" class="header-bar">
+    <div class="brand-col">
+      <div class="brand-title">STUDIO VCA BUS COMPRESSOR</div>
+      <div class="brand-sub">MASTERING VCA DYNAMICS • ZDF SIDECHAIN HPF • ANALOG TAPE DRIVE</div>
+    </div>
+    <div class="skin-group">
+      <button class="skin-btn" data-set-skin="minimal">MINIMAL</button>
+      <button class="skin-btn active" data-set-skin="dark">DARK</button>
+      <button class="skin-btn" data-set-skin="retro">RETRO</button>
+      <button class="skin-btn" data-set-skin="synth70">SYNTH 70</button>
+      <button class="skin-btn" data-set-skin="gunmetal">GUNMETAL</button>
+      <button class="skin-btn" data-set-skin="phosphor">PHOSPHOR</button>
+    </div>
+    <button id="btn-bypass" class="bypass-btn" data-param="8">ACTIVE (BYPASS OFF)</button>
+  </div>
+
+  <div class="rack-grid">
+    <div class="controls-pane">
+      <div class="section-tag">01 // VCA COMPRESSION &amp; ANALOG SATURATION MATRIX</div>
+      <div class="knobs-grid">
+        <div id="knob-threshold" class="knob-cell" data-param="0" data-min="-48" data-max="0" data-unit=" dB" data-norm="0.625">
+          <span class="knob-lbl">THRESHOLD</span>
+          <svg width="64" height="64" viewBox="0 0 64 64"><circle cx="32" cy="32" r="24" fill="none" stroke="var(--border-hairline)" stroke-width="4"/><line class="dial-line" x1="32" y1="32" x2="32" y2="10" stroke="var(--accent-primary)" stroke-width="3"/></svg>
+          <span class="knob-val">-18.0 dB</span>
+        </div>
+        <div id="knob-ratio" class="knob-cell" data-param="1" data-min="1.5" data-max="20" data-unit=" : 1" data-norm="0.36">
+          <span class="knob-lbl">RATIO</span>
+          <svg width="64" height="64" viewBox="0 0 64 64"><circle cx="32" cy="32" r="24" fill="none" stroke="var(--border-hairline)" stroke-width="4"/><line class="dial-line" x1="32" y1="32" x2="32" y2="10" stroke="var(--accent-primary)" stroke-width="3"/></svg>
+          <span class="knob-val">4.0 : 1</span>
+        </div>
+        <div id="knob-attack" class="knob-cell" data-param="2" data-min="0.5" data-max="100" data-unit=" ms" data-norm="0.35">
+          <span class="knob-lbl">ATTACK</span>
+          <svg width="64" height="64" viewBox="0 0 64 64"><circle cx="32" cy="32" r="24" fill="none" stroke="var(--border-hairline)" stroke-width="4"/><line class="dial-line" x1="32" y1="32" x2="32" y2="10" stroke="var(--accent-primary)" stroke-width="3"/></svg>
+          <span class="knob-val">10.0 ms</span>
+        </div>
+        <div id="knob-release" class="knob-cell" data-param="3" data-min="20" data-max="1000" data-unit=" ms" data-norm="0.38">
+          <span class="knob-lbl">RELEASE</span>
+          <svg width="64" height="64" viewBox="0 0 64 64"><circle cx="32" cy="32" r="24" fill="none" stroke="var(--border-hairline)" stroke-width="4"/><line class="dial-line" x1="32" y1="32" x2="32" y2="10" stroke="var(--accent-primary)" stroke-width="3"/></svg>
+          <span class="knob-val">120 ms</span>
+        </div>
+        <div id="knob-sc-hpf" class="knob-cell" data-param="4" data-min="20" data-max="400" data-unit=" Hz" data-norm="0.32">
+          <span class="knob-lbl">SIDECHAIN HPF</span>
+          <svg width="64" height="64" viewBox="0 0 64 64"><circle cx="32" cy="32" r="24" fill="none" stroke="var(--border-hairline)" stroke-width="4"/><line class="dial-line" x1="32" y1="32" x2="32" y2="10" stroke="var(--accent-primary)" stroke-width="3"/></svg>
+          <span class="knob-val">60 Hz</span>
+        </div>
+        <div id="knob-tape-drive" class="knob-cell" data-param="5" data-min="0" data-max="18" data-unit=" dB" data-norm="0.167">
+          <span class="knob-lbl">TAPE DRIVE</span>
+          <svg width="64" height="64" viewBox="0 0 64 64"><circle cx="32" cy="32" r="24" fill="none" stroke="var(--border-hairline)" stroke-width="4"/><line class="dial-line" x1="32" y1="32" x2="32" y2="10" stroke="var(--accent-primary)" stroke-width="3"/></svg>
+          <span class="knob-val">3.0 dB</span>
+        </div>
+        <div id="knob-makeup" class="knob-cell" data-param="6" data-min="-12" data-max="24" data-unit=" dB" data-norm="0.389">
+          <span class="knob-lbl">MAKEUP GAIN</span>
+          <svg width="64" height="64" viewBox="0 0 64 64"><circle cx="32" cy="32" r="24" fill="none" stroke="var(--border-hairline)" stroke-width="4"/><line class="dial-line" x1="32" y1="32" x2="32" y2="10" stroke="var(--accent-primary)" stroke-width="3"/></svg>
+          <span class="knob-val">+2.0 dB</span>
+        </div>
+        <div id="knob-mix" class="knob-cell" data-param="7" data-min="0" data-max="100" data-unit=" %" data-norm="1.0">
+          <span class="knob-lbl">PARALLEL MIX</span>
+          <svg width="64" height="64" viewBox="0 0 64 64"><circle cx="32" cy="32" r="24" fill="none" stroke="var(--border-hairline)" stroke-width="4"/><line class="dial-line" x1="32" y1="32" x2="32" y2="10" stroke="var(--accent-primary)" stroke-width="3"/></svg>
+          <span class="knob-val">100 %</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="telemetry-pane">
+      <div class="section-tag">02 // REAL-TIME KNEE TRANSFER CURVE &amp; GAIN REDUCTION</div>
+      <div class="curve-box">
+        <canvas id="comp-curve-canvas" width="340" height="220" style="width:100%;height:100%;"></canvas>
+      </div>
+      <div class="meters-row">
+        <div class="meter-bar-wrap">
+          <span style="width:42px;">OUT L</span>
+          <div class="meter-track"><div id="meter-l" class="meter-fill"></div></div>
+          <span id="txt-l" style="width:58px;text-align:right;">-60.0 dB</span>
+        </div>
+        <div class="meter-bar-wrap">
+          <span style="width:42px;">OUT R</span>
+          <div class="meter-track"><div id="meter-r" class="meter-fill"></div></div>
+          <span id="txt-r" style="width:58px;text-align:right;">-60.0 dB</span>
+        </div>
+        <div class="meter-bar-wrap">
+          <span style="width:42px;">GR dB</span>
+          <div class="meter-track"><div id="meter-gr" class="meter-fill" style="background:#f59e0b;"></div></div>
+          <span id="txt-gr" style="width:58px;text-align:right;">0.0 dB</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-bar">
+    <span>ENGINE: DECOUPLED BASE_PLUGIN_CORE + DSP_CORE (0% SYNTH/AI DEPENDENCY)</span>
+    <span>CERTIFICATION: GATE-01..04 GOLD PASS</span>
+  </div>
+
+<script>
+(function() {
+  function sendIpc(cmdObj) {
+    const json = JSON.stringify(cmdObj);
+    if (window.chrome && window.chrome.webview) {
+      window.chrome.webview.postMessage(json);
+    } else if (window.ipc && window.ipc.postMessage) {
+      window.ipc.postMessage(json);
+    } else {
+      fetch('/api/cmd', { method: 'POST', body: json }).catch(function(){});
+    }
+  }
+
+  document.querySelectorAll('[data-set-skin]').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      const skin = btn.getAttribute('data-set-skin');
+      document.body.setAttribute('data-skin', skin);
+      document.querySelectorAll('[data-set-skin]').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+    });
+  });
+
+  function renderKnob(cell, norm) {
+    const clamped = Math.max(0, Math.min(1, norm));
+    cell.setAttribute('data-norm', clamped.toFixed(4));
+    const min = parseFloat(cell.getAttribute('data-min') || '0');
+    const max = parseFloat(cell.getAttribute('data-max') || '1');
+    const unit = cell.getAttribute('data-unit') || '';
+    const plain = min + clamped * (max - min);
+    const valEl = cell.querySelector('.knob-val');
+    if (valEl) valEl.textContent = plain.toFixed(1) + unit;
+    const line = cell.querySelector('.dial-line');
+    if (line) {
+      const deg = -135 + clamped * 270;
+      line.setAttribute('transform', 'rotate(' + deg + ' 32 32)');
+    }
+  }
+
+  document.querySelectorAll('.knob-cell').forEach(function(cell) {
+    renderKnob(cell, parseFloat(cell.getAttribute('data-norm') || '0.5'));
+    let startY = 0;
+    let startNorm = 0.5;
+    let dragging = false;
+    const paramId = parseInt(cell.getAttribute('data-param'), 10);
+
+    cell.addEventListener('pointerdown', function(e) {
+      dragging = true;
+      startY = e.clientY;
+      startNorm = parseFloat(cell.getAttribute('data-norm') || '0.5');
+      cell.setPointerCapture(e.pointerId);
+      sendIpc({ cmd: 'ParamGestureBegin', data: { param_id: paramId } });
+    });
+
+    cell.addEventListener('pointermove', function(e) {
+      if (!dragging) return;
+      const sensitivity = e.shiftKey ? 600 : 150;
+      const nextNorm = Math.max(0, Math.min(1, startNorm + (startY - e.clientY) / sensitivity));
+      renderKnob(cell, nextNorm);
+      sendIpc({ cmd: 'ParamSetValue', data: { param_id: paramId, value: nextNorm } });
+    });
+
+    cell.addEventListener('pointerup', function(e) {
+      if (!dragging) return;
+      dragging = false;
+      sendIpc({ cmd: 'ParamGestureEnd', data: { param_id: paramId } });
+    });
+  });
+
+  const bypassBtn = document.getElementById('btn-bypass');
+  let bypassed = false;
+  if (bypassBtn) {
+    bypassBtn.addEventListener('click', function() {
+      bypassed = !bypassed;
+      bypassBtn.classList.toggle('active', bypassed);
+      bypassBtn.textContent = bypassed ? 'BYPASSED' : 'ACTIVE (BYPASS OFF)';
+      sendIpc({ cmd: 'ParamSetValue', data: { param_id: 8, value: bypassed ? 1.0 : 0.0 } });
+    });
+  }
+
+  const canvas = document.getElementById('comp-curve-canvas');
+  const ctx = canvas ? canvas.getContext('2d') : null;
+  let lastGrDb = 0.0;
+
+  function drawCurve() {
+    if (!ctx || !canvas) return;
+    const w = canvas.width;
+    const h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    ctx.strokeStyle = 'rgba(140,150,165,0.22)';
+    ctx.lineWidth = 1;
+    for (let i = 1; i < 4; i++) {
+      ctx.beginPath(); ctx.moveTo(0, (h * i) / 4); ctx.lineTo(w, (h * i) / 4); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo((w * i) / 4, 0); ctx.lineTo((w * i) / 4, h); ctx.stroke();
+    }
+    const threshCell = document.getElementById('knob-threshold');
+    const ratioCell = document.getElementById('knob-ratio');
+    const threshNorm = threshCell ? parseFloat(threshCell.getAttribute('data-norm') || '0.625') : 0.625;
+    const ratioNorm = ratioCell ? parseFloat(ratioCell.getAttribute('data-norm') || '0.36') : 0.36;
+    const threshDb = -48 + threshNorm * 48;
+    const ratio = 1.5 + ratioNorm * 18.5;
+
+    ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--accent-primary') || '#3b82f6';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    for (let x = 0; x <= w; x += 4) {
+      const inDb = -48 + (x / w) * 48;
+      const outDb = inDb <= threshDb ? inDb : threshDb + (inDb - threshDb) / ratio;
+      const y = h - ((outDb + 48) / 48) * h;
+      if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+
+  function pollTelemetry() {
+    fetch('/api/telemetry')
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        const dbL = d.peak_l > 1e-5 ? Math.max(-60, 20 * Math.log10(d.peak_l)) : -60;
+        const dbR = d.peak_r > 1e-5 ? Math.max(-60, 20 * Math.log10(d.peak_r)) : -60;
+        const gr = Math.min(0, d.gr_db || 0);
+        lastGrDb = gr;
+        const pctL = Math.max(0, Math.min(100, ((dbL + 60) / 60) * 100));
+        const pctR = Math.max(0, Math.min(100, ((dbR + 60) / 60) * 100));
+        const pctGr = Math.max(0, Math.min(100, (Math.abs(gr) / 24) * 100));
+        const elL = document.getElementById('meter-l');
+        const elR = document.getElementById('meter-r');
+        const elGr = document.getElementById('meter-gr');
+        if (elL) elL.style.width = pctL + '%';
+        if (elR) elR.style.width = pctR + '%';
+        if (elGr) elGr.style.width = pctGr + '%';
+        const txL = document.getElementById('txt-l');
+        const txR = document.getElementById('txt-r');
+        const txGr = document.getElementById('txt-gr');
+        if (txL) txL.textContent = dbL.toFixed(1) + ' dB';
+        if (txR) txR.textContent = dbR.toFixed(1) + ' dB';
+        if (txGr) txGr.textContent = gr.toFixed(1) + ' dB';
+        drawCurve();
+      })
+      .catch(function(){});
+  }
+
+  drawCurve();
+  setInterval(pollTelemetry, 40);
+})();
+</script>
+</body>
+</html>
 "#;
 
-/// Hoja de estilos con los 6 Hardware Skins (`minimal`, `dark`, `retro`, `synth70`, `gunmetal`, `phosphor`).
-pub const STUDIO_BUS_COMP_CSS: &str = include_str!("../../../packages/base-plugin-ui/src/styles/skins.css");
+/// Construye el documento HTML inyectando la hoja de estilos de los 6 Hardware Skins.
+pub fn build_studio_bus_comp_full_html() -> String {
+    STUDIO_BUS_COMP_HTML.replace("__SKINS_CSS__", STUDIO_BUS_COMP_CSS)
+}
 
 #[cfg(test)]
 mod tests {

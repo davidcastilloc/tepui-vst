@@ -260,8 +260,11 @@ name = "base_plugin_webview"
 version = "1.22.0"
 dependencies = [
  "base_plugin_core",
+ "nih_plug",
+ "raw-window-handle 0.6.2",
  "serde",
  "serde_json",
+ "wry",
 ]
 
 [[package]]
