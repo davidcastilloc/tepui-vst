@@ -69,6 +69,9 @@ export const synthStore = {
   getSnapshot(): SynthUiSnapshot {
     return currentSnapshot;
   },
+  getState(): SynthUiSnapshot {
+    return currentSnapshot;
+  },
   subscribe(listener: () => void): () => void {
     listeners.add(listener);
     return () => listeners.delete(listener);
@@ -201,11 +204,23 @@ export function useSynthSnapshot(): SynthUiSnapshot {
 }
 
 export function useSynthStore<T>(selector: (snap: SynthUiSnapshot) => T): T {
-  const snap = useSynthSnapshot();
-  return selector(snap);
+  return useSyncExternalStore(
+    synthStore.subscribe,
+    () => selector(synthStore.getSnapshot()),
+    () => selector(synthStore.getSnapshot())
+  );
 }
 
 export function useSynthParam(param: string): number {
-  const snap = useSynthSnapshot();
-  return snap.normalized[param] ?? KNOB_DEFAULT_NORM[param] ?? 0.5;
+  return useSyncExternalStore(
+    synthStore.subscribe,
+    () =>
+      synthStore.getSnapshot().normalized[param] ??
+      KNOB_DEFAULT_NORM[param] ??
+      0.5,
+    () =>
+      synthStore.getSnapshot().normalized[param] ??
+      KNOB_DEFAULT_NORM[param] ??
+      0.5
+  );
 }

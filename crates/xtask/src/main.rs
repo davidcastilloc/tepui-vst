@@ -409,6 +409,11 @@ fn run_set_version(new_version: &str) -> nih_plug_xtask::Result<()> {
     let clean_ver = new_version.trim().trim_start_matches('v');
     let manifests = [
         "Cargo.toml",
+        "crates/dsp_core/Cargo.toml",
+        "crates/base_plugin_core/Cargo.toml",
+        "crates/base_plugin_webview/Cargo.toml",
+        "crates/base_plugin_standalone/Cargo.toml",
+        "crates/studio_bus_comp/Cargo.toml",
         "crates/synth_core/Cargo.toml",
         "crates/ai_bridge/Cargo.toml",
         "crates/plugin_vst/Cargo.toml",

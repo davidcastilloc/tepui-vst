@@ -1,0 +1,18 @@
+[package]
+name = "studio_bus_comp"
+version = "1.22.0"
+edition = "2021"
+license = "MIT"
+description = "Reference VCA Bus Compressor, Sidechain HPF, and Tape Saturator VST3/CLAP plugin built 100% on the decoupled base_plugin_core + dsp_core stack with zero synth/AI coupling."
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+dsp_core = { path = "../dsp_core" }
+base_plugin_core = { path = "../base_plugin_core" }
+base_plugin_webview = { path = "../base_plugin_webview" }
+base_plugin_standalone = { path = "../base_plugin_standalone" }
+nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["assert_process_allocs", "standalone"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

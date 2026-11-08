@@ -1,7 +1,7 @@
 import React from "react";
 import { Piano } from "@audio-ui/react/piano";
 import { SEMI_TO_SHORTCUT } from "../types";
-import { useSynthSnapshot } from "../state/synthStore";
+import { useSynthStore } from "../state/synthStore";
 
 declare global {
   interface Window {
@@ -13,8 +13,9 @@ declare global {
 const WHITE_SEMIS = [0, 2, 4, 5, 7, 9, 11, 12, 14, 16, 17, 19, 21, 23, 24];
 
 export const TepuiKeyboardDeck: React.FC = () => {
-  const snap = useSynthSnapshot();
-  const baseMidi = (snap.currentOctave + 1) * 12;
+  const currentOctave = useSynthStore((s) => s.currentOctave);
+  const activeNotes = useSynthStore((s) => s.activeNotes);
+  const baseMidi = (currentOctave + 1) * 12;
   const maxMidi = baseMidi + 24;
 
   return (
@@ -31,7 +32,7 @@ export const TepuiKeyboardDeck: React.FC = () => {
             ◄ [Z]
           </button>
           <span id="octave-badge" className="tb-badge">
-            {`OCT ${snap.currentOctave} (C${snap.currentOctave} - C${snap.currentOctave + 2})`}
+            {`OCT ${currentOctave} (C${currentOctave} - C${currentOctave + 2})`}
           </span>
           <button
             id="btn-oct-up"
@@ -129,6 +130,13 @@ export const TepuiKeyboardDeck: React.FC = () => {
           <div
             id="wheel-pitch"
             className="hw-wheel"
+            role="slider"
+            tabIndex={0}
+            aria-label="Pitch Bend (-2 a +2 semitonos)"
+            aria-orientation="vertical"
+            aria-valuemin={-2}
+            aria-valuemax={2}
+            aria-valuenow={0}
             title="Pitch Bend (-2..+2 semitonos)"
           >
             <div id="wheel-pitch-cap" className="wheel-cap center"></div>
@@ -137,6 +145,13 @@ export const TepuiKeyboardDeck: React.FC = () => {
           <div
             id="wheel-mod"
             className="hw-wheel"
+            role="slider"
+            tabIndex={0}
+            aria-label="Modulation Wheel CC#1 (0 a 100%)"
+            aria-orientation="vertical"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={0}
             title="Modulation CC#1 (0..100%)"
           >
             <div id="wheel-mod-cap" className="wheel-cap low"></div>
@@ -162,14 +177,14 @@ export const TepuiKeyboardDeck: React.FC = () => {
             className="piano-keyboard piano audio-ui-piano"
             minPitch={baseMidi}
             maxPitch={maxMidi}
-            activeNotes={snap.activeNotes}
+            activeNotes={activeNotes}
             onNoteOn={(pitch, details) => {
               if (details.reason === "keyboard") {
                 window.__tepuiPressNote?.(pitch, 0.92);
               }
             }}
             onNoteOff={(pitch) => {
-              if (snap.activeNotes.includes(pitch)) {
+              if (activeNotes.includes(pitch)) {
                 window.__tepuiReleaseNote?.(pitch);
               }
             }}

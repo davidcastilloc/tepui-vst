@@ -240,6 +240,31 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
+name = "base_plugin_core"
+version = "1.22.0"
+dependencies = [
+ "dsp_core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "base_plugin_standalone"
+version = "1.22.0"
+dependencies = [
+ "base_plugin_core",
+]
+
+[[package]]
+name = "base_plugin_webview"
+version = "1.22.0"
+dependencies = [
+ "base_plugin_core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "baseview"
 version = "0.1.0"
 source = "git+https://github.com/RustAudio/baseview.git?rev=579130ecb4f9f315ae52190af42f0ea46aeaa4a2#579130ecb4f9f315ae52190af42f0ea46aeaa4a2"
@@ -850,6 +875,10 @@ name = "dpi"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
+
+[[package]]
+name = "dsp_core"
+version = "1.22.0"
 
 [[package]]
 name = "dtoa"
@@ -3132,6 +3161,19 @@ name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
+
+[[package]]
+name = "studio_bus_comp"
+version = "1.22.0"
+dependencies = [
+ "base_plugin_core",
+ "base_plugin_standalone",
+ "base_plugin_webview",
+ "dsp_core",
+ "nih_plug",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "syn"

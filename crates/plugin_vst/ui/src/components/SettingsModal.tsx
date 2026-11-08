@@ -1,11 +1,11 @@
 import React from "react";
 import { UI_SKINS } from "../types";
-import { synthStore, useSynthSnapshot } from "../state/synthStore";
+import { synthStore, useSynthStore } from "../state/synthStore";
 
 export const SettingsModal: React.FC = () => {
-  const snap = useSynthSnapshot();
+  const uiSkin = useSynthStore((s) => s.uiSkin);
   const activeSkinObj =
-    UI_SKINS.find((sk) => sk.id === snap.uiSkin) || UI_SKINS[0];
+    UI_SKINS.find((sk) => sk.id === uiSkin) || UI_SKINS[0];
 
   return (
     <div id="settings-modal" className="modal-backdrop hidden">
@@ -416,10 +416,10 @@ export const SettingsModal: React.FC = () => {
               {/* 1. SWISS DAYLIGHT LAB (skin-minimal) */}
               <button
                 id="btn-skin-minimal"
-                className={`skin-card-btn ${snap.uiSkin === "minimal" ? "active" : ""}`.trim()}
+                className={`skin-card-btn ${uiSkin === "minimal" ? "active" : ""}`.trim()}
                 data-skin="minimal"
                 type="button"
-                aria-pressed={snap.uiSkin === "minimal"}
+                aria-pressed={uiSkin === "minimal"}
                 onClick={() => synthStore.setSkin("minimal")}
               >
                 <div className="skin-swatch-preview swatch-minimal">
@@ -472,10 +472,10 @@ export const SettingsModal: React.FC = () => {
               {/* 2. TEPUI DARK STUDIO (skin-dark) */}
               <button
                 id="btn-skin-dark"
-                className={`skin-card-btn ${snap.uiSkin === "dark" ? "active" : ""}`.trim()}
+                className={`skin-card-btn ${uiSkin === "dark" ? "active" : ""}`.trim()}
                 data-skin="dark"
                 type="button"
-                aria-pressed={snap.uiSkin === "dark"}
+                aria-pressed={uiSkin === "dark"}
                 onClick={() => synthStore.setSkin("dark")}
               >
                 <div className="skin-swatch-preview swatch-dark">
@@ -525,10 +525,10 @@ export const SettingsModal: React.FC = () => {
               {/* 3. CREAM CONSOLE (skin-retro) */}
               <button
                 id="btn-skin-retro"
-                className={`skin-card-btn ${snap.uiSkin === "retro" ? "active" : ""}`.trim()}
+                className={`skin-card-btn ${uiSkin === "retro" ? "active" : ""}`.trim()}
                 data-skin="retro"
                 type="button"
-                aria-pressed={snap.uiSkin === "retro"}
+                aria-pressed={uiSkin === "retro"}
                 onClick={() => synthStore.setSkin("retro")}
               >
                 <div className="skin-swatch-preview swatch-retro">
@@ -579,10 +579,10 @@ export const SettingsModal: React.FC = () => {
               {/* 4. SYNTH '70s (skin-synth70) */}
               <button
                 id="btn-skin-synth70"
-                className={`skin-card-btn ${snap.uiSkin === "synth70" ? "active" : ""}`.trim()}
+                className={`skin-card-btn ${uiSkin === "synth70" ? "active" : ""}`.trim()}
                 data-skin="synth70"
                 type="button"
-                aria-pressed={snap.uiSkin === "synth70"}
+                aria-pressed={uiSkin === "synth70"}
                 onClick={() => synthStore.setSkin("synth70")}
               >
                 <div className="skin-swatch-preview swatch-synth70">
@@ -633,10 +633,10 @@ export const SettingsModal: React.FC = () => {
               {/* 5. GUNMETAL RACK (skin-gunmetal) */}
               <button
                 id="btn-skin-gunmetal"
-                className={`skin-card-btn ${snap.uiSkin === "gunmetal" ? "active" : ""}`.trim()}
+                className={`skin-card-btn ${uiSkin === "gunmetal" ? "active" : ""}`.trim()}
                 data-skin="gunmetal"
                 type="button"
-                aria-pressed={snap.uiSkin === "gunmetal"}
+                aria-pressed={uiSkin === "gunmetal"}
                 onClick={() => synthStore.setSkin("gunmetal")}
               >
                 <div className="skin-swatch-preview swatch-gunmetal">
@@ -687,10 +687,10 @@ export const SettingsModal: React.FC = () => {
               {/* 6. CRT PHOSPHOR (skin-phosphor) */}
               <button
                 id="btn-skin-phosphor"
-                className={`skin-card-btn ${snap.uiSkin === "phosphor" ? "active" : ""}`.trim()}
+                className={`skin-card-btn ${uiSkin === "phosphor" ? "active" : ""}`.trim()}
                 data-skin="phosphor"
                 type="button"
-                aria-pressed={snap.uiSkin === "phosphor"}
+                aria-pressed={uiSkin === "phosphor"}
                 onClick={() => synthStore.setSkin("phosphor")}
               >
                 <div className="skin-swatch-preview swatch-phosphor">

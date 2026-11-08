@@ -1,0 +1,15 @@
+[package]
+name = "base_plugin_core"
+version = "1.22.0"
+edition = "2021"
+license = "MIT"
+description = "Domain-agnostic audio plugin core traits (DspEngine with PDC/Tail, ParamRegistry, AtomicParamBank O(1), and Universal Contract Harness)."
+
+[features]
+default = []
+assert_process_allocs = []
+
+[dependencies]
+dsp_core = { path = "../dsp_core" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

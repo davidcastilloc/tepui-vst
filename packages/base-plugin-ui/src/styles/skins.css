@@ -1,0 +1,82 @@
+/* ==========================================================================
+   @plugin-base/ui-bridge — Flush Architectural Grid (1px) & 6 Hardware Skins
+   ========================================================================== */
+
+:root,
+[data-skin="minimal"] {
+  --bg-primary: #f4f4f2;
+  --bg-panel: #ffffff;
+  --bg-recessed: #eae9e4;
+  --border-hairline: #d0cfc9;
+  --text-primary: #141413;
+  --text-muted: #666560;
+  --accent-primary: #ff4f00;
+  --meter-ok: #1b8a4b;
+  --meter-warn: #d9822b;
+  --meter-clip: #d92b2b;
+}
+
+[data-skin="dark"] {
+  --bg-primary: #121316;
+  --bg-panel: #181a1f;
+  --bg-recessed: #0d0e11;
+  --border-hairline: #2a2d35;
+  --text-primary: #eceef2;
+  --text-muted: #8a909e;
+  --accent-primary: #3b82f6;
+}
+
+[data-skin="retro"] {
+  --bg-primary: #d9d2c5;
+  --bg-panel: #e4ded2;
+  --bg-recessed: #c7bfb0;
+  --border-hairline: #9e9687;
+  --text-primary: #23201b;
+  --text-muted: #615b50;
+  --accent-primary: #c84b31;
+}
+
+[data-skin="synth70"] {
+  --bg-primary: #1b1917;
+  --bg-panel: #24211e;
+  --bg-recessed: #12100e;
+  --border-hairline: #3d3630;
+  --text-primary: #f5ebd6;
+  --text-muted: #a39681;
+  --accent-primary: #e09f3e;
+}
+
+[data-skin="gunmetal"] {
+  --bg-primary: #1c2026;
+  --bg-panel: #232830;
+  --bg-recessed: #14171c;
+  --border-hairline: #363e4a;
+  --text-primary: #e2e8f0;
+  --text-muted: #94a3b8;
+  --accent-primary: #38bdf8;
+}
+
+[data-skin="phosphor"] {
+  --bg-primary: #07120b;
+  --bg-panel: #0b1b11;
+  --bg-recessed: #040b06;
+  --border-hairline: #173b24;
+  --text-primary: #4ade80;
+  --text-muted: #22c55e;
+  --accent-primary: #4ade80;
+}
+
+.plugin-flush-grid {
+  display: grid;
+  gap: 1px;
+  background-color: var(--border-hairline);
+  border: 1px solid var(--border-hairline);
+  border-radius: 0;
+}
+
+.plugin-flush-cell {
+  background-color: var(--bg-panel);
+  color: var(--text-primary);
+  padding: 12px;
+  border-radius: 0;
+}

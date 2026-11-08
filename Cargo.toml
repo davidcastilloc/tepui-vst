@@ -1,5 +1,10 @@
 [workspace]
 members = [
+    "crates/dsp_core",
+    "crates/base_plugin_core",
+    "crates/base_plugin_webview",
+    "crates/base_plugin_standalone",
+    "crates/studio_bus_comp",
     "crates/synth_core",
     "crates/ai_bridge",
     "crates/plugin_vst",

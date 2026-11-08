@@ -21803,6 +21803,9 @@
     getSnapshot() {
       return currentSnapshot;
     },
+    getState() {
+      return currentSnapshot;
+    },
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
@@ -21913,20 +21916,19 @@
       emitChange();
     }
   };
-  function useSynthSnapshot() {
+  function useSynthStore(selector) {
     return (0, import_react.useSyncExternalStore)(
       synthStore.subscribe,
-      synthStore.getSnapshot,
-      synthStore.getSnapshot
+      () => selector(synthStore.getSnapshot()),
+      () => selector(synthStore.getSnapshot())
     );
   }
-  function useSynthStore(selector) {
-    const snap = useSynthSnapshot();
-    return selector(snap);
-  }
   function useSynthParam(param) {
-    const snap = useSynthSnapshot();
-    return snap.normalized[param] ?? KNOB_DEFAULT_NORM[param] ?? 0.5;
+    return (0, import_react.useSyncExternalStore)(
+      synthStore.subscribe,
+      () => synthStore.getSnapshot().normalized[param] ?? KNOB_DEFAULT_NORM[param] ?? 0.5,
+      () => synthStore.getSnapshot().normalized[param] ?? KNOB_DEFAULT_NORM[param] ?? 0.5
+    );
   }
 
   // src/components/StudioHeader.tsx
@@ -22142,6 +22144,7 @@
           {
             type: "text",
             id: "prompt-input",
+            "aria-label": "Prompt de s\xEDntesis timbral o instrumento",
             defaultValue: "Concert Grand Piano C4",
             placeholder: "Describe un timbre... ej. Neuro Reese Bass C2, Hyper Supersaw C4, Acid 303 o Karplus Acoustic"
           }
@@ -22830,6 +22833,7 @@
               {
                 type: "text",
                 id: "preset-search-input",
+                "aria-label": "Buscar presets por nombre, instrumento, g\xE9nero o comp\xE1s",
                 placeholder: "Search 1,250+ presets por nombre, instrumento, g\xE9nero o comp\xE1s..."
               }
             ),
@@ -22952,7 +22956,7 @@
             /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { id: "telemetry-dur", children: "3.50s" }),
             /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { id: "telemetry-samples", className: "hud-dim", children: "154,350 smp" })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("canvas", { id: "oscilloscope", width: "310", height: "82" }),
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("canvas", { id: "oscilloscope", width: "310", height: "82", role: "img", "aria-label": "Pantalla OLED de Tabla de Ondas 3D y Osciloscopio" }),
           /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "oled-hud-bottom", children: [
             /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { id: "telemetry-region", children: "TRIM: 0%-100%" }),
             /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "keyzone-bar", children: [
@@ -23114,7 +23118,7 @@
           ] })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "oled-bezel cyan-bezel oled-plot-bezel", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("canvas", { id: "oled-svf", width: "290", height: "94" }),
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("canvas", { id: "oled-svf", width: "290", height: "94", role: "img", "aria-label": "Pantalla OLED de Filtro Multimodo y Analizador Espectral FFT de 64 Bandas" }),
           /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(TepuiFilterPlot, {})
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "mod-controls-row filter-controls-row", children: [
@@ -23197,7 +23201,7 @@
           ] })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "oled-bezel amber-bezel oled-envelope-bezel", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("canvas", { id: "oled-adsr", width: "290", height: "94" }),
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("canvas", { id: "oled-adsr", width: "290", height: "94", role: "img", "aria-label": "Pantalla OLED de Envolvente ADSR y Modulaci\xF3n ENV 2" }),
           /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(TepuiAdsrEnvelope, {})
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "fader-bank-row", children: [
@@ -23281,13 +23285,15 @@
             )
           ] })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("div", { className: "oled-bezel green-bezel", children: /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("canvas", { id: "oled-lfo", width: "290", height: "72" }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("div", { className: "oled-bezel green-bezel", children: /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("canvas", { id: "oled-lfo", width: "290", height: "72", role: "img", "aria-label": "Pantalla OLED de Oscilador de Baja Frecuencia LFO 1 y LFO 2" }) }),
         /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "mod-controls-row lfo-matrix-row", children: [
           /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)(
             "div",
             {
               className: "mod-matrix-mini",
               id: "mod-matrix-grid",
+              role: "group",
+              "aria-label": "Matriz de Modulaci\xF3n 5\xD75",
               title: "Haz clic en cualquier pin para enrutar la matriz de modulaci\xF3n 5\xD75 en vivo",
               children: [
                 /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "matrix-header-row", "aria-hidden": "true", children: [
@@ -23299,7 +23305,7 @@
                   /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "m-dst-hdr", title: "OTT / Spatial FX Mix", children: "FX" })
                 ] }),
                 /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "matrix-row", "data-row": "0", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "m-lbl", children: "LFO 1" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "m-lbl", role: "button", tabIndex: 0, "aria-label": "Enrutar fuente LFO 1", children: "LFO 1" }),
                   /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "0" }),
                   /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { className: "on", "data-col": "1" }),
                   /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "2" }),
@@ -23307,7 +23313,7 @@
                   /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "4" })
                 ] }),
                 /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "matrix-row", "data-row": "1", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "m-lbl", children: "LFO 2" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "m-lbl", role: "button", tabIndex: 0, "aria-label": "Enrutar fuente LFO 2", children: "LFO 2" }),
                   /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "0" }),
                   /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "1" }),
                   /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "2" }),
@@ -23315,7 +23321,7 @@
                   /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "4" })
                 ] }),
                 /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "matrix-row", "data-row": "2", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "m-lbl", children: "ENV 2" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "m-lbl", role: "button", tabIndex: 0, "aria-label": "Enrutar fuente ENV 2", children: "ENV 2" }),
                   /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "0" }),
                   /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "1" }),
                   /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { className: "on", "data-col": "2" }),
@@ -23323,7 +23329,7 @@
                   /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "4" })
                 ] }),
                 /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "matrix-row", "data-row": "3", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "m-lbl", children: "VEL" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "m-lbl", role: "button", tabIndex: 0, "aria-label": "Enrutar fuente VEL", children: "VEL" }),
                   /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "0" }),
                   /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { className: "on", "data-col": "1" }),
                   /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "2" }),
@@ -23331,7 +23337,7 @@
                   /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "4" })
                 ] }),
                 /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "matrix-row", "data-row": "4", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "m-lbl", children: "MOD W" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "m-lbl", role: "button", tabIndex: 0, "aria-label": "Enrutar fuente MOD W", children: "MOD W" }),
                   /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "0" }),
                   /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "1" }),
                   /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "2" }),
@@ -23420,7 +23426,7 @@
           ] })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "oled-bezel amber-bezel oled-arp-bezel", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("canvas", { id: "oled-arp", width: "290", height: "72" }),
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("canvas", { id: "oled-arp", width: "290", height: "72", role: "img", "aria-label": "Pantalla OLED de Arpegiador Polif\xF3nico y Secuenciador de 16 Pasos" }),
           /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(TepuiArpSequencer, {})
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "arp-controls-row", children: [
@@ -23493,7 +23499,7 @@
           ] })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "reverb-oled-and-vu", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("div", { className: "oled-bezel cyan-bezel reverb-bezel", children: /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("canvas", { id: "oled-reverb", width: "230", height: "72" }) }),
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("div", { className: "oled-bezel cyan-bezel reverb-bezel", children: /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("canvas", { id: "oled-reverb", width: "230", height: "72", role: "img", "aria-label": "Pantalla OLED de Compresor Multibanda OTT, Saturaci\xF3n Drive y Reverb Espacial" }) }),
           /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(TepuiMeter, {})
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "mod-controls-row reverb-controls-row", children: [
@@ -23581,7 +23587,8 @@
   // src/components/TepuiPadsDeck.tsx
   var import_jsx_runtime35 = __toESM(require_jsx_runtime(), 1);
   var TepuiPadsDeck = () => {
-    const snap = useSynthSnapshot();
+    const activePadId = useSynthStore((s) => s.activePadId);
+    const activeChipId = useSynthStore((s) => s.activeChipId);
     const macro1 = useSynthParam("macro1");
     const macro2 = useSynthParam("macro2");
     return /* @__PURE__ */ (0, import_jsx_runtime35.jsxs)("section", { className: "pads-and-chips-deck", children: [
@@ -23590,7 +23597,7 @@
         {
           className: "pads folklore-pads-bay",
           columns: 7,
-          activePads: snap.activePadId ? [snap.activePadId] : [],
+          activePads: activePadId ? [activePadId] : [],
           onPadOn: (padId, details) => {
             synthStore.setActivePadId(padId);
             synthStore.setActiveChipId("");
@@ -23600,7 +23607,7 @@
             }
           },
           children: FOLKLORE_PADS.map((pad) => {
-            const isActive = snap.activePadId === pad.id;
+            const isActive = activePadId === pad.id;
             return /* @__PURE__ */ (0, import_jsx_runtime35.jsxs)(
               pad_exports.Item,
               {
@@ -23744,7 +23751,7 @@
         }
       ),
       /* @__PURE__ */ (0, import_jsx_runtime35.jsx)("div", { className: "studio-chips-bay", children: STUDIO_CHIPS.map((chip) => {
-        const isActive = snap.activeChipId === chip.id;
+        const isActive = activeChipId === chip.id;
         return /* @__PURE__ */ (0, import_jsx_runtime35.jsxs)(
           "button",
           {
@@ -23771,8 +23778,9 @@
   var import_jsx_runtime36 = __toESM(require_jsx_runtime(), 1);
   var WHITE_SEMIS = [0, 2, 4, 5, 7, 9, 11, 12, 14, 16, 17, 19, 21, 23, 24];
   var TepuiKeyboardDeck = () => {
-    const snap = useSynthSnapshot();
-    const baseMidi = (snap.currentOctave + 1) * 12;
+    const currentOctave = useSynthStore((s) => s.currentOctave);
+    const activeNotes = useSynthStore((s) => s.activeNotes);
+    const baseMidi = (currentOctave + 1) * 12;
     const maxMidi = baseMidi + 24;
     return /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("section", { className: "studio-card keyboard-card", children: [
       /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "keyboard-toolbar", children: [
@@ -23788,7 +23796,7 @@
               children: "\u25C4 [Z]"
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { id: "octave-badge", className: "tb-badge", children: `OCT ${snap.currentOctave} (C${snap.currentOctave} - C${snap.currentOctave + 2})` }),
+          /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { id: "octave-badge", className: "tb-badge", children: `OCT ${currentOctave} (C${currentOctave} - C${currentOctave + 2})` }),
           /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
             "button",
             {
@@ -23905,6 +23913,13 @@
             {
               id: "wheel-pitch",
               className: "hw-wheel",
+              role: "slider",
+              tabIndex: 0,
+              "aria-label": "Pitch Bend (-2 a +2 semitonos)",
+              "aria-orientation": "vertical",
+              "aria-valuemin": -2,
+              "aria-valuemax": 2,
+              "aria-valuenow": 0,
               title: "Pitch Bend (-2..+2 semitonos)",
               children: [
                 /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("div", { id: "wheel-pitch-cap", className: "wheel-cap center" }),
@@ -23917,6 +23932,13 @@
             {
               id: "wheel-mod",
               className: "hw-wheel",
+              role: "slider",
+              tabIndex: 0,
+              "aria-label": "Modulation Wheel CC#1 (0 a 100%)",
+              "aria-orientation": "vertical",
+              "aria-valuemin": 0,
+              "aria-valuemax": 100,
+              "aria-valuenow": 0,
               title: "Modulation CC#1 (0..100%)",
               children: [
                 /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("div", { id: "wheel-mod-cap", className: "wheel-cap low" }),
@@ -23938,14 +23960,14 @@
               className: "piano-keyboard piano audio-ui-piano",
               minPitch: baseMidi,
               maxPitch: maxMidi,
-              activeNotes: snap.activeNotes,
+              activeNotes,
               onNoteOn: (pitch, details) => {
                 if (details.reason === "keyboard") {
                   window.__tepuiPressNote?.(pitch, 0.92);
                 }
               },
               onNoteOff: (pitch) => {
-                if (snap.activeNotes.includes(pitch)) {
+                if (activeNotes.includes(pitch)) {
                   window.__tepuiReleaseNote?.(pitch);
                 }
               },
@@ -24003,8 +24025,8 @@
   // src/components/SettingsModal.tsx
   var import_jsx_runtime38 = __toESM(require_jsx_runtime(), 1);
   var SettingsModal = () => {
-    const snap = useSynthSnapshot();
-    const activeSkinObj = UI_SKINS.find((sk) => sk.id === snap.uiSkin) || UI_SKINS[0];
+    const uiSkin = useSynthStore((s) => s.uiSkin);
+    const activeSkinObj = UI_SKINS.find((sk) => sk.id === uiSkin) || UI_SKINS[0];
     return /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("div", { id: "settings-modal", className: "modal-backdrop hidden", children: /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "modal-card", children: [
       /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "modal-header", children: [
         /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "modal-title-group", children: [
@@ -24362,10 +24384,10 @@
                       "button",
                       {
                         id: "btn-skin-minimal",
-                        className: `skin-card-btn ${snap.uiSkin === "minimal" ? "active" : ""}`.trim(),
+                        className: `skin-card-btn ${uiSkin === "minimal" ? "active" : ""}`.trim(),
                         "data-skin": "minimal",
                         type: "button",
-                        "aria-pressed": snap.uiSkin === "minimal",
+                        "aria-pressed": uiSkin === "minimal",
                         onClick: () => synthStore.setSkin("minimal"),
                         children: [
                           /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "skin-swatch-preview swatch-minimal", children: [
@@ -24428,10 +24450,10 @@
                       "button",
                       {
                         id: "btn-skin-dark",
-                        className: `skin-card-btn ${snap.uiSkin === "dark" ? "active" : ""}`.trim(),
+                        className: `skin-card-btn ${uiSkin === "dark" ? "active" : ""}`.trim(),
                         "data-skin": "dark",
                         type: "button",
-                        "aria-pressed": snap.uiSkin === "dark",
+                        "aria-pressed": uiSkin === "dark",
                         onClick: () => synthStore.setSkin("dark"),
                         children: [
                           /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "skin-swatch-preview swatch-dark", children: [
@@ -24490,10 +24512,10 @@
                       "button",
                       {
                         id: "btn-skin-retro",
-                        className: `skin-card-btn ${snap.uiSkin === "retro" ? "active" : ""}`.trim(),
+                        className: `skin-card-btn ${uiSkin === "retro" ? "active" : ""}`.trim(),
                         "data-skin": "retro",
                         type: "button",
-                        "aria-pressed": snap.uiSkin === "retro",
+                        "aria-pressed": uiSkin === "retro",
                         onClick: () => synthStore.setSkin("retro"),
                         children: [
                           /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "skin-swatch-preview swatch-retro", children: [
@@ -24554,10 +24576,10 @@
                       "button",
                       {
                         id: "btn-skin-synth70",
-                        className: `skin-card-btn ${snap.uiSkin === "synth70" ? "active" : ""}`.trim(),
+                        className: `skin-card-btn ${uiSkin === "synth70" ? "active" : ""}`.trim(),
                         "data-skin": "synth70",
                         type: "button",
-                        "aria-pressed": snap.uiSkin === "synth70",
+                        "aria-pressed": uiSkin === "synth70",
                         onClick: () => synthStore.setSkin("synth70"),
                         children: [
                           /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "skin-swatch-preview swatch-synth70", children: [
@@ -24618,10 +24640,10 @@
                       "button",
                       {
                         id: "btn-skin-gunmetal",
-                        className: `skin-card-btn ${snap.uiSkin === "gunmetal" ? "active" : ""}`.trim(),
+                        className: `skin-card-btn ${uiSkin === "gunmetal" ? "active" : ""}`.trim(),
                         "data-skin": "gunmetal",
                         type: "button",
-                        "aria-pressed": snap.uiSkin === "gunmetal",
+                        "aria-pressed": uiSkin === "gunmetal",
                         onClick: () => synthStore.setSkin("gunmetal"),
                         children: [
                           /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "skin-swatch-preview swatch-gunmetal", children: [
@@ -24682,10 +24704,10 @@
                       "button",
                       {
                         id: "btn-skin-phosphor",
-                        className: `skin-card-btn ${snap.uiSkin === "phosphor" ? "active" : ""}`.trim(),
+                        className: `skin-card-btn ${uiSkin === "phosphor" ? "active" : ""}`.trim(),
                         "data-skin": "phosphor",
                         type: "button",
-                        "aria-pressed": snap.uiSkin === "phosphor",
+                        "aria-pressed": uiSkin === "phosphor",
                         onClick: () => synthStore.setSkin("phosphor"),
                         children: [
                           /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "skin-swatch-preview swatch-phosphor", children: [
@@ -25093,21 +25115,31 @@
     footerText.innerText = `ENGINE: ${backend}  \u2022  PITCH: ${pitchHz} Hz  \u2022  VEL: ${velPct}%  \u2022  MOD MATRIX: ${routes} ROUTES  \u2022  48.0 kHz / 32-BIT FLOAT`;
   }
   function syncExpressionWheelsUI() {
+    const pbVal = Math.max(-2, Math.min(2, Number(state.pitchBendSemitones) || 0));
+    const pbWheel = document.getElementById("wheel-pitch");
+    if (pbWheel) {
+      pbWheel.setAttribute("aria-valuenow", pbVal.toFixed(2));
+    }
     const pbCap = document.getElementById("wheel-pitch-cap");
     if (pbCap) {
-      const normPb = Math.max(-1, Math.min(1, (state.pitchBendSemitones || 0) / 2));
+      const normPb = Math.max(-1, Math.min(1, pbVal / 2));
       const topPx = Math.round(22 - normPb * 17);
       pbCap.style.top = `${topPx}px`;
     }
+    const normMw = Math.max(0, Math.min(1, Number(state.modWheelNorm) || 0));
+    const mwWheel = document.getElementById("wheel-mod");
+    if (mwWheel) {
+      mwWheel.setAttribute("aria-valuenow", String(Math.round(normMw * 100)));
+    }
     const mwCap = document.getElementById("wheel-mod-cap");
     if (mwCap) {
-      const normMw = Math.max(0, Math.min(1, state.modWheelNorm || 0));
       const botPx = Math.round(12 + normMw * 32);
       mwCap.style.bottom = `${botPx}px`;
     }
     const susBtn = document.getElementById("btn-sustain-pedal");
     if (susBtn) {
       susBtn.classList.toggle("active", !!state.sustainPedal);
+      susBtn.setAttribute("aria-pressed", state.sustainPedal ? "true" : "false");
     }
   }
   function countMaskBits(mask) {
@@ -25126,7 +25158,9 @@
       const pins = rowEl.querySelectorAll("i");
       pins.forEach((pinEl, colIdx) => {
         const bit = 1 << rowIdx * 5 + colIdx;
-        pinEl.classList.toggle("on", (cleanMask & bit) !== 0);
+        const isOn2 = (cleanMask & bit) !== 0;
+        pinEl.classList.toggle("on", isOn2);
+        pinEl.setAttribute("aria-pressed", isOn2 ? "true" : "false");
       });
     });
   }
@@ -25279,7 +25313,7 @@
     }
     ["macro1", "macro2", "macro3", "macro4"].forEach((mKey) => {
       if (typeof state.normalized[mKey] === "number") {
-        synthStore.setParam(mKey, Math.round(state.normalized[mKey] * 100));
+        synthStore.setParamNormalized(mKey, state.normalized[mKey]);
       }
     });
     if (typeof p.unison_voices === "number") updateUnisonVoicesUI(p.unison_voices);
@@ -26018,7 +26052,7 @@
       arpMidiBtn.addEventListener("click", () => {
         sendIpc("arpmidi:export");
         try {
-          const steps = synthStore.getState().arpSteps || [0.95, 0.48, 0.78, 0.92, 0.52, 0.86, 0.95, 0.48];
+          const steps = synthStore.getSnapshot().arpSteps || [0.95, 0.48, 0.78, 0.92, 0.52, 0.86, 0.95, 0.48];
           const rootNote = Math.max(24, Math.min(96, Math.round(state.params.root_note || 60)));
           const intervals = [0, 4, 7, 12];
           const trk = [0, 255, 81, 3, 7, 161, 32];
@@ -28618,6 +28652,16 @@
       };
       pitchWheel.addEventListener("pointerup", releasePitchWheel);
       pitchWheel.addEventListener("pointercancel", releasePitchWheel);
+      pitchWheel.addEventListener("keydown", (e) => {
+        if (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "Home" || e.key === "End") {
+          e.preventDefault();
+          const cur = Number(state.pitchBendSemitones) || 0;
+          const next = e.key === "Home" || e.key === "End" ? 0 : Math.max(-2, Math.min(2, cur + (e.key === "ArrowUp" ? 0.25 : -0.25)));
+          state.pitchBendSemitones = next;
+          syncExpressionWheelsUI();
+          sendIpc(`pb,${next.toFixed(3)}`);
+        }
+      });
     }
     const modWheel = document.getElementById("wheel-mod");
     if (modWheel) {
@@ -28661,6 +28705,16 @@
         state.modWheelNorm = 0;
         syncExpressionWheelsUI();
         sendIpc("mw,0.000");
+      });
+      modWheel.addEventListener("keydown", (e) => {
+        if (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "Home" || e.key === "End") {
+          e.preventDefault();
+          const cur = Number(state.modWheelNorm) || 0;
+          const next = e.key === "Home" ? 0 : e.key === "End" ? 1 : Math.max(0, Math.min(1, cur + (e.key === "ArrowUp" ? 0.05 : -0.05)));
+          state.modWheelNorm = next;
+          syncExpressionWheelsUI();
+          sendIpc(`mw,${next.toFixed(3)}`);
+        }
       });
     }
     const arpBtn = document.getElementById("btn-arp-mode");
@@ -29042,7 +29096,12 @@
       const DST_NAMES = ["CUTOFF", "RESONANCE", "WAVETABLE POS", "PITCH / VIBRATO", "OTT / FX MIX"];
       const WEIGHT_CYCLE = [1, -0.75, 0.5, -0.5];
       pins.forEach((pinEl, colIdx) => {
-        pinEl.title = `${SRC_NAMES[rowIdx] || "SRC"} \u2192 ${DST_NAMES[colIdx] || "DST"} (Clic: ruta ON/OFF \u2022 Shift+Clic: peso bipolar)`;
+        const routeLabel = `${SRC_NAMES[rowIdx] || "SRC"} \u2192 ${DST_NAMES[colIdx] || "DST"}`;
+        pinEl.title = `${routeLabel} (Clic: ruta ON/OFF \u2022 Shift+Clic: peso bipolar)`;
+        pinEl.setAttribute("role", "button");
+        pinEl.setAttribute("tabindex", "0");
+        pinEl.setAttribute("aria-label", `Modulaci\xF3n ${routeLabel}`);
+        pinEl.setAttribute("aria-pressed", pinEl.classList.contains("on") ? "true" : "false");
         let weightStep = 0;
         pinEl.addEventListener("click", (ev) => {
           if (ev.shiftKey) {
@@ -29056,10 +29115,22 @@
           }
           applyMatrixPin(colIdx, false);
         });
+        pinEl.addEventListener("keydown", (ev) => {
+          if (ev.key === "Enter" || ev.key === " ") {
+            ev.preventDefault();
+            applyMatrixPin(colIdx, false);
+          }
+        });
       });
       const lbl = rowEl.querySelector(".m-lbl");
       if (lbl) {
         lbl.addEventListener("click", () => applyMatrixPin(rowIdx % 5, true));
+        lbl.addEventListener("keydown", (ev) => {
+          if (ev.key === "Enter" || ev.key === " ") {
+            ev.preventDefault();
+            applyMatrixPin(rowIdx % 5, true);
+          }
+        });
       }
     });
   }

@@ -318,11 +318,21 @@ Una de las mayores fortalezas de este repositorio como plantilla es su arquitect
   - **macOS**: Xcode Command Line Tools (`xcode-select --install`).
   - **Linux (Ubuntu/Debian x64)**: `libasound2-dev libjack-jackd2-dev libwebkit2gtk-4.1-dev libgtk-3-dev libx11-dev libx11-xcb-dev libxcb1-dev libxcursor-dev libxrandr-dev libxi-dev pkg-config`.
 
-### 1. Ejecutar Linter Estricto y las 85 Pruebas Automatizadas
+### 1. Ejecutar Linter Estricto, Auditoría de Arquitectura (`GATE-01..04`) y las 95 Pruebas Automatizadas
 ```powershell
+powershell -ExecutionPolicy Bypass -File scripts/audit_plugin_architecture.ps1
 cargo clippy --workspace --all-targets --no-deps -- -D warnings
 cargo test --workspace --release
 ```
+
+### 1.1 Crates de la Plantilla Modular Desacoplada y Librería de Componentes
+El workspace provee una separación estricta entre la **Plantilla Base Agnóstica (0% lógica de TEPUI)** y los **Plugins Consumidores**:
+- [`crates/dsp_core`](crates/dsp_core/src/lib.rs): Primitivas matemáticas, filtros TPT ZDF (`StateVariableFilter`, `LadderFilter24dB`, `CombFilter`, `AllpassFilter`), `OnePoleSmoother`, `SeqLockArray` (`#[repr(C, align(64))]` con 0 *torn reads*), `FeedForwardCompressor`, `BrickwallLimiter` y efectos espaciales en tiempo real ($0$ allocs).
+- [`crates/base_plugin_core`](crates/base_plugin_core/src/lib.rs): Trait polimórfico `DspEngine` (con soporte PDC `latency_samples()` y `tail_samples()`), banco `AtomicParamBank` ($O(1)$), `LiveParamSnapshot` y macro universal `declare_plugin_contract!` con estímulo `LinearChirp` (20 Hz – 20 kHz).
+- [`crates/base_plugin_webview`](crates/base_plugin_webview/src/lib.rs): Host WebView serverless (`app://localhost/`), aislamiento de perfil multi-instancia (`%LOCALAPPDATA%/AudioPlugins/<Vendor>/<Plugin>/WebViewProfile`) y bus IPC tipado (`GuiToHostCommand` / `HostToGuiEvent`).
+- [`crates/base_plugin_standalone`](crates/base_plugin_standalone/src/lib.rs): Runner autónomo agnóstico `StandaloneRunner<E: DspEngine>`.
+- [`packages/base-plugin-ui`](packages/base-plugin-ui/src/index.ts): Librería de componentes React (`@plugin-base/ui-bridge`) sobre `@audio-ui/react` y `@audio-ui/core` (`PluginKnob` con gestos DAW de 3 fases + *debounce* de rueda de 200 ms, `PluginFader`, `PluginXYPad`, `PluginLevelMeter` a 60 FPS vía `vuMeterSource`, `PluginHeader` y `skins.css`).
+- [`crates/studio_bus_comp`](crates/studio_bus_comp/src/lib.rs): Segundo plugin completo del ecosistema (*Studio VCA Stereo Bus Compressor, Sidechain HPF & Tape Saturator*) compilable a `.vst3` y `.clap` (`cargo run --package xtask -- bundle studio_bus_comp --release`) con **0% dependencia** hacia `synth_core` o `ai_bridge`.
 
 ### 2. Recompilar la Interfaz React + `@audio-ui/react` (Opcional tras editar `ui/src/`)
 ```powershell

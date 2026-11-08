@@ -360,21 +360,31 @@ function refreshFooterOddText() {
 }
 
 function syncExpressionWheelsUI() {
+  const pbVal = Math.max(-2, Math.min(2, Number(state.pitchBendSemitones) || 0));
+  const pbWheel = document.getElementById('wheel-pitch');
+  if (pbWheel) {
+    pbWheel.setAttribute('aria-valuenow', pbVal.toFixed(2));
+  }
   const pbCap = document.getElementById('wheel-pitch-cap');
   if (pbCap) {
-    const normPb = Math.max(-1, Math.min(1, (state.pitchBendSemitones || 0) / 2.0));
+    const normPb = Math.max(-1, Math.min(1, pbVal / 2.0));
     const topPx = Math.round(22 - normPb * 17);
     pbCap.style.top = `${topPx}px`;
   }
+  const normMw = Math.max(0, Math.min(1, Number(state.modWheelNorm) || 0));
+  const mwWheel = document.getElementById('wheel-mod');
+  if (mwWheel) {
+    mwWheel.setAttribute('aria-valuenow', String(Math.round(normMw * 100)));
+  }
   const mwCap = document.getElementById('wheel-mod-cap');
   if (mwCap) {
-    const normMw = Math.max(0, Math.min(1, state.modWheelNorm || 0));
     const botPx = Math.round(12 + normMw * 32);
     mwCap.style.bottom = `${botPx}px`;
   }
   const susBtn = document.getElementById('btn-sustain-pedal');
   if (susBtn) {
     susBtn.classList.toggle('active', !!state.sustainPedal);
+    susBtn.setAttribute('aria-pressed', state.sustainPedal ? 'true' : 'false');
   }
 }
 
@@ -395,7 +405,9 @@ function syncMatrixPinsFromMask(mask) {
     const pins = rowEl.querySelectorAll('i');
     pins.forEach((pinEl, colIdx) => {
       const bit = 1 << (rowIdx * 5 + colIdx);
-      pinEl.classList.toggle('on', (cleanMask & bit) !== 0);
+      const isOn = (cleanMask & bit) !== 0;
+      pinEl.classList.toggle('on', isOn);
+      pinEl.setAttribute('aria-pressed', isOn ? 'true' : 'false');
     });
   });
 }
@@ -566,7 +578,7 @@ function syncVitalSerumParamsToUI(p) {
   }
   ['macro1', 'macro2', 'macro3', 'macro4'].forEach((mKey) => {
     if (typeof state.normalized[mKey] === 'number') {
-      synthStore.setParam(mKey as any, Math.round(state.normalized[mKey] * 100));
+      synthStore.setParamNormalized(mKey, state.normalized[mKey]);
     }
   });
   if (typeof p.unison_voices === 'number') updateUnisonVoicesUI(p.unison_voices);
@@ -1394,7 +1406,7 @@ function initOscilloscope() {
     arpMidiBtn.addEventListener('click', () => {
       sendIpc('arpmidi:export');
       try {
-        const steps = synthStore.getState().arpSteps || [0.95, 0.48, 0.78, 0.92, 0.52, 0.86, 0.95, 0.48];
+        const steps = synthStore.getSnapshot().arpSteps || [0.95, 0.48, 0.78, 0.92, 0.52, 0.86, 0.95, 0.48];
         const rootNote = Math.max(24, Math.min(96, Math.round(state.params.root_note || 60)));
         const intervals = [0, 4, 7, 12];
         const trk = [0x00, 0xFF, 0x51, 0x03, 0x07, 0xA1, 0x20];
@@ -4299,6 +4311,18 @@ function initKeyboardEvents() {
     };
     pitchWheel.addEventListener('pointerup', releasePitchWheel);
     pitchWheel.addEventListener('pointercancel', releasePitchWheel);
+    pitchWheel.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'Home' || e.key === 'End') {
+        e.preventDefault();
+        const cur = Number(state.pitchBendSemitones) || 0;
+        const next = e.key === 'Home' || e.key === 'End'
+          ? 0.0
+          : Math.max(-2.0, Math.min(2.0, cur + (e.key === 'ArrowUp' ? 0.25 : -0.25)));
+        state.pitchBendSemitones = next;
+        syncExpressionWheelsUI();
+        sendIpc(`pb,${next.toFixed(3)}`);
+      }
+    });
   }
 
   // Rueda interactiva MODULATION CC#1 (0.0 .. 1.0, doble clic resetea a 0)
@@ -4338,6 +4362,20 @@ function initKeyboardEvents() {
       state.modWheelNorm = 0.0;
       syncExpressionWheelsUI();
       sendIpc('mw,0.000');
+    });
+    modWheel.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'Home' || e.key === 'End') {
+        e.preventDefault();
+        const cur = Number(state.modWheelNorm) || 0;
+        const next = e.key === 'Home'
+          ? 0.0
+          : e.key === 'End'
+            ? 1.0
+            : Math.max(0.0, Math.min(1.0, cur + (e.key === 'ArrowUp' ? 0.05 : -0.05)));
+        state.modWheelNorm = next;
+        syncExpressionWheelsUI();
+        sendIpc(`mw,${next.toFixed(3)}`);
+      }
     });
   }
 
@@ -4769,7 +4807,12 @@ function initLfoAndKeyzoneControls() {
     const DST_NAMES = ['CUTOFF', 'RESONANCE', 'WAVETABLE POS', 'PITCH / VIBRATO', 'OTT / FX MIX'];
     const WEIGHT_CYCLE = [1.0, -0.75, 0.50, -0.50];
     pins.forEach((pinEl, colIdx) => {
-      pinEl.title = `${SRC_NAMES[rowIdx] || 'SRC'} → ${DST_NAMES[colIdx] || 'DST'} (Clic: ruta ON/OFF • Shift+Clic: peso bipolar)`;
+      const routeLabel = `${SRC_NAMES[rowIdx] || 'SRC'} → ${DST_NAMES[colIdx] || 'DST'}`;
+      pinEl.title = `${routeLabel} (Clic: ruta ON/OFF • Shift+Clic: peso bipolar)`;
+      pinEl.setAttribute('role', 'button');
+      pinEl.setAttribute('tabindex', '0');
+      pinEl.setAttribute('aria-label', `Modulación ${routeLabel}`);
+      pinEl.setAttribute('aria-pressed', pinEl.classList.contains('on') ? 'true' : 'false');
       let weightStep = 0;
       pinEl.addEventListener('click', (ev) => {
         if (ev.shiftKey) {
@@ -4783,10 +4826,22 @@ function initLfoAndKeyzoneControls() {
         }
         applyMatrixPin(colIdx, false);
       });
+      pinEl.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter' || ev.key === ' ') {
+          ev.preventDefault();
+          applyMatrixPin(colIdx, false);
+        }
+      });
     });
     const lbl = rowEl.querySelector('.m-lbl');
     if (lbl) {
       lbl.addEventListener('click', () => applyMatrixPin(rowIdx % 5, true));
+      lbl.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter' || ev.key === ' ') {
+          ev.preventDefault();
+          applyMatrixPin(rowIdx % 5, true);
+        }
+      });
     }
   });
 }

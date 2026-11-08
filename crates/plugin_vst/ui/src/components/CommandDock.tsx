@@ -42,6 +42,7 @@ export const CommandDock: React.FC = () => {
           <input
             type="text"
             id="prompt-input"
+            aria-label="Prompt de síntesis timbral o instrumento"
             defaultValue="Concert Grand Piano C4"
             placeholder="Describe un timbre... ej. Neuro Reese Bass C2, Hyper Supersaw C4, Acid 303 o Karplus Acoustic"
           />

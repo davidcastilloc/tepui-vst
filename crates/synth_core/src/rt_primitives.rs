@@ -111,9 +111,12 @@ impl OnePoleSmoother {
 ///
 /// Garantiza que el hilo de audio nunca lea un arreglo a medio escribir (*torn read*)
 /// sin utilizar `Mutex` ni bloquear jamás el hilo de tiempo real.
+#[repr(C, align(64))]
 pub struct SeqLockArray<const N: usize> {
     /// Contador de secuencia: par = estable, impar = escritura en curso.
     seq: AtomicU32,
+    /// Padding para aislar `seq` en su propia línea de caché de 64 bytes.
+    _pad: [u8; 60],
     /// Celdas atómicas codificadas como `f32::to_bits()`.
     cells: [AtomicU32; N],
 }
@@ -133,6 +136,7 @@ impl<const N: usize> SeqLockArray<N> {
         let bits = fill_value.to_bits();
         Self {
             seq: AtomicU32::new(0),
+            _pad: [0u8; 60],
             cells: std::array::from_fn(|_| AtomicU32::new(bits)),
         }
     }
@@ -173,30 +177,34 @@ impl<const N: usize> SeqLockArray<N> {
         }
     }
 
-    /// Lee una instantánea 100% consistente de los `N` elementos desde el hilo de audio (0 bloqueos).
-    #[inline]
-    pub fn read_snapshot(&self) -> [f32; N] {
-        let mut out = [0.0_f32; N];
-        // Reintento acotado (máximo 4 lecturas) para garantizar tiempo constante O(1) en el hilo RT
-        for _ in 0..4 {
+    /// Lectura en tiempo real libre de lecturas fragmentadas (*0 torn reads*) sobre un snapshot en caché.
+    #[inline(always)]
+    pub fn read_into_snapshot(&self, cached_snapshot: &mut [f32; N]) -> bool {
+        let mut temp = [0.0_f32; N];
+        for _ in 0..3 {
             let s1 = self.seq.load(Ordering::Acquire);
             if (s1 & 1) != 0 {
                 std::hint::spin_loop();
                 continue;
             }
-            for (dst, cell) in out.iter_mut().zip(self.cells.iter()) {
+            for (dst, cell) in temp.iter_mut().zip(self.cells.iter()) {
                 *dst = f32::from_bits(cell.load(Ordering::Relaxed));
             }
             fence(Ordering::Acquire);
             let s2 = self.seq.load(Ordering::Relaxed);
             if s1 == s2 {
-                return out;
+                *cached_snapshot = temp;
+                return true;
             }
         }
-        // Fallback determinista en caso de contención extrema
-        for (dst, cell) in out.iter_mut().zip(self.cells.iter()) {
-            *dst = f32::from_bits(cell.load(Ordering::Relaxed));
-        }
+        false
+    }
+
+    /// Lee una instantánea 100% consistente de los `N` elementos desde el hilo de audio (0 bloqueos).
+    #[inline]
+    pub fn read_snapshot(&self) -> [f32; N] {
+        let mut out = [0.0_f32; N];
+        let _ = self.read_into_snapshot(&mut out);
         out
     }
 }

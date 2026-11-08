@@ -2,11 +2,12 @@ import React from "react";
 import { Pad } from "@audio-ui/react/pad";
 import { XYPad } from "@audio-ui/react/xypad";
 import { FOLKLORE_PADS, STUDIO_CHIPS } from "../types";
-import { synthStore, useSynthParam, useSynthSnapshot } from "../state/synthStore";
+import { synthStore, useSynthParam, useSynthStore } from "../state/synthStore";
 import { TepuiKnob } from "./TepuiKnob";
 
 export const TepuiPadsDeck: React.FC = () => {
-  const snap = useSynthSnapshot();
+  const activePadId = useSynthStore((s) => s.activePadId);
+  const activeChipId = useSynthStore((s) => s.activeChipId);
   const macro1 = useSynthParam("macro1");
   const macro2 = useSynthParam("macro2");
 
@@ -15,7 +16,7 @@ export const TepuiPadsDeck: React.FC = () => {
       <Pad.Root
         className="pads folklore-pads-bay"
         columns={7}
-        activePads={snap.activePadId ? [snap.activePadId] : []}
+        activePads={activePadId ? [activePadId] : []}
         onPadOn={(padId, details) => {
           synthStore.setActivePadId(padId);
           synthStore.setActiveChipId("");
@@ -26,7 +27,7 @@ export const TepuiPadsDeck: React.FC = () => {
         }}
       >
         {FOLKLORE_PADS.map((pad) => {
-          const isActive = snap.activePadId === pad.id;
+          const isActive = activePadId === pad.id;
           return (
             <Pad.Item
               key={pad.id}
@@ -150,7 +151,7 @@ export const TepuiPadsDeck: React.FC = () => {
 
       <div className="studio-chips-bay">
         {STUDIO_CHIPS.map((chip) => {
-          const isActive = snap.activeChipId === chip.id;
+          const isActive = activeChipId === chip.id;
           return (
             <button
               key={chip.id}

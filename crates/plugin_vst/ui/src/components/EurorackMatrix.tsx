@@ -408,6 +408,7 @@ export const EurorackMatrix: React.FC = () => {
             <input
               type="text"
               id="preset-search-input"
+              aria-label="Buscar presets por nombre, instrumento, género o compás"
               placeholder="Search 1,250+ presets por nombre, instrumento, género o compás..."
             />
             <span id="preset-count-badge" className="preset-count-badge">
@@ -541,7 +542,7 @@ export const EurorackMatrix: React.FC = () => {
               154,350 smp
             </span>
           </div>
-          <canvas id="oscilloscope" width="310" height="82"></canvas>
+          <canvas id="oscilloscope" width="310" height="82" role="img" aria-label="Pantalla OLED de Tabla de Ondas 3D y Osciloscopio"></canvas>
           <div className="oled-hud-bottom">
             <span id="telemetry-region">TRIM: 0%-100%</span>
             <div className="keyzone-bar">
@@ -693,7 +694,7 @@ export const EurorackMatrix: React.FC = () => {
         </div>
 
         <div className="oled-bezel cyan-bezel oled-plot-bezel">
-          <canvas id="oled-svf" width="290" height="94"></canvas>
+          <canvas id="oled-svf" width="290" height="94" role="img" aria-label="Pantalla OLED de Filtro Multimodo y Analizador Espectral FFT de 64 Bandas"></canvas>
           <TepuiFilterPlot />
         </div>
 
@@ -778,7 +779,7 @@ export const EurorackMatrix: React.FC = () => {
         </div>
 
         <div className="oled-bezel amber-bezel oled-envelope-bezel">
-          <canvas id="oled-adsr" width="290" height="94"></canvas>
+          <canvas id="oled-adsr" width="290" height="94" role="img" aria-label="Pantalla OLED de Envolvente ADSR y Modulación ENV 2"></canvas>
           <TepuiAdsrEnvelope />
         </div>
 
@@ -851,13 +852,15 @@ export const EurorackMatrix: React.FC = () => {
         </div>
 
         <div className="oled-bezel green-bezel">
-          <canvas id="oled-lfo" width="290" height="72"></canvas>
+          <canvas id="oled-lfo" width="290" height="72" role="img" aria-label="Pantalla OLED de Oscilador de Baja Frecuencia LFO 1 y LFO 2"></canvas>
         </div>
 
         <div className="mod-controls-row lfo-matrix-row">
           <div
             className="mod-matrix-mini"
             id="mod-matrix-grid"
+            role="group"
+            aria-label="Matriz de Modulación 5×5"
             title="Haz clic en cualquier pin para enrutar la matriz de modulación 5×5 en vivo"
           >
             <div className="matrix-header-row" aria-hidden="true">
@@ -879,7 +882,7 @@ export const EurorackMatrix: React.FC = () => {
               </span>
             </div>
             <div className="matrix-row" data-row="0">
-              <span className="m-lbl">LFO 1</span>
+              <span className="m-lbl" role="button" tabIndex={0} aria-label="Enrutar fuente LFO 1">LFO 1</span>
               <i data-col="0"></i>
               <i className="on" data-col="1"></i>
               <i data-col="2"></i>
@@ -887,7 +890,7 @@ export const EurorackMatrix: React.FC = () => {
               <i data-col="4"></i>
             </div>
             <div className="matrix-row" data-row="1">
-              <span className="m-lbl">LFO 2</span>
+              <span className="m-lbl" role="button" tabIndex={0} aria-label="Enrutar fuente LFO 2">LFO 2</span>
               <i data-col="0"></i>
               <i data-col="1"></i>
               <i data-col="2"></i>
@@ -895,7 +898,7 @@ export const EurorackMatrix: React.FC = () => {
               <i data-col="4"></i>
             </div>
             <div className="matrix-row" data-row="2">
-              <span className="m-lbl">ENV 2</span>
+              <span className="m-lbl" role="button" tabIndex={0} aria-label="Enrutar fuente ENV 2">ENV 2</span>
               <i data-col="0"></i>
               <i data-col="1"></i>
               <i className="on" data-col="2"></i>
@@ -903,7 +906,7 @@ export const EurorackMatrix: React.FC = () => {
               <i data-col="4"></i>
             </div>
             <div className="matrix-row" data-row="3">
-              <span className="m-lbl">VEL</span>
+              <span className="m-lbl" role="button" tabIndex={0} aria-label="Enrutar fuente VEL">VEL</span>
               <i data-col="0"></i>
               <i className="on" data-col="1"></i>
               <i data-col="2"></i>
@@ -911,7 +914,7 @@ export const EurorackMatrix: React.FC = () => {
               <i data-col="4"></i>
             </div>
             <div className="matrix-row" data-row="4">
-              <span className="m-lbl">MOD W</span>
+              <span className="m-lbl" role="button" tabIndex={0} aria-label="Enrutar fuente MOD W">MOD W</span>
               <i data-col="0"></i>
               <i data-col="1"></i>
               <i data-col="2"></i>
@@ -987,7 +990,7 @@ export const EurorackMatrix: React.FC = () => {
         </div>
 
         <div className="oled-bezel amber-bezel oled-arp-bezel">
-          <canvas id="oled-arp" width="290" height="72"></canvas>
+          <canvas id="oled-arp" width="290" height="72" role="img" aria-label="Pantalla OLED de Arpegiador Polifónico y Secuenciador de 16 Pasos"></canvas>
           <TepuiArpSequencer />
         </div>
 
@@ -1061,7 +1064,7 @@ export const EurorackMatrix: React.FC = () => {
 
         <div className="reverb-oled-and-vu">
           <div className="oled-bezel cyan-bezel reverb-bezel">
-            <canvas id="oled-reverb" width="230" height="72"></canvas>
+            <canvas id="oled-reverb" width="230" height="72" role="img" aria-label="Pantalla OLED de Compresor Multibanda OTT, Saturación Drive y Reverb Espacial"></canvas>
           </div>
           <TepuiMeter />
         </div>
