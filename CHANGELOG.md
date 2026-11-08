@@ -2,6 +2,20 @@
 
 Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
 
+## [1.22.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.21.0...v1.22.0) (2026-11-08)
+
+### Nuevas Funcionalidades (Features)
+
+* **sdk:** modelo de sostenibilidad open-source honesto sin taximetro y generador xtask init-template ([4ddf16d](https://github.com/davidcastilloc/tepui-vst/commit/4ddf16d2377e76adac066c3478539a40bfdcccb0))
+
+### Documentación
+
+* actualizar README.md y ARCHITECTURE.md como stack plantilla open-source para VST3/CLAP/Standalone ([ba0431a](https://github.com/davidcastilloc/tepui-vst/commit/ba0431a34d9d201f562bb588e8fcde6495d12fe7))
+
+# Changelog
+
+Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
+
 ## [1.21.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.20.0...v1.21.0) (2026-11-08)
 
 ### Nuevas Funcionalidades (Features)
