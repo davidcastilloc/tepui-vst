@@ -22477,8 +22477,12 @@
       [cutoffNorm]
     );
     const resDb = (0, import_react5.useMemo)(
-      () => -12 + Math.max(0, Math.min(1, resNorm)) * 26,
+      () => -1.5 + Math.max(0, Math.min(1, resNorm)) * 15.5,
       [resNorm]
+    );
+    const handleFreqX = (0, import_react5.useMemo)(
+      () => Math.min(17500, Math.max(24, cutoffHz)),
+      [cutoffHz]
     );
     const svfResponseFn = (0, import_react5.useCallback)(
       (freqHz) => {
@@ -22552,16 +22556,16 @@
             plot_exports.Handle,
             {
               axis: "both",
-              value: { x: cutoffHz, y: resDb },
-              defaultValue: { x: 2e4, y: -10.4 },
+              value: { x: handleFreqX, y: resDb },
+              defaultValue: { x: 17500, y: -0.4 },
               "aria-label": "Cutoff and Resonance",
               className: "plot-handle tepui-plot-handle",
               onValueChange: ({ x, y }) => {
                 const nextCut = Math.max(
                   0,
-                  Math.min(1, Math.log(Math.max(20, x) / 20) / Math.log(2e4 / 20))
+                  Math.min(1, Math.log(Math.max(20, x) / 20) / Math.log(17500 / 20))
                 );
-                const nextRes = Math.max(0, Math.min(1, (y + 12) / 26));
+                const nextRes = Math.max(0, Math.min(1, (y + 1.5) / 15.5));
                 synthStore.setParamNormalized("cutoff", nextCut);
                 synthStore.setParamNormalized("resonance", nextRes);
                 window.__tepuiOnParamChange?.("cutoff", nextCut, null);
@@ -22570,9 +22574,9 @@
               onValueCommitted: ({ x, y }) => {
                 const nextCut = Math.max(
                   0,
-                  Math.min(1, Math.log(Math.max(20, x) / 20) / Math.log(2e4 / 20))
+                  Math.min(1, Math.log(Math.max(20, x) / 20) / Math.log(17500 / 20))
                 );
-                const nextRes = Math.max(0, Math.min(1, (y + 12) / 26));
+                const nextRes = Math.max(0, Math.min(1, (y + 1.5) / 15.5));
                 window.__tepuiOnParamCommit?.("cutoff", nextCut);
                 window.__tepuiOnParamCommit?.("resonance", nextRes);
               }
@@ -22857,7 +22861,7 @@
         /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { className: "hex-screw bl" }),
         /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { className: "hex-screw br" }),
         /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "mod-header", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "mod-title", children: "WAVETABLE & UNISON" }),
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "mod-title", children: "WAVETABLE" }),
           /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "mod-header-pills", children: [
             /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               "button",
@@ -22917,7 +22921,7 @@
                 draggable: true,
                 title: "Arrastra o haz clic para exportar clip WAV renderizado directo a la pista del DAW",
                 type: "button",
-                children: "DRAG WAV \u2197"
+                children: "WAV\u2197"
               }
             ),
             /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(

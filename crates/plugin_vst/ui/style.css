@@ -6108,17 +6108,476 @@ body.skin-phosphor .sequencer.tepui-arp-sequencer {
 }
 
 /* =========================================================================
-   STUDIO HARDWARE POLISH (ANTI-SLOP COHESION)
+   STUDIO HARDWARE POLISH (FLUSH ARCHITECTURAL GRID & STRICT CONTAINMENT)
    ========================================================================= */
+:root,
+body,
+body.skin-dark {
+  --hairline-grid: #1e2634;
+  --hairline-subtle: #263142;
+}
+
+body.skin-minimal {
+  --hairline-grid: #d4d1c7;
+  --hairline-subtle: #dfdcd3;
+  --skin-border: #d4d1c7;
+  --skin-border-soft: #e2dfd6;
+  --border-module: #d4d1c7;
+  --border-bezel: #d4d1c7;
+}
+
+body.skin-retro {
+  --hairline-grid: #c9bfaa;
+  --hairline-subtle: #d5ccb8;
+  --skin-border: #c9bfaa;
+  --skin-border-soft: #dbd2be;
+  --border-module: #c9bfaa;
+  --border-bezel: #c9bfaa;
+}
+
+body.skin-synth70 {
+  --hairline-grid: #332c26;
+  --hairline-subtle: #3f362f;
+  --skin-border: #332c26;
+  --border-module: #332c26;
+}
+
+body.skin-gunmetal {
+  --hairline-grid: #2c323f;
+  --hairline-subtle: #373f4f;
+  --skin-border: #2c323f;
+  --border-module: #2c323f;
+}
+
+body.skin-phosphor {
+  --hairline-grid: #123820;
+  --hairline-subtle: #184a2a;
+  --skin-border: #123820;
+  --border-module: #123820;
+}
+
 #engine-badge,
-.studio-chips-bay {
+.studio-chips-bay,
+.hex-screw,
+.b-screw,
+#drop-hint {
   display: none !important;
 }
 
-.pads-and-chips-deck {
+html,
+body {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+body {
+  padding: 3px 4px !important;
+  background-image: none !important;
+}
+
+.plugin-container {
+  gap: 3px !important;
+  padding: 4px 8px !important;
+  border-radius: 4px !important;
+  border: 1px solid var(--hairline-grid) !important;
+  box-shadow: none !important;
+  background-image: none !important;
+}
+
+/* Flush Header, Command Bar, Keyboard & Footer without heavy nested boxes */
+.studio-header,
+.command-dock,
+.keyboard-card,
+.studio-footer {
+  border: 1px solid var(--hairline-grid) !important;
+  border-radius: 3px !important;
+  box-shadow: none !important;
+}
+
+.studio-header {
+  padding: 4px 8px !important;
+}
+
+.command-dock {
+  padding: 4px 8px !important;
+}
+
+.brand-logo {
+  box-shadow: none !important;
+  border-radius: 3px !important;
+  border: 1px solid var(--hairline-subtle) !important;
+}
+
+.brand-title {
+  text-shadow: none !important;
+}
+
+.brand-badge,
+.voice-monitor,
+.btn-io,
+.btn-settings,
+.btn-preset-step,
+.btn-preset-browser,
+.prompt-input-shell,
+.btn-ab-compare {
+  border: 1px solid var(--hairline-subtle) !important;
+  border-radius: 2px !important;
+  box-shadow: none !important;
+}
+
+/* 3x2 Seamless Flush Architectural Grid for Eurorack Modules */
+.eurorack-chassis {
+  gap: 1px !important;
+  background: var(--hairline-grid) !important;
+  border: 1px solid var(--hairline-grid) !important;
+  border-radius: 3px !important;
+  overflow: hidden !important;
+}
+
+.eurorack-module,
+body.skin-minimal .eurorack-module,
+body.skin-retro .eurorack-module,
+body.skin-synth70 .eurorack-module,
+body.skin-gunmetal .eurorack-module,
+body.skin-phosphor .eurorack-module {
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: 4px 9px 4px !important;
+  gap: 3px !important;
+}
+
+.eurorack-module::before,
+.eurorack-module::after {
+  display: none !important;
+}
+
+/* Borderless Module Header with Clean Hairline Divider */
+.mod-header,
+body.skin-minimal .mod-header,
+body.skin-retro .mod-header,
+body.skin-synth70 .mod-header,
+body.skin-gunmetal .mod-header,
+body.skin-phosphor .mod-header {
+  background: transparent !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--hairline-subtle) !important;
+  border-radius: 0 !important;
+  padding: 0 0 4px 0 !important;
+  margin: 0 !important;
+  gap: 4px !important;
+}
+
+.mod-title {
+  font-size: 9px !important;
+  letter-spacing: 0.06em !important;
+}
+
+.oled-pill-btn,
+.mod-sub-tag,
+.zone-btn,
+.mode-btn,
+.arp-mode-btn,
+.hw-sq-btn {
+  border: 1px solid var(--hairline-subtle) !important;
+  border-radius: 2px !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+
+#mod-waveform .mod-header .oled-pill-btn,
+#mod-waveform .mod-header .mod-sub-tag {
+  padding: 1px 3px !important;
+  font-size: 6.6px !important;
+}
+
+body.skin-minimal .btn-oled-theme,
+body.skin-retro .btn-oled-theme {
+  background: var(--skin-control-hi) !important;
+  color: var(--skin-ink) !important;
+  border-color: var(--hairline-subtle) !important;
+}
+
+body.skin-minimal .btn-ab-compare .ab-slot.active,
+body.skin-retro .btn-ab-compare .ab-slot.active {
+  background: var(--skin-accent) !important;
+  color: #ffffff !important;
+}
+
+/* Clean Recessed Display Viewport without Neon Borders or Boxed Text Pills */
+.oled-bezel,
+.oled-bezel.cyan-bezel,
+.oled-bezel.amber-bezel,
+.oled-bezel.green-bezel,
+body.skin-minimal .oled-bezel,
+body.skin-retro .oled-bezel,
+body.skin-synth70 .oled-bezel,
+body.skin-gunmetal .oled-bezel,
+body.skin-phosphor .oled-bezel {
+  border: 1px solid var(--hairline-subtle) !important;
+  border-radius: 2px !important;
+  box-shadow: none !important;
+  padding: 3px 6px !important;
+  overflow: hidden !important;
+}
+
+.oled-hud-top span,
+.oled-hud-bottom span,
+.oled-overlay-stats,
+body.skin-minimal .oled-hud-top span,
+body.skin-minimal .oled-hud-bottom span,
+body.skin-retro .oled-hud-top span,
+body.skin-retro .oled-hud-bottom span {
+  background: transparent !important;
+  border: 0 !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+
+/* Remove Sub-Boxes Inside Modules (Fader Bank, Mod Matrix, Arp Strip, Meter Panel, Readouts) */
+.fader-bank-row,
+.mod-matrix-mini,
+.arp-status-strip,
+.meter-panel,
+.hw-readout,
+.mode-selector-row,
+body.skin-minimal .fader-bank-row,
+body.skin-minimal .mod-matrix-mini,
+body.skin-minimal .arp-status-strip,
+body.skin-minimal .meter-panel,
+body.skin-minimal .hw-readout,
+body.skin-retro .fader-bank-row,
+body.skin-retro .mod-matrix-mini,
+body.skin-retro .arp-status-strip,
+body.skin-retro .meter-panel,
+body.skin-retro .hw-readout,
+body.skin-synth70 .fader-bank-row,
+body.skin-synth70 .mod-matrix-mini,
+body.skin-synth70 .arp-status-strip,
+body.skin-synth70 .meter-panel,
+body.skin-synth70 .hw-readout,
+body.skin-gunmetal .fader-bank-row,
+body.skin-gunmetal .mod-matrix-mini,
+body.skin-gunmetal .arp-status-strip,
+body.skin-gunmetal .meter-panel,
+body.skin-gunmetal .hw-readout,
+body.skin-phosphor .fader-bank-row,
+body.skin-phosphor .mod-matrix-mini,
+body.skin-phosphor .arp-status-strip,
+body.skin-phosphor .meter-panel,
+body.skin-phosphor .hw-readout {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+.mod-matrix-mini {
+  padding: 2px 4px !important;
+}
+
+.matrix-header-row {
+  border-bottom: 1px solid var(--hairline-subtle) !important;
+}
+
+.matrix-row i {
+  border-radius: 1.5px !important;
+  border: 1px solid var(--hairline-subtle) !important;
+  box-shadow: none !important;
+}
+
+.matrix-row i.on {
+  box-shadow: none !important;
+  border-color: transparent !important;
+}
+
+/* Strict Containment for Filter Plot Handle, ADSR Envelope Points & Faders */
+.plot.tepui-svf-plot {
+  inset: 18px 14px 16px 14px !important;
+  width: calc(100% - 28px) !important;
+  height: calc(100% - 34px) !important;
+}
+
+.plot-handle.tepui-plot-handle {
+  width: 10px !important;
+  height: 10px !important;
+  box-shadow: none !important;
+}
+
+.envelope.tepui-adsr-envelope {
+  inset: 20px 14px 16px 14px !important;
+  width: calc(100% - 28px) !important;
+  height: calc(100% - 36px) !important;
+}
+
+.envelope.tepui-adsr-envelope .envelope-point {
+  width: 9px !important;
+  height: 9px !important;
+  box-shadow: none !important;
+}
+
+.fader-control {
+  height: 36px !important;
+  margin-top: 5px !important;
+  margin-bottom: 5px !important;
+}
+
+.fader-thumb,
+body.skin-minimal .fader-thumb,
+body.skin-dark .fader-thumb,
+body.skin-retro .fader-thumb,
+body.skin-synth70 .fader-thumb,
+body.skin-gunmetal .fader-thumb,
+body.skin-phosphor .fader-thumb {
+  width: 16px !important;
+  height: 8px !important;
+  border-radius: 1.5px !important;
+  box-shadow: none !important;
+}
+
+/* Clean Non-Overlapping Split inside Arp Display (#oled-arp + .tepui-arp-sequencer) */
+.oled-arp-bezel {
+  position: relative !important;
+}
+
+#oled-arp {
+  height: 68px !important;
+}
+
+.sequencer.tepui-arp-sequencer {
+  position: absolute !important;
+  left: 4px !important;
+  right: 4px !important;
+  bottom: 2px !important;
+  padding: 2px 4px !important;
+  background: transparent !important;
+  border-top: 0 !important;
+}
+
+.sequencer.tepui-arp-sequencer .step {
+  height: 9px !important;
+  border-radius: 1px !important;
+  box-shadow: none !important;
+}
+
+.sequencer.tepui-arp-sequencer .step[data-on] {
+  box-shadow: none !important;
+}
+
+.sequencer.tepui-arp-sequencer .step[data-current] {
+  transform: none !important;
+}
+
+body.skin-minimal .sequencer.tepui-arp-sequencer .step,
+body.skin-retro .sequencer.tepui-arp-sequencer .step {
+  background: rgba(23, 24, 26, 0.06) !important;
+  border: 1px solid var(--hairline-subtle) !important;
+}
+
+body.skin-minimal .sequencer.tepui-arp-sequencer .step[data-on],
+body.skin-retro .sequencer.tepui-arp-sequencer .step[data-on] {
+  background: var(--skin-accent) !important;
+  border-color: var(--skin-accent) !important;
+}
+
+body.skin-minimal .sequencer.tepui-arp-sequencer .step[data-current],
+body.skin-retro .sequencer.tepui-arp-sequencer .step[data-current] {
+  outline: 1.5px solid var(--skin-ink) !important;
+}
+
+/* Unified Flush Performance Deck (Pads + 4 Macros + 2D XY Morph Pad) */
+.pads-and-chips-deck,
+body.skin-minimal .pads-and-chips-deck,
+body.skin-retro .pads-and-chips-deck,
+body.skin-synth70 .pads-and-chips-deck,
+body.skin-gunmetal .pads-and-chips-deck,
+body.skin-phosphor .pads-and-chips-deck {
   grid-template-columns: 1fr auto auto !important;
-  gap: 10px !important;
+  gap: 12px !important;
   align-items: center !important;
+  background: var(--bg-module) !important;
+  border: 1px solid var(--hairline-grid) !important;
+  border-radius: 3px !important;
+  padding: 5px 10px !important;
+  box-shadow: none !important;
+}
+
+.folklore-pad,
+body.skin-minimal .folklore-pad,
+body.skin-retro .folklore-pad,
+body.skin-synth70 .folklore-pad,
+body.skin-gunmetal .folklore-pad,
+body.skin-phosphor .folklore-pad {
+  border: 1px solid var(--hairline-subtle) !important;
+  border-radius: 2px !important;
+  box-shadow: none !important;
+}
+
+.vital-macros-bay,
+body.skin-minimal .vital-macros-bay,
+body.skin-retro .vital-macros-bay,
+body.skin-synth70 .vital-macros-bay,
+body.skin-gunmetal .vital-macros-bay,
+body.skin-phosphor .vital-macros-bay {
+  background: transparent !important;
+  border: 0 !important;
+  border-left: 1px solid var(--hairline-grid) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: 4px 4px 2px 14px !important;
+  gap: 12px !important;
+}
+
+.vital-macros-bay .macro-knob .knob-control {
+  --knob-size: 34px !important;
+  width: 34px !important;
+  height: 34px !important;
+  margin-top: 2px !important;
+}
+
+/* Clean Keyboard Toolbar & Wheels without Nested Boxes */
+.keyboard-card {
+  padding: 5px 8px 6px !important;
+}
+
+.keyboard-toolbar {
+  border-bottom: 1px solid var(--hairline-subtle) !important;
+  padding-bottom: 4px !important;
+  margin-bottom: 5px !important;
+}
+
+.tb-group,
+.wheel-cheek,
+body.skin-minimal .tb-group,
+body.skin-minimal .wheel-cheek,
+body.skin-retro .tb-group,
+body.skin-retro .wheel-cheek,
+body.skin-synth70 .tb-group,
+body.skin-synth70 .wheel-cheek,
+body.skin-gunmetal .tb-group,
+body.skin-gunmetal .wheel-cheek,
+body.skin-phosphor .tb-group,
+body.skin-phosphor .wheel-cheek {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+.tb-btn,
+.tb-badge,
+.hw-wheel,
+.piano-keyboard {
+  border: 1px solid var(--hairline-subtle) !important;
+  border-radius: 2px !important;
+  box-shadow: none !important;
+}
+
+.piano-keyboard {
+  height: 60px !important;
+}
+
+.hw-wheel {
+  height: 54px !important;
 }
 
 /* =========================================================================
@@ -6126,9 +6585,9 @@ body.skin-phosphor .sequencer.tepui-arp-sequencer {
    ========================================================================= */
 .knob-control .knob-mod-svg.knob-mod-ring-svg {
   position: absolute;
-  inset: -4px;
-  width: calc(100% + 8px);
-  height: calc(100% + 8px);
+  inset: -1px;
+  width: calc(100% + 2px);
+  height: calc(100% + 2px);
   pointer-events: none;
   overflow: visible;
   z-index: 3;
@@ -6166,29 +6625,36 @@ body.skin-phosphor .knob-control .knob-mod-svg.knob-mod-ring-svg {
   flex-shrink: 0;
 }
 
-.xy-pad.tepui-xy-pad {
+.xy-pad.tepui-xy-pad,
+body.skin-minimal .xy-pad.tepui-xy-pad,
+body.skin-retro .xy-pad.tepui-xy-pad,
+body.skin-synth70 .xy-pad.tepui-xy-pad,
+body.skin-gunmetal .xy-pad.tepui-xy-pad,
+body.skin-phosphor .xy-pad.tepui-xy-pad {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 3px;
-  padding: 4px 6px;
-  border-radius: 5px;
-  background: var(--bg-module, rgba(11, 16, 25, 0.92));
-  border: 1px solid var(--border-module, rgba(148, 163, 184, 0.28));
+  padding: 2px 0 2px 12px !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+  border-left: 1px solid var(--hairline-grid) !important;
+  box-shadow: none !important;
   color: var(--color-cyan, #00ebff);
   user-select: none;
 }
 
 .xy-pad.tepui-xy-pad .xy-pad-control {
   position: relative;
-  width: 84px;
-  height: 46px;
-  border-radius: 3px;
+  width: 88px;
+  height: 44px;
+  border-radius: 2px;
   background:
-    linear-gradient(90deg, rgba(148, 163, 184, 0.12) 1px, transparent 1px) 0 0 / 21px 100%,
-    linear-gradient(0deg, rgba(148, 163, 184, 0.12) 1px, transparent 1px) 0 0 / 100% 23px,
+    linear-gradient(90deg, rgba(148, 163, 184, 0.10) 1px, transparent 1px) 0 0 / 22px 100%,
+    linear-gradient(0deg, rgba(148, 163, 184, 0.10) 1px, transparent 1px) 0 0 / 100% 22px,
     var(--bg-oled, #05070b);
-  border: 1px solid var(--border-bezel, rgba(148, 163, 184, 0.35));
+  border: 1px solid var(--hairline-subtle) !important;
   overflow: hidden;
   cursor: crosshair;
   touch-action: none;
@@ -6216,12 +6682,12 @@ body.skin-phosphor .knob-control .knob-mod-svg.knob-mod-ring-svg {
 
 .xy-pad.tepui-xy-pad .xy-pad-thumb {
   position: absolute;
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--bg-oled, #05070b);
   border: 2px solid currentColor;
-  box-shadow: 0 0 6px color-mix(in oklab, currentColor 65%, transparent);
+  box-shadow: none;
   cursor: grab;
 }
 
@@ -6238,7 +6704,7 @@ body.skin-phosphor .knob-control .knob-mod-svg.knob-mod-ring-svg {
   gap: 4px;
   font-family: var(--font-mono);
   font-size: 7.5px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.4px;
 }
 
@@ -6252,36 +6718,27 @@ body.skin-phosphor .knob-control .knob-mod-svg.knob-mod-ring-svg {
 }
 
 body.skin-minimal .xy-pad.tepui-xy-pad {
-  background: #efede6;
-  border: 1px solid #17181a;
-  border-radius: 2px;
   color: #e8452c;
 }
 body.skin-minimal .xy-pad.tepui-xy-pad .xy-pad-control {
   background:
-    linear-gradient(90deg, rgba(23, 24, 26, 0.10) 1px, transparent 1px) 0 0 / 21px 100%,
-    linear-gradient(0deg, rgba(23, 24, 26, 0.10) 1px, transparent 1px) 0 0 / 100% 23px,
+    linear-gradient(90deg, rgba(23, 24, 26, 0.07) 1px, transparent 1px) 0 0 / 22px 100%,
+    linear-gradient(0deg, rgba(23, 24, 26, 0.07) 1px, transparent 1px) 0 0 / 100% 22px,
     #faf9f5;
-  border: 1px solid #17181a;
-  border-radius: 1px;
 }
 body.skin-minimal .xy-pad.tepui-xy-pad .xy-pad-thumb {
   background: #faf9f5;
   border-color: #17181a;
-  box-shadow: none;
 }
 
 body.skin-retro .xy-pad.tepui-xy-pad {
-  background: #e5decb;
-  border: 1px solid #231f1c;
   color: #c84b31;
 }
 body.skin-retro .xy-pad.tepui-xy-pad .xy-pad-control {
   background:
-    linear-gradient(90deg, rgba(35, 31, 28, 0.10) 1px, transparent 1px) 0 0 / 21px 100%,
-    linear-gradient(0deg, rgba(35, 31, 28, 0.10) 1px, transparent 1px) 0 0 / 100% 23px,
+    linear-gradient(90deg, rgba(35, 31, 28, 0.07) 1px, transparent 1px) 0 0 / 22px 100%,
+    linear-gradient(0deg, rgba(35, 31, 28, 0.07) 1px, transparent 1px) 0 0 / 100% 22px,
     #f3ede0;
-  border: 1px solid #231f1c;
 }
 
 body.skin-synth70 .xy-pad.tepui-xy-pad {
@@ -6291,21 +6748,17 @@ body.skin-gunmetal .xy-pad.tepui-xy-pad {
   color: #f59e0b;
 }
 body.skin-phosphor .xy-pad.tepui-xy-pad {
-  background: #040a05;
-  border: 1px solid #2f6d44;
-  border-radius: 0;
   color: #6dff9c;
 }
 body.skin-phosphor .xy-pad.tepui-xy-pad .xy-pad-control {
   border-radius: 0;
-  border-color: #2f6d44;
   background: #020503;
 }
 
 .btn-cloud-credits {
-  border-color: var(--border-module, rgba(148, 163, 184, 0.25)) !important;
+  border-color: var(--hairline-subtle) !important;
   color: var(--text-med, #cbd5e1) !important;
-  background: var(--bg-module, rgba(15, 23, 42, 0.6)) !important;
+  background: transparent !important;
   box-shadow: none !important;
 }
 .btn-cloud-credits .cloud-dot {
@@ -6314,7 +6767,8 @@ body.skin-phosphor .xy-pad.tepui-xy-pad .xy-pad-control {
 }
 
 .pack-pill {
-  border: 1px solid var(--border-module, rgba(148, 163, 184, 0.28)) !important;
+  border: 1px solid var(--hairline-subtle) !important;
+  border-radius: 2px !important;
   color: var(--text-med, #cbd5e1) !important;
   background: transparent !important;
   box-shadow: none !important;
@@ -6329,6 +6783,9 @@ body.skin-phosphor .xy-pad.tepui-xy-pad .xy-pad-control {
 .btn-generate-ia {
   letter-spacing: 0.08em !important;
   font-weight: 700 !important;
+  border-radius: 2px !important;
+  box-shadow: none !important;
 }
+
 
 

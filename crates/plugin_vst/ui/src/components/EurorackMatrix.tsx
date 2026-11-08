@@ -37,8 +37,12 @@ const TepuiFilterPlot: React.FC = () => {
     [cutoffNorm],
   );
   const resDb = useMemo(
-    () => -12.0 + Math.max(0, Math.min(1, resNorm)) * 26.0,
+    () => -1.5 + Math.max(0, Math.min(1, resNorm)) * 15.5,
     [resNorm],
+  );
+  const handleFreqX = useMemo(
+    () => Math.min(17500, Math.max(24, cutoffHz)),
+    [cutoffHz],
   );
 
   const svfResponseFn = useCallback(
@@ -109,16 +113,16 @@ const TepuiFilterPlot: React.FC = () => {
       </Plot.Graph>
       <Plot.Handle
         axis="both"
-        value={{ x: cutoffHz, y: resDb }}
-        defaultValue={{ x: 20000, y: -10.4 }}
+        value={{ x: handleFreqX, y: resDb }}
+        defaultValue={{ x: 17500, y: -0.4 }}
         aria-label="Cutoff and Resonance"
         className="plot-handle tepui-plot-handle"
         onValueChange={({ x, y }) => {
           const nextCut = Math.max(
             0,
-            Math.min(1, Math.log(Math.max(20, x) / 20) / Math.log(20000 / 20)),
+            Math.min(1, Math.log(Math.max(20, x) / 20) / Math.log(17500 / 20)),
           );
-          const nextRes = Math.max(0, Math.min(1, (y + 12) / 26));
+          const nextRes = Math.max(0, Math.min(1, (y + 1.5) / 15.5));
           synthStore.setParamNormalized("cutoff", nextCut);
           synthStore.setParamNormalized("resonance", nextRes);
           window.__tepuiOnParamChange?.("cutoff", nextCut, null);
@@ -127,9 +131,9 @@ const TepuiFilterPlot: React.FC = () => {
         onValueCommitted={({ x, y }) => {
           const nextCut = Math.max(
             0,
-            Math.min(1, Math.log(Math.max(20, x) / 20) / Math.log(20000 / 20)),
+            Math.min(1, Math.log(Math.max(20, x) / 20) / Math.log(17500 / 20)),
           );
-          const nextRes = Math.max(0, Math.min(1, (y + 12) / 26));
+          const nextRes = Math.max(0, Math.min(1, (y + 1.5) / 15.5));
           window.__tepuiOnParamCommit?.("cutoff", nextCut);
           window.__tepuiOnParamCommit?.("resonance", nextRes);
         }}
@@ -459,7 +463,7 @@ export const EurorackMatrix: React.FC = () => {
         <i className="hex-screw bl"></i>
         <i className="hex-screw br"></i>
         <div className="mod-header">
-          <span className="mod-title">WAVETABLE &amp; UNISON</span>
+          <span className="mod-title">WAVETABLE</span>
           <div className="mod-header-pills">
             <button
               id="btn-wav-to-wt"
@@ -508,7 +512,7 @@ export const EurorackMatrix: React.FC = () => {
               title="Arrastra o haz clic para exportar clip WAV renderizado directo a la pista del DAW"
               type="button"
             >
-              DRAG WAV ↗
+              WAV↗
             </button>
             <button
               id="btn-unison-voices"
