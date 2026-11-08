@@ -2,6 +2,16 @@
 
 Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
 
+## [1.25.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.24.1...v1.25.0) (2026-11-08)
+
+### Nuevas Funcionalidades (Features)
+
+* **ui:** accesibilidad ARIA, control por teclado, telemetria rAF en studio_bus_comp y contencion XYPad en @plugin-base/ui-bridge ([b9fd5f8](https://github.com/davidcastilloc/tepui-vst/commit/b9fd5f849c021023db75951f263d931042991fec))
+
+# Changelog
+
+Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
+
 ## [1.24.1](https://github.com/davidcastilloc/tepui-vst/compare/v1.24.0...v1.24.1) (2026-11-08)
 
 ### Correcciones de Errores (Bug Fixes)
