@@ -2,6 +2,16 @@
 
 Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
 
+## [1.20.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.19.0...v1.20.0) (2026-11-08)
+
+### Nuevas Funcionalidades (Features)
+
+* **ui:** refine studio interface with flush architectural hairline grid and strict containment ([37e335c](https://github.com/davidcastilloc/tepui-vst/commit/37e335cc1c89611f88ce1a1d99ab72d58ad4cf02))
+
+# Changelog
+
+Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
+
 ## [1.19.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.18.0...v1.19.0) (2026-11-08)
 
 ### Nuevas Funcionalidades (Features)
