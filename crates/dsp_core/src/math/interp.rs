@@ -16,3 +16,9 @@ pub fn hermite4(frac: f32, xm1: f32, x0: f32, x1: f32, x2: f32) -> f32 {
     let b_neg = w + a;
     (((a * frac) - b_neg) * frac + c) * frac + x0
 }
+
+/// Interpolador Cúbico de Hermite de 4 puntos con orden `(y0, y1, y2, y3, t)`.
+#[inline(always)]
+pub fn hermite_interpolate_4p(y0: f32, y1: f32, y2: f32, y3: f32, t: f32) -> f32 {
+    hermite4(t, y0, y1, y2, y3)
+}

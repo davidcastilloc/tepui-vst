@@ -3,37 +3,8 @@
 
 use crate::buffer::SampleBuffer;
 
-/// Calcula el factor de velocidad de reproducción para una nota MIDI dada.
-///
-/// # Fórmula
-/// `ratio = 2.0^((midi_note - root_note + cents / 100.0) / 12.0) * (sample_sr / target_sr)`
-#[inline]
-pub fn calculate_playback_ratio(
-    midi_note: u8,
-    root_note: u8,
-    cents: f32,
-    sample_rate_sample: f32,
-    sample_rate_out: f32,
-) -> f64 {
-    let semitone_diff = (midi_note as f32 - root_note as f32) + (cents / 100.0);
-    let pitch_multiplier = 2.0_f64.powf(semitone_diff as f64 / 12.0);
-    let sr_multiplier = (sample_rate_sample as f64) / (sample_rate_out as f64);
-    pitch_multiplier * sr_multiplier
-}
-
-/// Interpolador Cúbico de Hermite de 4 puntos.
-///
-/// Recibe 4 muestras adyacentes (y0, y1, y2, y3) y la fracción t en [0.0, 1.0).
-/// Retorna el valor suavemente interpolado en t entre y1 e y2.
-#[inline(always)]
-pub fn hermite_interpolate_4p(y0: f32, y1: f32, y2: f32, y3: f32, t: f32) -> f32 {
-    let c0 = y1;
-    let c1 = 0.5 * (y2 - y0);
-    let c2 = y0 - 2.5 * y1 + 2.0 * y2 - 0.5 * y3;
-    let c3 = 0.5 * (y3 - y0) + 1.5 * (y1 - y2);
-
-    ((c3 * t + c2) * t + c1) * t + c0
-}
+pub use dsp_core::math::interp::hermite_interpolate_4p;
+pub use dsp_core::math::pitch::calculate_playback_ratio;
 
 /// Estrategia de remuestreo sobre un SampleBuffer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

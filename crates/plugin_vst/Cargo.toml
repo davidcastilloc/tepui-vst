@@ -20,6 +20,9 @@ name = "ai_sampler_app"
 path = "src/main.rs"
 
 [dependencies]
+dsp_core = { path = "../dsp_core" }
+base_plugin_core = { path = "../base_plugin_core" }
+base_plugin_webview = { path = "../base_plugin_webview" }
 synth_core = { path = "../synth_core" }
 ai_bridge = { path = "../ai_bridge" }
 arc-swap = "1.9"

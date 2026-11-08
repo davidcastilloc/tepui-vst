@@ -76,4 +76,28 @@ impl<const N: usize> SeqLockArray<N> {
     pub fn sequence(&self) -> u32 {
         self.seq.load(Ordering::Acquire)
     }
+
+    /// Retorna la revisión actual (secuencia dividida entre 2).
+    #[inline(always)]
+    pub fn revision(&self) -> u32 {
+        self.seq.load(Ordering::Acquire) >> 1
+    }
+
+    /// Actualiza un único índice `idx` de forma atómica dentro del protocolo SeqLock.
+    #[inline(always)]
+    pub fn write_index(&self, idx: usize, value: f32) {
+        if idx < N && value.is_finite() {
+            self.seq.fetch_add(1, Ordering::AcqRel);
+            self.cells[idx].store(value.to_bits(), Ordering::Relaxed);
+            self.seq.fetch_add(1, Ordering::Release);
+        }
+    }
+
+    /// Lee una instantánea 100 % consistente de los `N` elementos desde el hilo de audio (0 bloqueos).
+    #[inline(always)]
+    pub fn read_snapshot(&self) -> [f32; N] {
+        let mut out = [0.0_f32; N];
+        let _ = self.read_into_snapshot(&mut out);
+        out
+    }
 }

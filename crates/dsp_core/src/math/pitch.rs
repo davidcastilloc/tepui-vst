@@ -18,3 +18,18 @@ pub fn hz_to_midi(freq_hz: f32) -> f32 {
 pub fn detune_cents_ratio(cents: f32) -> f32 {
     2.0_f32.powf(cents / 1200.0)
 }
+
+/// Calcula la razón de velocidad de reproducción para un sampler cromático.
+#[inline(always)]
+pub fn calculate_playback_ratio(
+    midi_note: u8,
+    root_note: u8,
+    cents: f32,
+    sample_rate_sample: f32,
+    sample_rate_out: f32,
+) -> f64 {
+    let semitone_diff = (midi_note as f32 - root_note as f32) + (cents / 100.0);
+    let pitch_multiplier = 2.0_f64.powf(semitone_diff as f64 / 12.0);
+    let sr_multiplier = (sample_rate_sample as f64) / (sample_rate_out as f64);
+    pitch_multiplier * sr_multiplier
+}

@@ -241,7 +241,7 @@ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "base_plugin_core"
-version = "1.25.0"
+version = "1.22.0"
 dependencies = [
  "dsp_core",
  "serde",
@@ -250,14 +250,14 @@ dependencies = [
 
 [[package]]
 name = "base_plugin_standalone"
-version = "1.25.0"
+version = "1.22.0"
 dependencies = [
  "base_plugin_core",
 ]
 
 [[package]]
 name = "base_plugin_webview"
-version = "1.25.0"
+version = "1.22.0"
 dependencies = [
  "base_plugin_core",
  "nih_plug",
@@ -881,7 +881,7 @@ checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 
 [[package]]
 name = "dsp_core"
-version = "1.25.0"
+version = "1.22.0"
 
 [[package]]
 name = "dtoa"
@@ -2605,8 +2605,11 @@ version = "1.25.0"
 dependencies = [
  "ai_bridge",
  "arc-swap",
+ "base_plugin_core",
+ "base_plugin_webview",
  "cpal",
  "crossbeam-channel",
+ "dsp_core",
  "midir 0.11.1",
  "nih_plug",
  "raw-window-handle 0.6.2",
@@ -3167,7 +3170,7 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "studio_bus_comp"
-version = "1.25.0"
+version = "1.22.0"
 dependencies = [
  "base_plugin_core",
  "base_plugin_standalone",
@@ -3227,6 +3230,7 @@ name = "synth_core"
 version = "1.25.0"
 dependencies = [
  "arc-swap",
+ "dsp_core",
 ]
 
 [[package]]

@@ -8,6 +8,7 @@ pub struct OnePoleSmoother {
     current: f32,
     target: f32,
     coeff: f32,
+    time_ms: f32,
 }
 
 impl OnePoleSmoother {
@@ -17,6 +18,7 @@ impl OnePoleSmoother {
             current: initial_value,
             target: initial_value,
             coeff: 0.0,
+            time_ms: time_ms.max(0.1),
         };
         smoother.set_time(time_ms, sample_rate);
         smoother
@@ -24,12 +26,20 @@ impl OnePoleSmoother {
 
     /// Reconfigura el coeficiente exponencial según el tiempo en milisegundos y la frecuencia de muestreo.
     pub fn set_time(&mut self, time_ms: f32, sample_rate: f32) {
+        self.time_ms = time_ms.max(0.0);
         if time_ms <= 0.0 || sample_rate <= 0.0 {
             self.coeff = 0.0;
         } else {
             let tau = time_ms * 0.001;
             self.coeff = (-1.0 / (tau * sample_rate)).exp();
         }
+    }
+
+    /// Recalcula el coeficiente exponencial ante un cambio de frecuencia de muestreo conservando `time_ms`.
+    #[inline(always)]
+    pub fn set_sample_rate(&mut self, sample_rate: f32) {
+        let ms = self.time_ms;
+        self.set_time(ms, sample_rate);
     }
 
     /// Fija un nuevo valor objetivo sin salto brusco.
@@ -43,9 +53,17 @@ impl OnePoleSmoother {
     /// Fija inmediatamente tanto el valor actual como el objetivo (sin rampa).
     #[inline(always)]
     pub fn reset_to(&mut self, value: f32) {
-        let clean = flush_denormal(value);
-        self.current = clean;
-        self.target = clean;
+        if value.is_finite() {
+            let clean = flush_denormal(value);
+            self.current = clean;
+            self.target = clean;
+        }
+    }
+
+    /// Alias de `reset_to` para fijar instantáneamente el valor actual y objetivo.
+    #[inline(always)]
+    pub fn snap_to(&mut self, value: f32) {
+        self.reset_to(value);
     }
 
     /// Avanza una muestra y devuelve el valor suavizado.

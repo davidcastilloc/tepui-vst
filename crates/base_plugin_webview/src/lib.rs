@@ -244,9 +244,10 @@ impl HasDisplayHandle for NativeParentWindow {
     }
 }
 
+/// Bombeo de mensajes Win32 (`HWND_MESSAGE`), sincronización de dimensiones y estilos de ventana redimensionable.
 #[cfg(windows)]
 #[allow(non_camel_case_types, clippy::upper_case_acronyms)]
-mod win32_pump {
+pub mod win32_pump {
     use std::ffi::c_void;
 
     pub type HWND = *mut c_void;
@@ -273,6 +274,30 @@ mod win32_pump {
     }
 
     pub type TIMERPROC = Option<unsafe extern "system" fn(HWND, UINT, UINT_PTR, DWORD)>;
+    pub type HICON = *mut c_void;
+
+    #[repr(C)]
+    #[derive(Default, Clone, Copy)]
+    pub struct RECT {
+        pub left: i32,
+        pub top: i32,
+        pub right: i32,
+        pub bottom: i32,
+    }
+
+    pub struct ActiveResizeState {
+        pub hwnd: HWND,
+        pub track_hwnd: HWND,
+        pub webview: std::rc::Rc<wry::WebView>,
+        pub size_w: std::sync::Arc<std::sync::atomic::AtomicU32>,
+        pub size_h: std::sync::Arc<std::sync::atomic::AtomicU32>,
+        pub last_w: i32,
+        pub last_h: i32,
+    }
+
+    thread_local! {
+        static ACTIVE_WEBVIEW_RESIZE: std::cell::RefCell<Vec<ActiveResizeState>> = const { std::cell::RefCell::new(Vec::new()) };
+    }
 
     extern "system" {
         pub fn SetTimer(
@@ -291,20 +316,277 @@ mod win32_pump {
         ) -> BOOL;
         pub fn TranslateMessage(msg: *const MSG) -> BOOL;
         pub fn DispatchMessageW(msg: *const MSG) -> isize;
+        pub fn GetAncestor(hwnd: HWND, ga_flags: UINT) -> HWND;
+        pub fn GetParent(hwnd: HWND) -> HWND;
+        pub fn GetClientRect(hwnd: HWND, lp_rect: *mut RECT) -> BOOL;
+        pub fn GetWindowRect(hwnd: HWND, lp_rect: *mut RECT) -> BOOL;
+        pub fn GetWindowLongW(hwnd: HWND, n_index: i32) -> i32;
+        pub fn SetWindowLongW(hwnd: HWND, n_index: i32, dw_new_long: i32) -> i32;
+        pub fn SetWindowPos(
+            hwnd: HWND,
+            hwnd_insert_after: HWND,
+            x: i32,
+            y: i32,
+            cx: i32,
+            cy: i32,
+            u_flags: UINT,
+        ) -> BOOL;
+        pub fn SendMessageW(hwnd: HWND, msg: UINT, wparam: usize, lparam: isize) -> isize;
+        pub fn CreateIconFromResourceEx(
+            presbits: *const u8,
+            dwres_size: DWORD,
+            f_icon: BOOL,
+            dw_ver: DWORD,
+            cx_desired: i32,
+            cy_desired: i32,
+            flags: UINT,
+        ) -> HICON;
     }
 
     pub const PM_REMOVE: UINT = 0x0001;
-    pub const TIMER_ID: UINT_PTR = 0xB95C0;
+    pub const TIMER_ID: UINT_PTR = 0xAE87A;
+    pub const GA_ROOT: UINT = 2;
+    pub const WM_SETICON: UINT = 0x0080;
+    pub const ICON_SMALL: usize = 0;
+    pub const ICON_BIG: usize = 1;
+    pub const GWL_STYLE: i32 = -16;
+    pub const WS_THICKFRAME: i32 = 0x0004_0000;
+    pub const WS_MAXIMIZEBOX: i32 = 0x0001_0000;
+    pub const WS_MINIMIZEBOX: i32 = 0x0002_0000;
+    pub const WS_CLIPCHILDREN: i32 = 0x0200_0000;
+    pub const SWP_NOSIZE: UINT = 0x0001;
+    pub const SWP_NOMOVE: UINT = 0x0002;
+    pub const SWP_NOZORDER: UINT = 0x0004;
+    pub const SWP_NOACTIVATE: UINT = 0x0010;
+    pub const SWP_FRAMECHANGED: UINT = 0x0020;
 
+    /// Habilita bordes redimensionables y botones de maximizar/minimizar cuando se ejecuta en ventana dedicada.
+    ///
+    /// # Safety
+    /// Requiere un descriptor `HWND` válido del hilo GUI activo.
+    pub unsafe fn setup_resizable_window(hwnd: HWND, initial_w: u32, initial_h: u32) -> HWND {
+        let root_hwnd = GetAncestor(hwnd, GA_ROOT);
+        let parent_hwnd = GetParent(hwnd);
+        let target = if !root_hwnd.is_null() {
+            root_hwnd
+        } else {
+            hwnd
+        };
+
+        let mut root_client = RECT::default();
+        let is_dedicated_window = if !target.is_null()
+            && GetClientRect(target, &mut root_client) != 0
+        {
+            let cw = root_client.right - root_client.left;
+            let ch = root_client.bottom - root_client.top;
+            target == hwnd
+                || parent_hwnd == target
+                || ((cw - initial_w as i32).abs() <= 160 && (ch - initial_h as i32).abs() <= 160)
+        } else {
+            false
+        };
+
+        if is_dedicated_window && !target.is_null() {
+            let style = GetWindowLongW(target, GWL_STYLE);
+            let new_style =
+                style | WS_THICKFRAME | WS_MAXIMIZEBOX | WS_MINIMIZEBOX | WS_CLIPCHILDREN;
+            if new_style != style {
+                SetWindowLongW(target, GWL_STYLE, new_style);
+                SetWindowPos(
+                    target,
+                    std::ptr::null_mut(),
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+                );
+            }
+            target
+        } else {
+            hwnd
+        }
+    }
+
+    pub fn register_active_webview(state: ActiveResizeState) {
+        ACTIVE_WEBVIEW_RESIZE.with(|cell| {
+            let mut list = cell.borrow_mut();
+            if let Some(existing) = list.iter_mut().find(|s| s.hwnd == state.hwnd) {
+                *existing = state;
+            } else {
+                list.push(state);
+            }
+        });
+    }
+
+    pub fn remove_active_webview(hwnd: HWND) {
+        ACTIVE_WEBVIEW_RESIZE.with(|cell| {
+            cell.borrow_mut().retain(|s| s.hwnd != hwnd);
+        });
+    }
+
+    /// Sincroniza los límites del WebView hijo con el rectángulo cliente de su ventana contenedora.
+    ///
+    /// # Safety
+    /// Invocado desde el temporizador Win32 del hilo GUI propietario.
+    pub unsafe fn sync_webview_bounds() {
+        ACTIVE_WEBVIEW_RESIZE.with(|cell| {
+            for state in cell.borrow_mut().iter_mut() {
+                if state.track_hwnd.is_null() {
+                    continue;
+                }
+                let mut rect = RECT::default();
+                if GetClientRect(state.track_hwnd, &mut rect) != 0 {
+                    let cw = rect.right - rect.left;
+                    let ch = rect.bottom - rect.top;
+                    if cw >= 320 && ch >= 240 && (cw != state.last_w || ch != state.last_h) {
+                        state.last_w = cw;
+                        state.last_h = ch;
+                        state
+                            .size_w
+                            .store(cw as u32, std::sync::atomic::Ordering::Relaxed);
+                        state
+                            .size_h
+                            .store(ch as u32, std::sync::atomic::Ordering::Relaxed);
+                        if state.hwnd != state.track_hwnd && !state.hwnd.is_null() {
+                            SetWindowPos(
+                                state.hwnd,
+                                std::ptr::null_mut(),
+                                0,
+                                0,
+                                cw,
+                                ch,
+                                SWP_NOZORDER | SWP_NOACTIVATE,
+                            );
+                        }
+                        let _ = state.webview.set_bounds(wry::Rect {
+                            position: wry::dpi::PhysicalPosition::new(0, 0).into(),
+                            size: wry::dpi::PhysicalSize::new(cw as u32, ch as u32).into(),
+                        });
+                    }
+                }
+            }
+        });
+    }
+
+    /// Solicita programáticamente el cambio de dimensiones de la ventana del plugin.
+    ///
+    /// # Safety
+    /// Opera sobre descriptores `HWND` registrados en el hilo actual.
+    pub unsafe fn request_window_resize(target_hwnd: HWND, new_w: u32, new_h: u32) {
+        ACTIVE_WEBVIEW_RESIZE.with(|cell| {
+            let mut list = cell.borrow_mut();
+            let opt_state = if !target_hwnd.is_null() {
+                list.iter_mut().find(|s| s.hwnd == target_hwnd)
+            } else {
+                list.last_mut()
+            };
+            if let Some(state) = opt_state {
+                let cw = new_w.clamp(640, 3840) as i32;
+                let ch = new_h.clamp(480, 2160) as i32;
+                state.last_w = cw;
+                state.last_h = ch;
+                state
+                    .size_w
+                    .store(cw as u32, std::sync::atomic::Ordering::Relaxed);
+                state
+                    .size_h
+                    .store(ch as u32, std::sync::atomic::Ordering::Relaxed);
+
+                if !state.track_hwnd.is_null() {
+                    let mut win_rect = RECT::default();
+                    let mut client_rect = RECT::default();
+                    let (mut outer_w, mut outer_h) = (cw, ch);
+                    if GetWindowRect(state.track_hwnd, &mut win_rect) != 0
+                        && GetClientRect(state.track_hwnd, &mut client_rect) != 0
+                    {
+                        let cur_client_w = (client_rect.right - client_rect.left).max(1);
+                        let cur_client_h = (client_rect.bottom - client_rect.top).max(1);
+                        let border_w = ((win_rect.right - win_rect.left) - cur_client_w).max(0);
+                        let border_h = ((win_rect.bottom - win_rect.top) - cur_client_h).max(0);
+                        outer_w = cw + border_w;
+                        outer_h = ch + border_h;
+                    }
+                    SetWindowPos(
+                        state.track_hwnd,
+                        std::ptr::null_mut(),
+                        0,
+                        0,
+                        outer_w,
+                        outer_h,
+                        SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+                    );
+                }
+
+                if state.hwnd != state.track_hwnd && !state.hwnd.is_null() {
+                    SetWindowPos(
+                        state.hwnd,
+                        std::ptr::null_mut(),
+                        0,
+                        0,
+                        cw,
+                        ch,
+                        SWP_NOZORDER | SWP_NOACTIVATE,
+                    );
+                }
+
+                let _ = state.webview.set_bounds(wry::Rect {
+                    position: wry::dpi::PhysicalPosition::new(0, 0).into(),
+                    size: wry::dpi::PhysicalSize::new(cw as u32, ch as u32).into(),
+                });
+            }
+        });
+    }
+
+    /// Aplica un ícono PNG en memoria a la ventana del plugin y a su ventana raíz.
+    ///
+    /// # Safety
+    /// Requiere `hwnd` válido y bytes PNG íntegros.
+    pub unsafe fn apply_window_icon_png(hwnd: HWND, png_bytes: &[u8]) {
+        let hicon_big = CreateIconFromResourceEx(
+            png_bytes.as_ptr(),
+            png_bytes.len() as DWORD,
+            1,
+            0x00030000,
+            64,
+            64,
+            0,
+        );
+        let hicon_small = CreateIconFromResourceEx(
+            png_bytes.as_ptr(),
+            png_bytes.len() as DWORD,
+            1,
+            0x00030000,
+            32,
+            32,
+            0,
+        );
+        let root_hwnd = GetAncestor(hwnd, GA_ROOT);
+        for target in [hwnd, root_hwnd] {
+            if !target.is_null() {
+                if !hicon_small.is_null() {
+                    SendMessageW(target, WM_SETICON, ICON_SMALL, hicon_small as isize);
+                }
+                if !hicon_big.is_null() {
+                    SendMessageW(target, WM_SETICON, ICON_BIG, hicon_big as isize);
+                }
+            }
+        }
+    }
+
+    /// Callback de temporizador Win32 que sincroniza bordes y drena mensajes `HWND_MESSAGE` de WebView2.
+    ///
+    /// # Safety
+    /// Invocado por el despachador de mensajes de Windows (`WM_TIMER`).
     pub unsafe extern "system" fn timer_pump_proc(
         _hwnd: HWND,
         _msg: UINT,
         _id: UINT_PTR,
         _time: DWORD,
     ) {
+        sync_webview_bounds();
         let mut msg: MSG = std::mem::zeroed();
         let mut count = 0;
-        // Drena mensajes COM/WebView2 dirigidos a HWND_MESSAGE que baseview omite en GetMessageW(hwnd)
         while PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_REMOVE) != 0 {
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
@@ -318,7 +600,7 @@ mod win32_pump {
 
 struct ActiveWebViewHandle {
     #[allow(dead_code)]
-    webview: wry::WebView,
+    webview: std::rc::Rc<wry::WebView>,
     #[allow(dead_code)]
     web_context: wry::WebContext,
     #[cfg(windows)]
@@ -330,6 +612,7 @@ impl Drop for ActiveWebViewHandle {
         #[cfg(windows)]
         if !self.parent_hwnd.is_null() {
             unsafe {
+                win32_pump::remove_active_webview(self.parent_hwnd);
                 win32_pump::KillTimer(self.parent_hwnd, win32_pump::TIMER_ID);
             }
         }
@@ -510,8 +793,18 @@ impl Editor for GenericWebViewEditor {
 
         match builder.build_as_child(&native_parent) {
             Ok(webview) => {
+                let webview = std::rc::Rc::new(webview);
                 #[cfg(windows)]
                 if !win_hwnd.is_null() {
+                    win32_pump::register_active_webview(win32_pump::ActiveResizeState {
+                        hwnd: win_hwnd,
+                        track_hwnd: unsafe { win32_pump::setup_resizable_window(win_hwnd, w, h) },
+                        webview: std::rc::Rc::clone(&webview),
+                        size_w: Arc::new(AtomicU32::new(w)),
+                        size_h: Arc::new(AtomicU32::new(h)),
+                        last_w: w as i32,
+                        last_h: h as i32,
+                    });
                     unsafe {
                         win32_pump::SetTimer(
                             win_hwnd,
