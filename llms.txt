@@ -1,0 +1,32 @@
+# Open Audio Stack (`rust-webview-vst-template`)
+
+> Open-Source Rust (`nih-plug`) + Serverless WebView2/WebKit (`wry`) + `@audio-ui` VST3, CLAP, and Standalone Audio Plugin Template & SDK with 4-Gate Real-Time Certification.
+
+This repository provides a complete, zero-allocation Rust DSP SDK and serverless HTML5/CSS3/React (`@audio-ui/react` + `@audio-ui/core`) WebView UI framework for building commercial-grade VST3, CLAP, and Standalone `.exe` audio plugins. It is specifically structured so AI coding agents and vibe coders can generate complete, mathematically certified audio plugins in minutes.
+
+## Core Architecture & Golden Rules for AI Agents
+
+1. **Zero Audio-Thread Allocations (`GATE-02`)**: Never allocate heap memory (`Vec::new`, `Box::new`, `String`, `format!`) or lock a `Mutex`/`RwLock` inside `DspEngine::process()`. Pre-allocate buffers inside `DspEngine::prepare(sample_rate, max_block_size)`.
+2. **Parameter Smoothing**: Always smooth normalized or plain parameter changes on the audio thread using `dsp_core::primitives::OnePoleSmoother` to prevent zipper noise.
+3. **Lock-Free Parameter & Telemetry Transport**:
+   - Host/GUI -> Audio Thread: `base_plugin_core::AtomicParamBank<MAX_PLUGIN_PARAMS>` ($O(1)$ atomic `u32` bit-cast `f32` loads/stores).
+   - Audio Thread -> GUI (60 FPS): `base_plugin_webview::AtomicMeterBridge` (`publish_dynamics_rt(peak_l, peak_r, gr_db)`) and `dsp_core::primitives::SeqLockArray<N>` (64-byte cache-line aligned, 0 torn reads).
+4. **6 Mandatory Hardware Skins**: Every plugin UI must support the 6 standard `data-skin` themes: `minimal`, `dark`, `retro`, `synth70`, `gunmetal`, and `phosphor`.
+5. **Mandatory Contract Proof (`GATE-04`)**: Every plugin must include a `declare_plugin_contract!` test proving that every DOM control ID (`knob-*`, `fader-*`, `btn-*`) is wired to an IPC command (`ParamSetValue`) and mathematically alters the DSP output on a `TestSignal::LinearChirp` stimulus.
+
+## Quick Commands
+
+- Scaffold a new plugin: `cargo run --package xtask -- new-plugin --name "My Plugin" --vendor "MyStudio" --id "com.mystudio.myplugin"`
+- Run 4-Gate Certification Audit: `powershell -ExecutionPolicy Bypass -File scripts/audit_plugin_architecture.ps1`
+- Build Standalone `.exe`: `cargo build --release -p <plugin_slug> --bin <plugin_slug>_app`
+- Bundle `.vst3` & `.clap`: `cargo run --package xtask -- bundle <plugin_slug> --release`
+
+## Key Files & Documentation
+
+- [Complete AI Agent Context (`llms-full.txt`)](https://davidcastilloc.github.io/rust-webview-vst-template/llms-full.txt): Full API signatures, traits, DSP primitives, and copy-paste plugin blueprints.
+- [Vibe Coding Prompt Recipes (`docs/VIBE_CODING_PROMPTS.md`)](https://github.com/davidcastilloc/rust-webview-vst-template/blob/main/docs/VIBE_CODING_PROMPTS.md): Ready-to-use prompts to build EQs, Reverbs, Compressors, Saturators, and Synths.
+- [`crates/dsp_core/src/lib.rs`](https://github.com/davidcastilloc/rust-webview-vst-template/blob/main/crates/dsp_core/src/lib.rs): Zero-allocation filters (`StateVariableFilter`, `LadderFilter24dB`, `CombFilter`, `AllpassFilter`), dynamics (`FeedForwardCompressor`, `BrickwallLimiter`), modulation (`AdsrEnvelope`, `LfoOscillator`), FX (`StereoDelayLine`, `StereoChorus`, `AlgorithmicReverb`), and lock-free primitives (`OnePoleSmoother`, `SeqLockArray`, `SpscRingBuffer`).
+- [`crates/base_plugin_core/src/lib.rs`](https://github.com/davidcastilloc/rust-webview-vst-template/blob/main/crates/base_plugin_core/src/lib.rs): `DspEngine` trait, `AtomicParamBank`, `LiveParamSnapshot`, and `declare_plugin_contract!` macro.
+- [`crates/base_plugin_webview/src/lib.rs`](https://github.com/davidcastilloc/rust-webview-vst-template/blob/main/crates/base_plugin_webview/src/lib.rs): `GenericWebViewEditor`, `AtomicMeterBridge`, `GuiToHostCommand`, and Win32 `HWND_MESSAGE` pump.
+- [`crates/studio_bus_comp/src/lib.rs`](https://github.com/davidcastilloc/rust-webview-vst-template/blob/main/crates/studio_bus_comp/src/lib.rs): Complete reference plugin implementation (VCA Bus Compressor + Sidechain HPF + Tape Saturator).
+- [`packages/base-plugin-ui/src/index.ts`](https://github.com/davidcastilloc/rust-webview-vst-template/blob/main/packages/base-plugin-ui/src/index.ts): `@plugin-base/ui-bridge` React components (`PluginKnob`, `PluginFader`, `PluginXYPad`, `PluginLevelMeter`, `PluginHeader`) wrapping `@audio-ui/react`.

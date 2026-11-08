@@ -2903,3 +2903,402 @@ mod tests {
     }
 }
 
+
+// ============================================================================
+// INTEGRACIÓN OFICIAL CON EL CONTRATO UNIVERSAL DEL SDK (`base_plugin_core`)
+// ============================================================================
+pub mod template_sdk_contract {
+    use std::sync::Arc;
+    use synth_core::{StereoFxRack, VoiceManager};
+
+    /// Descriptores de parámetros universales (`base_plugin_core::ParamDescriptor`) para TEPUI.
+    pub static TEPUI_CONTRACT_DESCRIPTORS: [base_plugin_core::ParamDescriptor; 12] = [
+        base_plugin_core::ParamDescriptor {
+            index: 0,
+            id_str: "wt_pos",
+            display_name: "WT Pos",
+            min_plain: 0.0,
+            max_plain: 1.0,
+            default_plain: 0.0,
+            scale: base_plugin_core::ParamScale::Linear,
+            unit: "%",
+            smoothing_ms: 5.0,
+            is_integer: false,
+        },
+        base_plugin_core::ParamDescriptor {
+            index: 1,
+            id_str: "wt_warp",
+            display_name: "WT Warp",
+            min_plain: 0.0,
+            max_plain: 1.0,
+            default_plain: 0.0,
+            scale: base_plugin_core::ParamScale::Linear,
+            unit: "%",
+            smoothing_ms: 5.0,
+            is_integer: false,
+        },
+        base_plugin_core::ParamDescriptor {
+            index: 2,
+            id_str: "sub_level",
+            display_name: "Sub Level",
+            min_plain: 0.0,
+            max_plain: 1.0,
+            default_plain: 0.0,
+            scale: base_plugin_core::ParamScale::Linear,
+            unit: "%",
+            smoothing_ms: 5.0,
+            is_integer: false,
+        },
+        base_plugin_core::ParamDescriptor {
+            index: 3,
+            id_str: "cutoff",
+            display_name: "SVF Cutoff",
+            min_plain: 120.0,
+            max_plain: 20_000.0,
+            default_plain: 20_000.0,
+            scale: base_plugin_core::ParamScale::Logarithmic {
+                min_hz: 120.0,
+                max_hz: 20_000.0,
+            },
+            unit: "Hz",
+            smoothing_ms: 5.0,
+            is_integer: false,
+        },
+        base_plugin_core::ParamDescriptor {
+            index: 4,
+            id_str: "resonance",
+            display_name: "SVF Resonance",
+            min_plain: 0.1,
+            max_plain: 4.5,
+            default_plain: 0.707,
+            scale: base_plugin_core::ParamScale::Linear,
+            unit: "Q",
+            smoothing_ms: 5.0,
+            is_integer: false,
+        },
+        base_plugin_core::ParamDescriptor {
+            index: 5,
+            id_str: "attack",
+            display_name: "ADSR Attack",
+            min_plain: 0.001,
+            max_plain: 1.5,
+            default_plain: 0.005,
+            scale: base_plugin_core::ParamScale::Linear,
+            unit: "s",
+            smoothing_ms: 2.0,
+            is_integer: false,
+        },
+        base_plugin_core::ParamDescriptor {
+            index: 6,
+            id_str: "sustain",
+            display_name: "ADSR Sustain",
+            min_plain: 0.05,
+            max_plain: 1.0,
+            default_plain: 1.0,
+            scale: base_plugin_core::ParamScale::Linear,
+            unit: "%",
+            smoothing_ms: 2.0,
+            is_integer: false,
+        },
+        base_plugin_core::ParamDescriptor {
+            index: 7,
+            id_str: "lfo_depth",
+            display_name: "LFO Depth",
+            min_plain: 0.0,
+            max_plain: 1.0,
+            default_plain: 0.0,
+            scale: base_plugin_core::ParamScale::Linear,
+            unit: "%",
+            smoothing_ms: 5.0,
+            is_integer: false,
+        },
+        base_plugin_core::ParamDescriptor {
+            index: 8,
+            id_str: "drive",
+            display_name: "Analog Drive",
+            min_plain: 0.0,
+            max_plain: 1.0,
+            default_plain: 0.0,
+            scale: base_plugin_core::ParamScale::Linear,
+            unit: "%",
+            smoothing_ms: 5.0,
+            is_integer: false,
+        },
+        base_plugin_core::ParamDescriptor {
+            index: 9,
+            id_str: "ott",
+            display_name: "Multiband OTT",
+            min_plain: 0.0,
+            max_plain: 1.0,
+            default_plain: 0.0,
+            scale: base_plugin_core::ParamScale::Linear,
+            unit: "%",
+            smoothing_ms: 5.0,
+            is_integer: false,
+        },
+        base_plugin_core::ParamDescriptor {
+            index: 10,
+            id_str: "space_mix",
+            display_name: "Canyon Space",
+            min_plain: 0.0,
+            max_plain: 1.0,
+            default_plain: 0.0,
+            scale: base_plugin_core::ParamScale::Linear,
+            unit: "%",
+            smoothing_ms: 5.0,
+            is_integer: false,
+        },
+        base_plugin_core::ParamDescriptor {
+            index: 11,
+            id_str: "gain",
+            display_name: "Master Gain",
+            min_plain: 0.1,
+            max_plain: 2.0,
+            default_plain: 1.0,
+            scale: base_plugin_core::ParamScale::Linear,
+            unit: "x",
+            smoothing_ms: 5.0,
+            is_integer: false,
+        },
+    ];
+
+    /// Motor DSP de TEPUI adaptado a la interfaz polimórfica [`base_plugin_core::DspEngine`] del SDK.
+    pub struct TepuiSynthDspEngine {
+        voice_manager: VoiceManager,
+        fx_rack: StereoFxRack,
+        reference_sample: Arc<synth_core::SampleBuffer>,
+    }
+
+    impl Default for TepuiSynthDspEngine {
+        fn default() -> Self {
+            let sr = 48_000.0_f32;
+            let samples: Vec<f32> = (0..12_000)
+                .map(|i| {
+                    let t = i as f32 / sr;
+                    let w = std::f32::consts::TAU * 261.63 * t;
+                    (0.50 * w.sin()
+                        + 0.22 * (w * 2.0).sin()
+                        + 0.14 * (w * 3.0).sin()
+                        + 0.08 * (w * 4.0).sin()
+                        + 0.04 * (w * 6.0).sin()
+                        + 0.02 * (w * 8.0).sin())
+                        * 0.65
+                })
+                .collect();
+            let mut buf = synth_core::SampleBuffer::new_mono(samples, sr, 60);
+            buf.loop_enabled = true;
+            buf.loop_start = 480;
+            buf.loop_end = 9_600;
+            Self {
+                voice_manager: VoiceManager::new(sr, 16),
+                fx_rack: StereoFxRack::new(sr),
+                reference_sample: Arc::new(buf),
+            }
+        }
+    }
+
+    impl base_plugin_core::DspEngine for TepuiSynthDspEngine {
+        type Telemetry = u32;
+
+        fn initialize(&mut self, sample_rate: f32, _max_buffer_size: usize) {
+            self.voice_manager.set_sample_rate(sample_rate);
+            self.fx_rack.set_sample_rate(sample_rate);
+        }
+
+        fn reset(&mut self) {
+            self.voice_manager.kill_all();
+        }
+
+        fn process_block(
+            &mut self,
+            _inputs: &[&[f32]],
+            outputs: &mut [&mut [f32]],
+            midi_in: &[base_plugin_core::MidiEvent],
+            _midi_out: &mut base_plugin_core::MidiOutputBuffer<'_>,
+            _context: &base_plugin_core::HostTransportContext,
+            param_snapshot: &base_plugin_core::LiveParamSnapshot,
+        ) -> base_plugin_core::ProcessStatus {
+            let wt_pos = param_snapshot.get_plain(0);
+            let wt_warp = param_snapshot.get_plain(1);
+            let sub_level = param_snapshot.get_plain(2);
+            let cutoff = param_snapshot.get_plain(3);
+            let resonance = param_snapshot.get_plain(4);
+            let attack = param_snapshot.get_plain(5);
+            let sustain = param_snapshot.get_plain(6);
+            let lfo_depth = param_snapshot.get_plain(7);
+            let drive = param_snapshot.get_plain(8);
+            let ott = param_snapshot.get_plain(9);
+            let space_mix = param_snapshot.get_plain(10);
+            let gain = param_snapshot.get_plain(11);
+
+            self.voice_manager
+                .update_envelope_params(attack, 0.08, sustain, 0.25);
+            self.voice_manager
+                .update_filter_params(cutoff, resonance, synth_core::FilterMode::Lowpass);
+            self.voice_manager
+                .update_lfo_params(8.0, lfo_depth, synth_core::LfoTarget::Pitch);
+            self.voice_manager.update_vital_serum_params(
+                wt_pos,
+                wt_warp,
+                1,
+                0.15,
+                sub_level,
+                synth_core::LfoShape::Sine,
+                [0.0; 4],
+            );
+            self.fx_rack.set_drive(drive);
+            self.fx_rack.set_ott(ott);
+            self.fx_rack.set_mix(space_mix);
+
+            for ev in midi_in {
+                match ev.message {
+                    base_plugin_core::MidiMessage::NoteOn { note, velocity } => {
+                        self.voice_manager
+                            .note_on(note, velocity, &self.reference_sample);
+                    }
+                    base_plugin_core::MidiMessage::NoteOff { note, .. } => {
+                        self.voice_manager.note_off(note);
+                    }
+                    base_plugin_core::MidiMessage::AllNotesOff => {
+                        self.voice_manager.kill_all();
+                    }
+                    _ => {}
+                }
+            }
+
+            if outputs.len() >= 2 {
+                let (first, rest) = outputs.split_at_mut(1);
+                let out_l = &mut first[0];
+                let out_r = &mut rest[0];
+                out_l.fill(0.0);
+                out_r.fill(0.0);
+                self.voice_manager
+                    .process_block(&self.reference_sample, out_l, out_r);
+                self.fx_rack.process_block(out_l, out_r);
+                for (l, r) in out_l.iter_mut().zip(out_r.iter_mut()) {
+                    *l *= gain;
+                    *r *= gain;
+                }
+            }
+
+            base_plugin_core::ProcessStatus::Normal
+        }
+
+        fn capture_telemetry(&self) -> Self::Telemetry {
+            self.voice_manager.active_voice_count() as u32
+        }
+
+        fn param_descriptors(&self) -> &'static [base_plugin_core::ParamDescriptor] {
+            &TEPUI_CONTRACT_DESCRIPTORS
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        #[allow(unused_imports)]
+        use base_plugin_core::contract_harness::{DspImpact, TestSignal};
+        use base_plugin_core::declare_plugin_contract;
+
+        declare_plugin_contract!(
+            plugin_name: "TepuiGranSabanaSynth",
+            engine_type: TepuiSynthDspEngine,
+            html_source: include_str!("../ui/index.html"),
+            css_source: include_str!("../ui/style.css"),
+            controls: [
+                WtPosKnob => {
+                    param_index: 0,
+                    dom_id: "wt_pos",
+                    ipc_cmd: "p,wt_pos",
+                    proof: DspImpact::MutatesWaveform,
+                    stimulus: TestSignal::LinearChirp
+                },
+                WtWarpKnob => {
+                    param_index: 1,
+                    dom_id: "wt_warp",
+                    ipc_cmd: "p,wt_warp",
+                    proof: DspImpact::MutatesWaveform,
+                    stimulus: TestSignal::LinearChirp
+                },
+                SubLevelKnob => {
+                    param_index: 2,
+                    dom_id: "sub_level",
+                    ipc_cmd: "p,sub_level",
+                    proof: DspImpact::MutatesWaveform,
+                    stimulus: TestSignal::LinearChirp
+                },
+                CutoffKnob => {
+                    param_index: 3,
+                    dom_id: "cutoff",
+                    ipc_cmd: "p,cutoff",
+                    proof: DspImpact::AltersFrequencyResponse,
+                    stimulus: TestSignal::LinearChirp
+                },
+                ResonanceKnob => {
+                    param_index: 4,
+                    dom_id: "resonance",
+                    ipc_cmd: "p,resonance",
+                    proof: DspImpact::AltersFrequencyResponse,
+                    stimulus: TestSignal::LinearChirp
+                },
+                AttackFader => {
+                    param_index: 5,
+                    dom_id: "attack",
+                    ipc_cmd: "p,attack",
+                    proof: DspImpact::MutatesTransient,
+                    stimulus: TestSignal::LinearChirp
+                },
+                SustainFader => {
+                    param_index: 6,
+                    dom_id: "sustain",
+                    ipc_cmd: "p,sustain",
+                    proof: DspImpact::AmplifiesRms,
+                    stimulus: TestSignal::LinearChirp
+                },
+                LfoDepthKnob => {
+                    param_index: 7,
+                    dom_id: "lfo_depth",
+                    ipc_cmd: "p,lfo_depth",
+                    proof: DspImpact::MutatesWaveform,
+                    stimulus: TestSignal::LinearChirp
+                },
+                DriveKnob => {
+                    param_index: 8,
+                    dom_id: "drive",
+                    ipc_cmd: "p,drive",
+                    proof: DspImpact::MutatesWaveform,
+                    stimulus: TestSignal::LinearChirp
+                },
+                OttKnob => {
+                    param_index: 9,
+                    dom_id: "ott",
+                    ipc_cmd: "p,ott",
+                    proof: DspImpact::MutatesWaveform,
+                    stimulus: TestSignal::LinearChirp
+                },
+                SpaceMixKnob => {
+                    param_index: 10,
+                    dom_id: "space_mix",
+                    ipc_cmd: "p,space_mix",
+                    proof: DspImpact::MutatesWaveform,
+                    stimulus: TestSignal::LinearChirp
+                },
+                MasterGainKnob => {
+                    param_index: 11,
+                    dom_id: "gain",
+                    ipc_cmd: "p,gain",
+                    proof: DspImpact::AmplifiesRms,
+                    stimulus: TestSignal::LinearChirp
+                }
+            ],
+            skins: [
+                "minimal",
+                "dark",
+                "retro",
+                "synth70",
+                "gunmetal",
+                "phosphor"
+            ]
+        );
+    }
+}

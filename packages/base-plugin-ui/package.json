@@ -1,6 +1,6 @@
 {
   "name": "@plugin-base/ui-bridge",
-  "version": "1.21.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "description": "Domain-agnostic Tier 2 & Tier 3 React component library wrapping @audio-ui/react and @audio-ui/core with DAW gesture demarcation, 60 FPS atomic telemetry, and 6 Flush Architectural Grid hardware skins.",

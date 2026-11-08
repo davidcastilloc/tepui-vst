@@ -1,6 +1,6 @@
 [package]
 name = "base_plugin_standalone"
-version = "1.22.0"
+version = "1.0.0"
 edition = "2021"
 license = "MIT"
 description = "Domain-agnostic standalone audio/MIDI host runner for DspEngine implementations."

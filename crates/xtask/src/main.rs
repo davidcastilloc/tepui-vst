@@ -1,436 +1,6 @@
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
-
-const SFX_MAGIC: &[u8; 12] = b"TEPUI_SFX_V1";
-
-fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
-    if !dst.exists() {
-        fs::create_dir_all(dst)?;
-    }
-    for entry in fs::read_dir(src)? {
-        let entry = entry?;
-        let ty = entry.file_type()?;
-        let src_path = entry.path();
-        let file_name = entry.file_name();
-        let dst_name = if file_name == "plugin_vst.vst3" {
-            std::ffi::OsString::from("TEPUI.vst3")
-        } else if file_name == "plugin_vst.clap" {
-            std::ffi::OsString::from("TEPUI.clap")
-        } else if file_name == "plugin_vst.so" {
-            std::ffi::OsString::from("TEPUI.so")
-        } else {
-            file_name
-        };
-        let dst_path = dst.join(dst_name);
-        if ty.is_dir() {
-            copy_dir_recursive(&src_path, &dst_path)?;
-        } else {
-            fs::copy(&src_path, &dst_path)?;
-        }
-    }
-    Ok(())
-}
-
-fn pack_sfx_entries(entries: &[(&str, &[u8])], stub_bytes: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(stub_bytes.len() + 1024);
-    out.extend_from_slice(stub_bytes);
-    let payload_start = out.len() as u64;
-    out.extend_from_slice(&(entries.len() as u32).to_le_bytes());
-    for (rel_path, data) in entries {
-        let path_bytes = rel_path.as_bytes();
-        out.extend_from_slice(&(path_bytes.len() as u32).to_le_bytes());
-        out.extend_from_slice(path_bytes);
-        out.extend_from_slice(&(data.len() as u64).to_le_bytes());
-        out.extend_from_slice(data);
-    }
-    out.extend_from_slice(&payload_start.to_le_bytes());
-    out.extend_from_slice(SFX_MAGIC);
-    out
-}
-
-fn unpack_sfx_entries(image: &[u8]) -> Option<Vec<(String, Vec<u8>)>> {
-    if image.len() < 20 {
-        return None;
-    }
-    let search_floor = image.len().saturating_sub(65536);
-    let magic_pos = image[search_floor..]
-        .windows(SFX_MAGIC.len())
-        .rposition(|w| w == SFX_MAGIC)
-        .map(|rel| search_floor + rel)?;
-    if magic_pos < 8 {
-        return None;
-    }
-    let trailer_start = magic_pos - 8;
-    let mut off_bytes = [0u8; 8];
-    off_bytes.copy_from_slice(&image[trailer_start..trailer_start + 8]);
-    let payload_start = u64::from_le_bytes(off_bytes) as usize;
-    if payload_start + 4 > trailer_start {
-        return None;
-    }
-    let mut cursor = payload_start;
-    let mut count_bytes = [0u8; 4];
-    count_bytes.copy_from_slice(&image[cursor..cursor + 4]);
-    cursor += 4;
-    let count = u32::from_le_bytes(count_bytes) as usize;
-    let mut entries = Vec::with_capacity(count.min(32));
-    for _ in 0..count {
-        if cursor + 4 > trailer_start {
-            return None;
-        }
-        let mut plen_bytes = [0u8; 4];
-        plen_bytes.copy_from_slice(&image[cursor..cursor + 4]);
-        cursor += 4;
-        let plen = u32::from_le_bytes(plen_bytes) as usize;
-        if cursor + plen + 8 > trailer_start {
-            return None;
-        }
-        let rel_path = String::from_utf8(image[cursor..cursor + plen].to_vec()).ok()?;
-        cursor += plen;
-        let mut dlen_bytes = [0u8; 8];
-        dlen_bytes.copy_from_slice(&image[cursor..cursor + 8]);
-        cursor += 8;
-        let dlen = u64::from_le_bytes(dlen_bytes) as usize;
-        if cursor + dlen > trailer_start {
-            return None;
-        }
-        let data = image[cursor..cursor + dlen].to_vec();
-        cursor += dlen;
-        entries.push((rel_path, data));
-    }
-    Some(entries)
-}
-
-fn build_sfx_installer(bundled_dir: &Path) -> std::io::Result<PathBuf> {
-    let vst3_bin_path = bundled_dir
-        .join("TEPUI.vst3")
-        .join("Contents")
-        .join("x86_64-win")
-        .join("TEPUI.vst3");
-    let clap_bin_path = bundled_dir.join("TEPUI.clap");
-    let standalone_release = Path::new("target/release/tepui_studio.exe");
-    let standalone_debug = Path::new("target/debug/tepui_studio.exe");
-
-    let stub_exe = env::current_exe()?;
-    let stub_bytes = fs::read(&stub_exe)?;
-
-    let mut owned_entries: Vec<(String, Vec<u8>)> = Vec::new();
-    if vst3_bin_path.exists() {
-        owned_entries.push((
-            "TEPUI.vst3/Contents/x86_64-win/TEPUI.vst3".to_string(),
-            fs::read(&vst3_bin_path)?,
-        ));
-    }
-    if clap_bin_path.exists() {
-        owned_entries.push(("TEPUI.clap".to_string(), fs::read(&clap_bin_path)?));
-    }
-    if standalone_release.exists() {
-        owned_entries.push((
-            "tepui_studio.exe".to_string(),
-            fs::read(standalone_release)?,
-        ));
-    } else if standalone_debug.exists() {
-        owned_entries.push(("tepui_studio.exe".to_string(), fs::read(standalone_debug)?));
-    }
-
-    let ref_entries: Vec<(&str, &[u8])> = owned_entries
-        .iter()
-        .map(|(k, v)| (k.as_str(), v.as_slice()))
-        .collect();
-    let sfx_bytes = pack_sfx_entries(&ref_entries, &stub_bytes);
-    fs::create_dir_all(bundled_dir)?;
-    let out_installer = bundled_dir.join("TEPUI-Setup-Windows-x64.exe");
-    fs::write(&out_installer, sfx_bytes)?;
-    println!(
-        "Created self-extracting Windows Installer at '{}'",
-        out_installer.display()
-    );
-    Ok(out_installer)
-}
-
-fn try_run_self_extracting_mode() -> Option<nih_plug_xtask::Result<()>> {
-    let exe_path = env::current_exe().ok()?;
-    let bytes = fs::read(&exe_path).ok()?;
-    let entries = unpack_sfx_entries(&bytes)?;
-
-    let temp_extract = env::temp_dir().join("tepui_sfx_extract");
-    let _ = fs::remove_dir_all(&temp_extract);
-    for (rel_path, data) in &entries {
-        let target = temp_extract.join(rel_path);
-        if let Some(parent) = target.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
-        if let Err(e) = fs::write(&target, data) {
-            return Some(Err(e.into()));
-        }
-    }
-
-    let local_app_data = env::var("LOCALAPPDATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("target/user_plugins"));
-
-    let extracted_vst3 = temp_extract.join("TEPUI.vst3");
-    if extracted_vst3.exists() {
-        let sys_vst3 = Path::new(r"C:\Program Files\Common Files\VST3");
-        let usr_vst3 = local_app_data.join(r"Programs\Common\VST3");
-        if let Ok(dst) = install_vst3_bundle(&extracted_vst3, sys_vst3, &usr_vst3) {
-            println!("[TEPUI SETUP] VST3 instalado en: '{}'", dst.display());
-        }
-    }
-
-    let extracted_clap = temp_extract.join("TEPUI.clap");
-    if extracted_clap.exists() {
-        let sys_clap = Path::new(r"C:\Program Files\Common Files\CLAP");
-        let usr_clap = local_app_data.join(r"Programs\Common\CLAP");
-        if let Ok(dst) = install_clap_bundle(&extracted_clap, sys_clap, &usr_clap) {
-            println!("[TEPUI SETUP] CLAP instalado en: '{}'", dst.display());
-        }
-    }
-
-    let extracted_studio = temp_extract.join("tepui_studio.exe");
-    if extracted_studio.exists() {
-        let standalone_dir = local_app_data.join(r"Programs\Tepui");
-        if fs::create_dir_all(&standalone_dir).is_ok() {
-            let standalone_dst = standalone_dir.join("tepui_studio.exe");
-            if fs::copy(&extracted_studio, &standalone_dst).is_ok() {
-                println!(
-                    "[TEPUI SETUP] Standalone Studio instalado en: '{}'",
-                    standalone_dst.display()
-                );
-            }
-        }
-    }
-
-    let _ = fs::remove_dir_all(&temp_extract);
-    Some(Ok(()))
-}
-
-fn ensure_tepui_bundles(bundled_dir: &Path) {
-    let src_clap = bundled_dir.join("plugin_vst.clap");
-    let dst_clap = bundled_dir.join("TEPUI.clap");
-    if src_clap.exists() {
-        let copy_res = if src_clap.is_dir() {
-            let _ = fs::remove_dir_all(&dst_clap);
-            copy_dir_recursive(&src_clap, &dst_clap)
-        } else {
-            fs::copy(&src_clap, &dst_clap).map(|_| ())
-        };
-        if let Err(e) = copy_res {
-            eprintln!("[TEPUI XTASK] Warning copying TEPUI.clap: {}", e);
-        } else {
-            println!("Created a CLAP bundle at '{}'", dst_clap.display());
-        }
-    }
-
-    let src_vst3 = bundled_dir.join("plugin_vst.vst3");
-    let dst_vst3 = bundled_dir.join("TEPUI.vst3");
-    if src_vst3.exists() {
-        let _ = fs::remove_dir_all(&dst_vst3);
-        if let Err(e) = copy_dir_recursive(&src_vst3, &dst_vst3) {
-            eprintln!("[TEPUI XTASK] Warning creating TEPUI.vst3: {}", e);
-        } else {
-            println!("Created a VST3 bundle at '{}'", dst_vst3.display());
-        }
-    }
-
-    for bin_name in ["tepui_studio.exe", "tepui_studio"] {
-        let src_bin = Path::new("target/release").join(bin_name);
-        if src_bin.exists() {
-            let _ = fs::copy(&src_bin, bundled_dir.join(bin_name));
-        }
-    }
-
-    if cfg!(windows) && (dst_clap.exists() || dst_vst3.exists()) {
-        if let Err(e) = build_sfx_installer(bundled_dir) {
-            eprintln!(
-                "[TEPUI XTASK] Warning building TEPUI-Setup-Windows-x64.exe: {}",
-                e
-            );
-        }
-    }
-}
-
-fn install_vst3_bundle(
-    src_vst3: &Path,
-    preferred_dir: &Path,
-    fallback_dir: &Path,
-) -> std::io::Result<PathBuf> {
-    let try_install = |base_dir: &Path| -> std::io::Result<PathBuf> {
-        fs::create_dir_all(base_dir)?;
-        let dst = base_dir.join("TEPUI.vst3");
-        if dst.exists() {
-            let _ = fs::remove_dir_all(&dst);
-        }
-        copy_dir_recursive(src_vst3, &dst)?;
-        Ok(dst)
-    };
-
-    try_install(preferred_dir).or_else(|_| try_install(fallback_dir))
-}
-
-fn install_clap_bundle(
-    src_clap: &Path,
-    preferred_dir: &Path,
-    fallback_dir: &Path,
-) -> std::io::Result<PathBuf> {
-    let try_install = |base_dir: &Path| -> std::io::Result<PathBuf> {
-        fs::create_dir_all(base_dir)?;
-        let dst = base_dir.join("TEPUI.clap");
-        if src_clap.is_dir() {
-            if dst.exists() {
-                let _ = fs::remove_dir_all(&dst);
-            }
-            copy_dir_recursive(src_clap, &dst)?;
-        } else {
-            fs::copy(src_clap, &dst)?;
-        }
-        Ok(dst)
-    };
-
-    try_install(preferred_dir).or_else(|_| try_install(fallback_dir))
-}
-
-fn default_plugin_install_dirs() -> (PathBuf, PathBuf, PathBuf, PathBuf, PathBuf) {
-    if cfg!(target_os = "macos") {
-        let home = env::var("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("target/user_plugins"));
-        (
-            PathBuf::from("/Library/Audio/Plug-Ins/VST3"),
-            home.join("Library/Audio/Plug-Ins/VST3"),
-            PathBuf::from("/Library/Audio/Plug-Ins/CLAP"),
-            home.join("Library/Audio/Plug-Ins/CLAP"),
-            home.join("Applications/Tepui"),
-        )
-    } else if cfg!(target_os = "linux") {
-        let home = env::var("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("target/user_plugins"));
-        (
-            PathBuf::from("/usr/lib/vst3"),
-            home.join(".vst3"),
-            PathBuf::from("/usr/lib/clap"),
-            home.join(".clap"),
-            home.join(".local/bin"),
-        )
-    } else {
-        let local_app_data = env::var("LOCALAPPDATA")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("target/user_plugins"));
-        (
-            PathBuf::from(r"C:\Program Files\Common Files\VST3"),
-            local_app_data.join(r"Programs\Common\VST3"),
-            PathBuf::from(r"C:\Program Files\Common Files\CLAP"),
-            local_app_data.join(r"Programs\Common\CLAP"),
-            local_app_data.join(r"Programs\Tepui"),
-        )
-    }
-}
-
-fn run_install() -> nih_plug_xtask::Result<()> {
-    let bundled_dir = Path::new("target/bundled");
-    let dst_vst3 = bundled_dir.join("TEPUI.vst3");
-    let dst_clap = bundled_dir.join("TEPUI.clap");
-
-    if !dst_vst3.exists() || !dst_clap.exists() {
-        println!(
-            "[TEPUI INSTALLER] Bundles no encontrados en target/bundled; compilando release..."
-        );
-        nih_plug_xtask::main_with_args(
-            "cargo xtask",
-            vec![
-                "bundle".to_string(),
-                "plugin_vst".to_string(),
-                "--release".to_string(),
-            ],
-        )?;
-        ensure_tepui_bundles(bundled_dir);
-    }
-
-    let (sys_vst3, usr_vst3, sys_clap, usr_clap, standalone_dir) = default_plugin_install_dirs();
-
-    let installed_vst3 = install_vst3_bundle(&dst_vst3, &sys_vst3, &usr_vst3)?;
-    println!(
-        "[TEPUI INSTALLER] VST3 instalado exitosamente en: '{}'",
-        installed_vst3.display()
-    );
-
-    let installed_clap = install_clap_bundle(&dst_clap, &sys_clap, &usr_clap)?;
-    println!(
-        "[TEPUI INSTALLER] CLAP instalado exitosamente en: '{}'",
-        installed_clap.display()
-    );
-
-    let standalone_bin_name = if cfg!(windows) {
-        "tepui_studio.exe"
-    } else {
-        "tepui_studio"
-    };
-    let standalone_src = Path::new("target/release").join(standalone_bin_name);
-    if standalone_src.exists() && fs::create_dir_all(&standalone_dir).is_ok() {
-        let standalone_dst = standalone_dir.join(standalone_bin_name);
-        if fs::copy(&standalone_src, &standalone_dst).is_ok() {
-            println!(
-                "[TEPUI INSTALLER] Standalone Studio instalado exitosamente en: '{}'",
-                standalone_dst.display()
-            );
-        }
-    }
-
-    if cfg!(windows) {
-        let _ = build_sfx_installer(bundled_dir);
-    }
-    Ok(())
-}
-
-fn update_cargo_toml_version_str(content: &str, new_version: &str) -> String {
-    let mut out = String::with_capacity(content.len() + 16);
-    let mut in_pkg_section = false;
-    let mut updated = false;
-
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with('[') && trimmed.ends_with(']') {
-            in_pkg_section = trimmed == "[package]" || trimmed == "[workspace.package]";
-            updated = false;
-        }
-        if in_pkg_section && !updated && trimmed.starts_with("version") && trimmed.contains('=') {
-            out.push_str(&format!("version = \"{}\"\n", new_version));
-            updated = true;
-        } else {
-            out.push_str(line);
-            out.push('\n');
-        }
-    }
-    out
-}
-
-fn run_set_version(new_version: &str) -> nih_plug_xtask::Result<()> {
-    let clean_ver = new_version.trim().trim_start_matches('v');
-    let manifests = [
-        "Cargo.toml",
-        "crates/dsp_core/Cargo.toml",
-        "crates/base_plugin_core/Cargo.toml",
-        "crates/base_plugin_webview/Cargo.toml",
-        "crates/base_plugin_standalone/Cargo.toml",
-        "crates/studio_bus_comp/Cargo.toml",
-        "crates/synth_core/Cargo.toml",
-        "crates/ai_bridge/Cargo.toml",
-        "crates/plugin_vst/Cargo.toml",
-        "crates/xtask/Cargo.toml",
-    ];
-
-    for manifest in manifests {
-        let path = Path::new(manifest);
-        if path.exists() {
-            let content = fs::read_to_string(path)?;
-            let updated = update_cargo_toml_version_str(&content, clean_ver);
-            fs::write(path, updated)?;
-            println!("[TEPUI VERSION] Actualizado {} -> {}", manifest, clean_ver);
-        }
-    }
-    Ok(())
-}
+use std::path::Path;
 
 /// Derives a deterministic 16-byte VST3 Class ID (UUID v5-style FNV-1a 128-bit)
 /// from a Reverse-DNS `CLAP_ID` so template users get a collision-free VST3 identity.
@@ -451,10 +21,18 @@ pub fn derive_vst3_class_id_from_clap_id(clap_id: &str) -> [u8; 16] {
     out
 }
 
-fn run_init_template(args: &[String]) -> nih_plug_xtask::Result<()> {
-    let mut plugin_name = String::from("MyCustomSynth");
-    let mut vendor_name = String::from("MyAudioLab");
-    let mut clap_id = String::from("com.myaudiolab.mycustomsynth");
+fn format_vst3_bytes(vst3_id: &[u8; 16]) -> String {
+    vst3_id
+        .iter()
+        .map(|b| format!("0x{:02x}", b))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn parse_scaffold_args(args: &[String]) -> (String, String, String) {
+    let mut plugin_name = String::from("MyAudioPlugin");
+    let mut vendor_name = String::from("OpenAudioStack");
+    let mut clap_id = String::from("org.openaudiostack.myaudioplugin");
 
     let mut i = 0;
     while i < args.len() {
@@ -476,23 +54,22 @@ fn run_init_template(args: &[String]) -> nih_plug_xtask::Result<()> {
             }
         }
     }
+    (plugin_name, vendor_name, clap_id)
+}
 
+fn run_init_template(args: &[String]) -> nih_plug_xtask::Result<()> {
+    let (plugin_name, vendor_name, clap_id) = parse_scaffold_args(args);
     let vst3_id = derive_vst3_class_id_from_clap_id(&clap_id);
-    let bytes_fmt = vst3_id
-        .iter()
-        .map(|b| format!("0x{:02x}", b))
-        .collect::<Vec<_>>()
-        .join(", ");
+    let bytes_fmt = format_vst3_bytes(&vst3_id);
 
     println!("==================================================================");
-    println!(" TEPUI OPEN-SOURCE VST3 / CLAP TEMPLATE GENERATOR");
+    println!(" OPEN AUDIO PLUGIN STACK — VST3 / CLAP IDENTITY GENERATOR");
     println!("==================================================================");
     println!("  Plugin Name   : {}", plugin_name);
     println!("  Vendor        : {}", vendor_name);
     println!("  CLAP_ID       : {}", clap_id);
     println!("  VST3_CLASS_ID : [{}]", bytes_fmt);
     println!("------------------------------------------------------------------");
-    println!("Copia estos identificadores en crates/plugin_vst/src/lib.rs:");
     println!("  const NAME: &'static str = \"{}\";", plugin_name);
     println!("  const VENDOR: &'static str = \"{}\";", vendor_name);
     println!("  const CLAP_ID: &'static str = \"{}\";", clap_id);
@@ -501,19 +78,200 @@ fn run_init_template(args: &[String]) -> nih_plug_xtask::Result<()> {
     Ok(())
 }
 
-fn main() -> nih_plug_xtask::Result<()> {
-    if let Some(res) = try_run_self_extracting_mode() {
-        return res;
+fn to_snake_slug(input: &str) -> String {
+    let mut out = String::new();
+    for (idx, ch) in input.chars().enumerate() {
+        if ch.is_ascii_uppercase() {
+            if idx > 0 && !out.ends_with('_') {
+                out.push('_');
+            }
+            out.push(ch.to_ascii_lowercase());
+        } else if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+        } else if !out.ends_with('_') && !out.is_empty() {
+            out.push('_');
+        }
     }
+    out.trim_matches('_').to_string()
+}
 
-    let args: Vec<String> = env::args().skip(1).collect();
-    if args.first().map(|s| s.as_str()) == Some("install") {
-        return run_install();
-    }
-    if args.first().map(|s| s.as_str()) == Some("installer") {
-        build_sfx_installer(Path::new("target/bundled"))?;
+fn run_new_plugin(args: &[String]) -> nih_plug_xtask::Result<()> {
+    let (plugin_name, vendor_name, clap_id) = parse_scaffold_args(args);
+    let slug = to_snake_slug(&plugin_name);
+    let crate_dir = Path::new("crates").join(&slug);
+    if crate_dir.exists() {
+        println!("[XTASK] El directorio {:?} ya existe.", crate_dir);
         return Ok(());
     }
+
+    fs::create_dir_all(crate_dir.join("src").join("bin"))?;
+    let vst3_id = derive_vst3_class_id_from_clap_id(&clap_id);
+    let bytes_fmt = format_vst3_bytes(&vst3_id);
+
+    // Copy studio_bus_comp as the starter template and customize identifiers
+    let ref_lib = fs::read_to_string("crates/studio_bus_comp/src/lib.rs")?;
+    let customized_lib = ref_lib
+        .replace(
+            "const NAME: &'static str = \"Studio VCA Bus Compressor\";",
+            &format!("const NAME: &'static str = \"{}\";", plugin_name),
+        )
+        .replace(
+            "const VENDOR: &'static str = \"Open Audio Plugin Stack\";",
+            &format!("const VENDOR: &'static str = \"{}\";", vendor_name),
+        )
+        .replace(
+            "const CLAP_ID: &'static str = \"org.openaudiostack.studio-bus-comp\";",
+            &format!("const CLAP_ID: &'static str = \"{}\";", clap_id),
+        )
+        .replace(
+            "*b\"StBsCmpOpenAudv1\"",
+            &format!("[{}]", bytes_fmt),
+        );
+
+    let cargo_toml = format!(
+        r#"[package]
+name = "{slug}"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "{plugin_name} — VST3/CLAP/Standalone plugin built on base_plugin_core + dsp_core"
+default-run = "{slug}_app"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[[bin]]
+name = "{slug}_app"
+path = "src/bin/{slug}_app.rs"
+
+[dependencies]
+dsp_core = {{ path = "../dsp_core" }}
+base_plugin_core = {{ path = "../base_plugin_core" }}
+base_plugin_webview = {{ path = "../base_plugin_webview" }}
+base_plugin_standalone = {{ path = "../base_plugin_standalone" }}
+nih_plug = {{ git = "https://github.com/robbert-vdh/nih-plug.git", features = ["assert_process_allocs", "standalone"] }}
+serde = {{ version = "1.0", features = ["derive"] }}
+serde_json = "1.0"
+"#
+    );
+
+    let bin_main = format!(
+        r#"#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+use {slug}::{{set_standalone_mode, StudioBusCompPlugin}};
+
+fn main() {{
+    set_standalone_mode(true);
+    let mut args: Vec<String> = std::env::args().collect();
+    if cfg!(windows) && !args.iter().any(|a| a == "-b" || a == "--backend") {{
+        args.push("-b".to_string());
+        args.push("wasapi".to_string());
+    }}
+    if !args.iter().any(|a| a == "-l" || a == "--audio-layout") {{
+        args.push("-l".to_string());
+        args.push("2".to_string());
+    }}
+    if cfg!(windows) && !args.iter().any(|a| a == "-p" || a == "--period-size") {{
+        args.push("-p".to_string());
+        args.push("1056".to_string());
+    }}
+    nih_plug::wrapper::standalone::nih_export_standalone_with_args::<StudioBusCompPlugin, _>(args);
+}}
+"#
+    );
+
+    fs::write(crate_dir.join("Cargo.toml"), cargo_toml)?;
+    fs::write(crate_dir.join("src").join("lib.rs"), customized_lib)?;
+    fs::write(
+        crate_dir
+            .join("src")
+            .join("bin")
+            .join(format!("{}_app.rs", slug)),
+        bin_main,
+    )?;
+
+    // Register in root Cargo.toml
+    let root_toml_path = Path::new("Cargo.toml");
+    if root_toml_path.exists() {
+        let root_toml = fs::read_to_string(root_toml_path)?;
+        let member_entry = format!("    \"crates/{}\",", slug);
+        if !root_toml.contains(&member_entry) {
+            let updated = root_toml.replace(
+                "    \"crates/xtask\",",
+                &format!("    \"crates/{}\",\n    \"crates/xtask\",", slug),
+            );
+            fs::write(root_toml_path, updated)?;
+        }
+    }
+
+    println!("==================================================================");
+    println!(" NUEVO PLUGIN CREADO EXITOSAMENTE: crates/{}", slug);
+    println!("==================================================================");
+    println!("  Compilar Standalone : cargo build --release -p {} --bin {}_app", slug, slug);
+    println!("  Empaquetar VST3/CLAP: cargo run --package xtask -- bundle {} --release", slug);
+    println!("  Ejecutar Tests      : cargo test -p {}", slug);
+    println!("==================================================================");
+    Ok(())
+}
+
+fn update_cargo_toml_version_str(content: &str, new_version: &str) -> String {
+    let mut in_pkg = false;
+    let mut out = String::with_capacity(content.len() + 16);
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            in_pkg = trimmed == "[package]" || trimmed == "[workspace.package]";
+        }
+        if in_pkg && trimmed.starts_with("version") && trimmed.contains('=') {
+            out.push_str(&format!("version = \"{}\"\n", new_version));
+        } else {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out
+}
+
+fn run_set_version(new_version: &str) -> nih_plug_xtask::Result<()> {
+    let clean_ver = new_version.trim().trim_start_matches('v');
+    let manifests = [
+        "Cargo.toml",
+        "crates/dsp_core/Cargo.toml",
+        "crates/base_plugin_core/Cargo.toml",
+        "crates/base_plugin_webview/Cargo.toml",
+        "crates/base_plugin_standalone/Cargo.toml",
+        "crates/studio_bus_comp/Cargo.toml",
+        "crates/xtask/Cargo.toml",
+    ];
+    for manifest in manifests {
+        let path = Path::new(manifest);
+        if path.exists() {
+            let content = fs::read_to_string(path)?;
+            let updated = update_cargo_toml_version_str(&content, clean_ver);
+            fs::write(path, updated)?;
+            println!("[XTASK VERSION] Updated {} -> {}", manifest, clean_ver);
+        }
+    }
+    let pkg_json = Path::new("packages/base-plugin-ui/package.json");
+    if pkg_json.exists() {
+        let content = fs::read_to_string(pkg_json)?;
+        let mut out = String::new();
+        for line in content.lines() {
+            if line.trim_start().starts_with("\"version\":") {
+                out.push_str(&format!("  \"version\": \"{}\",\n", clean_ver));
+            } else {
+                out.push_str(line);
+                out.push('\n');
+            }
+        }
+        fs::write(pkg_json, out)?;
+        println!("[XTASK VERSION] Updated packages/base-plugin-ui/package.json -> {}", clean_ver);
+    }
+    Ok(())
+}
+
+fn main() -> nih_plug_xtask::Result<()> {
+    let args: Vec<String> = env::args().skip(1).collect();
     if args.first().map(|s| s.as_str()) == Some("set-version") {
         if let Some(ver) = args.get(1) {
             return run_set_version(ver);
@@ -522,10 +280,10 @@ fn main() -> nih_plug_xtask::Result<()> {
     if args.first().map(|s| s.as_str()) == Some("init-template") {
         return run_init_template(&args[1..]);
     }
-
-    nih_plug_xtask::main()?;
-    ensure_tepui_bundles(Path::new("target/bundled"));
-    Ok(())
+    if args.first().map(|s| s.as_str()) == Some("new-plugin") {
+        return run_new_plugin(&args[1..]);
+    }
+    nih_plug_xtask::main()
 }
 
 #[cfg(test)]
@@ -533,89 +291,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_update_cargo_toml_version() {
-        let sample = "[package]\nname = \"plugin_vst\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nsynth_core = { version = \"0.1.0\" }\n";
-        let updated = update_cargo_toml_version_str(sample, "1.2.3");
-        assert!(updated.contains("version = \"1.2.3\""));
-        assert!(updated.contains("synth_core = { version = \"0.1.0\" }"));
-    }
-
-    #[test]
-    fn test_installer_vst3_and_clap_copy_with_fallback() {
-        let temp_root = std::env::temp_dir().join("tepui_xtask_installer_test");
-        let _ = fs::remove_dir_all(&temp_root);
-
-        let src_root = temp_root.join("src");
-        let src_vst3 = src_root
-            .join("plugin_vst.vst3")
-            .join("Contents")
-            .join("x86_64-win");
-        fs::create_dir_all(&src_vst3).expect("create src_vst3 failed");
-        fs::write(src_vst3.join("plugin_vst.vst3"), b"MOCK_VST3_BIN").expect("write vst3 failed");
-
-        let src_clap = src_root.join("TEPUI.clap");
-        fs::write(&src_clap, b"MOCK_CLAP_BIN").expect("write clap failed");
-
-        let dst_root = temp_root.join("dst");
-        let vst3_out = install_vst3_bundle(
-            &src_root.join("plugin_vst.vst3"),
-            &dst_root.join("VST3"),
-            &dst_root.join("FallbackVST3"),
-        )
-        .expect("install_vst3_bundle failed");
-        assert!(vst3_out
-            .join("Contents")
-            .join("x86_64-win")
-            .join("TEPUI.vst3")
-            .exists());
-
-        let clap_out = install_clap_bundle(
-            &src_clap,
-            &dst_root.join("CLAP"),
-            &dst_root.join("FallbackCLAP"),
-        )
-        .expect("install_clap_bundle failed");
-        assert!(clap_out.exists());
-
-        let _ = fs::remove_dir_all(&temp_root);
-    }
-
-    #[test]
-    fn test_sfx_installer_pack_and_unpack_roundtrip() {
-        let stub = b"MZ_FAKE_PE_HEADER_STUB";
-        let entries: [(&str, &[u8]); 3] = [
-            (
-                "TEPUI.vst3/Contents/x86_64-win/TEPUI.vst3",
-                b"VST3_PAYLOAD_DATA",
-            ),
-            ("TEPUI.clap", b"CLAP_PAYLOAD_DATA"),
-            ("tepui_studio.exe", b"STUDIO_PAYLOAD_DATA"),
-        ];
-        let image = pack_sfx_entries(&entries, stub);
-        let unpacked = unpack_sfx_entries(&image).expect("unpack_sfx_entries should succeed");
-        assert_eq!(unpacked.len(), 3);
-        assert_eq!(unpacked[0].0, "TEPUI.vst3/Contents/x86_64-win/TEPUI.vst3");
-        assert_eq!(unpacked[0].1, b"VST3_PAYLOAD_DATA");
-        assert_eq!(unpacked[1].0, "TEPUI.clap");
-        assert_eq!(unpacked[1].1, b"CLAP_PAYLOAD_DATA");
-        assert_eq!(unpacked[2].0, "tepui_studio.exe");
-        assert_eq!(unpacked[2].1, b"STUDIO_PAYLOAD_DATA");
-
-        // Also verify Authenticode-signed SFX images where signtool appends a PKCS#7 signature block
-        let mut signed_image = image.clone();
-        signed_image.extend_from_slice(&[0x30u8; 4096]);
-        let unpacked_signed = unpack_sfx_entries(&signed_image)
-            .expect("unpack_sfx_entries should succeed with appended Authenticode signature");
-        assert_eq!(unpacked_signed.len(), 3);
-        assert_eq!(unpacked_signed[0].1, b"VST3_PAYLOAD_DATA");
-    }
-
-    #[test]
-    fn test_template_stack_vst3_class_id_derivation() {
-        let id_a = derive_vst3_class_id_from_clap_id("com.sabana.auyantepui");
-        let id_b = derive_vst3_class_id_from_clap_id("com.sabana.roraima");
+    fn test_vst3_class_id_derivation_is_deterministic_and_unique() {
+        let id_a = derive_vst3_class_id_from_clap_id("org.openaudiostack.buscomp");
+        let id_b = derive_vst3_class_id_from_clap_id("org.openaudiostack.parameq");
         assert_ne!(id_a, id_b);
-        assert_eq!(id_a, derive_vst3_class_id_from_clap_id("com.sabana.auyantepui"));
+        assert_eq!(
+            id_a,
+            derive_vst3_class_id_from_clap_id("org.openaudiostack.buscomp")
+        );
         assert_eq!(id_a[6] & 0xf0, 0x50);
         assert_eq!(id_a[8] & 0xc0, 0x80);
     }

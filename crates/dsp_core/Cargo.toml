@@ -1,6 +1,6 @@
 [package]
 name = "dsp_core"
-version = "1.22.0"
+version = "1.0.0"
 edition = "2021"
 license = "MIT"
 description = "Real-time safe, zero-allocation DSP primitives, lock-free structures, ZDF filters, modulation, and dynamics for audio plugins."

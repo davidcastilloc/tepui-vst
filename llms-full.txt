@@ -1,0 +1,172 @@
+# Open Audio Stack (`rust-webview-vst-template`) — Complete AI Context (`llms-full.txt`)
+
+> Feed this single file into Claude, Cursor, Windsurf, ChatGPT, or Gemini to build a complete, real-time safe, 6-Skin VST3 / CLAP / Standalone audio plugin in Rust + WebView2/WebKit (`wry`).
+
+---
+
+## 1. Stack Architecture & 4-Layer Crate DAG
+
+```text
+Layer 1: crates/dsp_core
+  ├── flush_denormal(x: f32) -> f32
+  ├── db_to_gain(db: f32) -> f32 / gain_to_db(gain: f32) -> f32
+  ├── OnePoleSmoother { set_Target, next_value, reset }
+  ├── BiquadFilter { LowPass, HighPass, BandPass, Notch, Peaking, LowShelf, HighShelf }
+  ├── EnvelopeFollower { set_attack_ms, set_release_ms, process_sample }
+  ├── SoftClipper { process_tanh, process_cubic, process_asymmetric_tube }
+  └── DelayLine<const MAX_SAMPLES: usize> { write_and_read, read_hermite }
+
+Layer 2: crates/base_plugin_core
+  ├── trait DspEngine: Send + Sync + 'static
+  │     ├── fn reset(&mut self, sample_rate: f32)
+  │     ├── fn set_param(&mut self, id: &str, value: f32)
+  │     ├── fn get_param(&self, id: &str) -> Option<f32>
+  │     ├── fn process(&mut self, left: &mut [f32], right: &mut [f32]) -> TelemetryFrame
+  │     └── fn param_specs(&self) -> Vec<ParamSpec>
+  ├── struct TelemetryRing (lock-free atomic bit-packed f32 L/R Peak, RMS, GR)
+  ├── struct PresetBank<P> (JSON preset serialization & factory bank)
+  └── macro declare_plugin_contract! (auto-generates 4 unit tests proving UI <-> DSP integrity)
+
+Layer 3: crates/base_plugin_webview
+  ├── trait WebViewBridgeHandler: Send + Sync + 'static
+  └── struct GenericWebViewEditor (Win32 HWND_MESSAGE SetTimer pump + Per-Executable isolated UDF + 30Hz native telemetry dispatch)
+
+Layer 4: crates/<your_plugin_slug>
+  ├── src/lib.rs (implements DspEngine, nih_plug::Plugin, GenericWebViewEditor, and declare_plugin_contract!)
+  ├── src/bin/<slug>_app.rs (Standalone desktop app via nih_plug::wrapper::standalone)
+  └── ui/dist/index.html (6-Skin HTML/CSS/JS or React @audio-ui bundle embedded via include_str!)
+```
+
+---
+
+## 2. `crates/dsp_core` API Reference
+
+```rust
+use dsp_core::{
+    db_to_gain, flush_denormal, gain_to_db, BiquadFilter, BiquadMode, DelayLine,
+    EnvelopeFollower, OnePoleSmoother, SoftClipper,
+};
+
+// 1. Parameter smoothing (mandatory for knobs to prevent zipper noise)
+let mut smoother = OnePoleSmoother::new(0.0, 5.0, 48000.0); // (initial, time_ms, sample_rate)
+smoother.set_sample_rate(sample_rate, 5.0);
+smoother.set_target(new_knob_value);
+let smoothed_val = smoother.next_value();
+
+// 2. Biquad Filter (Zero-allocation Audio EQ Cookbook)
+let mut filter_l = BiquadFilter::new();
+filter_l.configure(BiquadMode::Peaking, 1000.0, 0.707, 6.0, sample_rate); // (mode, cutoff_hz, q, gain_db, sr)
+let y = filter_l.process_sample(x);
+
+// 3. Envelope Follower (Peak/RMS ballistics in dB)
+let mut env = EnvelopeFollower::new(10.0, 100.0, sample_rate);
+env.set_attack_ms(5.0);
+env.set_release_ms(80.0);
+let env_linear = env.process_sample(x);
+
+// 4. SoftClipper (Analog saturation)
+let y_tanh = SoftClipper::process_tanh(x, drive_gain);
+let y_tube = SoftClipper::process_asymmetric_tube(x, drive_gain, 0.15);
+
+// 5. DelayLine (Compile-time stack/struct buffer — zero runtime heap reallocations)
+let mut delay: DelayLine<96000> = DelayLine::new();
+let delayed = delay.write_and_read(input_sample, delay_samples_float);
+```
+
+---
+
+## 3. `crates/base_plugin_core` & `declare_plugin_contract!` Reference
+
+Every plugin MUST implement `DspEngine` and invoke `declare_plugin_contract!` at the bottom of `src/lib.rs`:
+
+```rust
+use base_plugin_core::contract::{DspImpact, ParamDescriptor, PluginContractManifest};
+use base_plugin_core::{declare_plugin_contract, DspEngine, ParamSpec, TelemetryFrame};
+
+declare_plugin_contract!(
+    engine_constructor: || MyPluginDspEngine::new(48_000.0),
+    ui_html: include_str!("../ui/dist/index.html"),
+    manifest: PluginContractManifest {
+        plugin_slug: "my_plugin",
+        required_skins: &["minimal", "dark", "retro", "synth70", "gunmetal", "phosphor"],
+        params: &[
+            ParamDescriptor {
+                id: "drive_db",
+                ui_selector: "knob-drive",
+                default_val: 0.0,
+                test_val: 12.0,
+                expected_impact: DspImpact::AmplifiesRms { min_ratio: 1.15 },
+            },
+            ParamDescriptor {
+                id: "bypass",
+                ui_selector: "btn-bypass",
+                default_val: 0.0,
+                test_val: 1.0,
+                expected_impact: DspImpact::PassThroughEqual,
+            },
+        ],
+    }
+);
+```
+
+### Available `DspImpact` Variants for `declare_plugin_contract!`
+- `DspImpact::AmplifiesRms { min_ratio: f32 }`: Asserts that setting `id` to `test_val` increases output RMS by at least `min_ratio` over baseline.
+- `DspImpact::AttenuatesRms { max_ratio: f32 }`: Asserts that setting `id` to `test_val` reduces output RMS below `max_ratio` of baseline.
+- `DspImpact::AltersFrequencyResponse { min_delta_rms: f32 }`: Asserts that filtering or EQ changes output spectrum/RMS by at least `min_delta_rms`.
+- `DspImpact::MutatesTransient { min_peak_delta: f32 }`: Asserts that attack/release/compression alters crest factor or peak envelope.
+- `DspImpact::MutatesWaveform { min_sample_diff: f32 }`: Asserts that phase, saturation, delay, or stereo width mutates sample values by at least `min_sample_diff`.
+- `DspImpact::PassThroughEqual`: Asserts that enabling bypass makes output identical to dry input (`< 1e-4` error).
+
+---
+
+## 4. WebView <-> Rust IPC Protocol (`window.ipc.postMessage`)
+
+### UI -> Rust Messages
+```javascript
+// 1. Notify Rust that the WebView DOM is ready (triggers initial state & telemetry timer)
+window.ipc.postMessage(JSON.stringify({ type: "Init" }));
+
+// 2. Mutate a DSP parameter in real time
+window.ipc.postMessage(JSON.stringify({
+  type: "SetParam",
+  id: "drive_db",
+  value: 6.5
+}));
+
+// 3. Load a factory preset
+window.ipc.postMessage(JSON.stringify({
+  type: "LoadPreset",
+  name: "Warm Bus Glue"
+}));
+```
+
+### Rust -> UI Events
+Rust calls `window.__ON_PLUGIN_TELEMETRY__(frame)` at 30 Hz and `window.__ON_PLUGIN_STATE__(state)` on preset/parameter sync:
+```javascript
+window.__ON_PLUGIN_TELEMETRY__ = function(frame) {
+  // frame = { peak_l: 0.42, peak_r: 0.40, rms_l: 0.21, rms_r: 0.20, gain_reduction_db: 3.2 }
+};
+```
+
+---
+
+## 5. Step-by-Step Workflow for AI Agents
+
+1. **Generate the plugin skeleton**:
+   ```powershell
+   cargo run --package xtask -- new-plugin --name "Velvet Tape Saturator" --vendor "OpenAudioLab" --id "com.openaudiolab.velvettape"
+   ```
+2. **Customize `crates/velvet_tape_saturator/src/lib.rs`**:
+   - Add your DSP fields (`BiquadFilter`, `SoftClipper`, `DelayLine`, `OnePoleSmoother`) to the engine struct.
+   - Implement `DspEngine::process()` with zero heap allocations.
+   - Update `crates/velvet_tape_saturator/ui/dist/index.html` with matching `id="knob-..."` controls and all 6 skins (`minimal`, `dark`, `retro`, `synth70`, `gunmetal`, `phosphor`).
+   - Update `declare_plugin_contract!` with a `ParamDescriptor` for every parameter.
+3. **Run the 4-Gate Certification Audit**:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File scripts/audit_plugin_architecture.ps1
+   ```
+4. **Build Standalone `.exe` and VST3/CLAP bundles**:
+   ```powershell
+   cargo build --release -p velvet_tape_saturator --bin velvet_tape_saturator_app
+   cargo run --package xtask -- bundle velvet_tape_saturator --release
+   ```

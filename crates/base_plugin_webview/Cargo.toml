@@ -1,6 +1,6 @@
 [package]
 name = "base_plugin_webview"
-version = "1.22.0"
+version = "1.0.0"
 edition = "2021"
 license = "MIT"
 description = "Domain-agnostic serverless WebView host, isolated UDF profile resolver, Win32 subclassing, and typed IPC bus for audio plugins."

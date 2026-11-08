@@ -1,7 +1,9 @@
 [package]
 name = "xtask"
-version = "1.25.0"
+version = "1.0.0"
 edition = "2021"
+license = "MIT"
+description = "Build, bundle, install, and scaffold VST3/CLAP/Standalone audio plugins"
 
 [dependencies]
 nih_plug_xtask = { git = "https://github.com/robbert-vdh/nih-plug.git" }

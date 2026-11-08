@@ -1,4 +1,7 @@
+#![allow(unknown_lints)]
 #![allow(clippy::needless_range_loop)]
+#![allow(semicolon_in_expressions_from_macros)]
+#![allow(semicolon_in_expressions_from_non_local_macros)]
 //! # `studio_bus_comp` — Compresor de Bus VCA Estéreo y Saturador de Cinta (VST3 / CLAP / Standalone)
 //!
 //! Segundo plugin del ecosistema construido **100% sobre la plantilla desacoplada**
