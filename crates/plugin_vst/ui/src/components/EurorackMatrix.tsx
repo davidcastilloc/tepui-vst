@@ -17,6 +17,8 @@ import {
 declare global {
   interface Window {
     __tepuiOnArpSequencerChange?: (stepIdx: number, velocity: number) => void;
+    __tepuiOnArpRatchetChange?: (stepIdx: number, repeats: number) => void;
+    __tepuiOnArpOctaveChange?: (stepIdx: number, octave: number) => void;
   }
 }
 
@@ -231,32 +233,94 @@ const TepuiAdsrEnvelope: React.FC = () => {
 
 const TepuiArpSequencer: React.FC = () => {
   const arpSteps = useSynthStore((s) => s.arpSteps);
+  const arpLaneMode = useSynthStore((s) => s.arpLaneMode);
+  const arpStepRatchets = useSynthStore((s) => s.arpStepRatchets);
+  const arpStepOctaves = useSynthStore((s) => s.arpStepOctaves);
+  const numSteps = arpSteps.length > 0 ? arpSteps.length : 12;
 
   const pattern = useMemo<boolean[][]>(() => {
-    const steps = arpSteps.length > 0 ? arpSteps : [0.95, 0.48, 0.78, 0.92, 0.52, 0.86, 0.95, 0.48, 0.78, 0.92, 0.52, 0.86];
+    const steps =
+      arpSteps.length > 0
+        ? arpSteps
+        : [0.95, 0.48, 0.78, 0.92, 0.52, 0.86, 0.95, 0.48, 0.78, 0.92, 0.52, 0.86];
+    if (arpLaneMode === "ratchet") {
+      const row2x = steps.map((_, idx) => (arpStepRatchets[idx] ?? 1) >= 2);
+      const row3x = steps.map((_, idx) => (arpStepRatchets[idx] ?? 1) >= 3);
+      return [row2x, row3x];
+    }
+    if (arpLaneMode === "oct") {
+      const rowUp = steps.map((_, idx) => (arpStepOctaves[idx] ?? 0) > 0);
+      const rowDn = steps.map((_, idx) => (arpStepOctaves[idx] ?? 0) < 0);
+      return [rowUp, rowDn];
+    }
     const gateRow = steps.map((v) => v > 0.2);
     const accRow = steps.map((v) => v >= 0.8);
     return [gateRow, accRow];
-  }, [arpSteps]);
+  }, [arpSteps, arpLaneMode, arpStepRatchets, arpStepOctaves]);
 
   const handlePatternChange = useCallback(
     (nextPattern: boolean[][]) => {
-      const gateRow = nextPattern[0] ?? [];
-      const accRow = nextPattern[1] ?? [];
+      const row0 = nextPattern[0] ?? [];
+      const row1 = nextPattern[1] ?? [];
+      if (arpLaneMode === "ratchet") {
+        const nextRatch = Array.from(
+          { length: numSteps },
+          (_, i) => arpStepRatchets[i] ?? 1,
+        );
+        for (let s = 0; s < row0.length; s++) {
+          const prev0 = pattern[0]?.[s] ?? false;
+          const prev1 = pattern[1]?.[s] ?? false;
+          if (row0[s] !== prev0 || row1[s] !== prev1) {
+            const rep = row1[s] ? 3 : row0[s] ? 2 : 1;
+            nextRatch[s] = rep;
+            synthStore.setArpStepRatchets(nextRatch);
+            window.__tepuiOnArpRatchetChange?.(s, rep);
+          }
+        }
+        return;
+      }
+      if (arpLaneMode === "oct") {
+        const nextOct = Array.from(
+          { length: numSteps },
+          (_, i) => arpStepOctaves[i] ?? 0,
+        );
+        for (let s = 0; s < row0.length; s++) {
+          const prev0 = pattern[0]?.[s] ?? false;
+          const prev1 = pattern[1]?.[s] ?? false;
+          if (row0[s] !== prev0 || row1[s] !== prev1) {
+            let oct = 0;
+            if (row0[s] && !prev0) oct = 1;
+            else if (row1[s] && !prev1) oct = -1;
+            else if (row0[s]) oct = 1;
+            else if (row1[s]) oct = -1;
+            nextOct[s] = oct;
+            synthStore.setArpStepOctaves(nextOct);
+            window.__tepuiOnArpOctaveChange?.(s, oct);
+          }
+        }
+        return;
+      }
       const nextSteps = [...arpSteps];
-      for (let s = 0; s < gateRow.length; s++) {
+      for (let s = 0; s < row0.length; s++) {
         const prevGate = pattern[0]?.[s] ?? true;
         const prevAcc = pattern[1]?.[s] ?? false;
-        if (gateRow[s] !== prevGate || accRow[s] !== prevAcc) {
-          const vel = accRow[s] ? 0.95 : gateRow[s] ? 0.65 : 0.1;
+        if (row0[s] !== prevGate || row1[s] !== prevAcc) {
+          const vel = row1[s] ? 0.95 : row0[s] ? 0.65 : 0.1;
           nextSteps[s] = vel;
           synthStore.setArpSteps(nextSteps);
           window.__tepuiOnArpSequencerChange?.(s, vel);
         }
       }
     },
-    [arpSteps, pattern],
+    [arpSteps, arpLaneMode, arpStepRatchets, arpStepOctaves, numSteps, pattern],
   );
+
+  const rowNames =
+    arpLaneMode === "ratchet"
+      ? ["RATCH 2x", "RATCH 3x"]
+      : arpLaneMode === "oct"
+        ? ["OCT +1", "OCT -1"]
+        : SEQ_ROW_NAMES;
 
   return (
     <Sequencer.Root
@@ -264,7 +328,7 @@ const TepuiArpSequencer: React.FC = () => {
       style={{ "--arp-cols": pattern[0]?.length || 12 } as React.CSSProperties}
       value={pattern}
       source={arpStepSource}
-      aria-label={`Arpeggiator ${pattern[0]?.length || 12}-Step Pattern`}
+      aria-label={`Arpeggiator ${pattern[0]?.length || 12}-Step Pattern (${arpLaneMode.toUpperCase()})`}
       onValueChange={handlePatternChange}
     >
       <Sequencer.Rows>
@@ -273,7 +337,7 @@ const TepuiArpSequencer: React.FC = () => {
             key={row}
             index={row}
             className="sequencer-row"
-            aria-label={SEQ_ROW_NAMES[row] ?? `Row ${row + 1}`}
+            aria-label={rowNames[row] ?? `Row ${row + 1}`}
           >
             <Sequencer.Cells>
               {(step) => (
@@ -281,7 +345,7 @@ const TepuiArpSequencer: React.FC = () => {
                   key={step}
                   step={step}
                   className="step arp-seq-step"
-                  aria-label={`${SEQ_ROW_NAMES[row]} step ${step + 1}`}
+                  aria-label={`${rowNames[row]} step ${step + 1}`}
                 />
               )}
             </Sequencer.Cells>
@@ -420,6 +484,14 @@ export const EurorackMatrix: React.FC = () => {
               type="button"
             >
               3D WT
+            </button>
+            <button
+              id="btn-wt-warp-mode"
+              className="oled-pill-btn amber"
+              title="Ciclar Algoritmo de Spectral Warp (FOLD / ASYM / SYNC / QUANT)"
+              type="button"
+            >
+              WARP:FOLD
             </button>
             <button
               id="btn-granular-mode"
@@ -892,6 +964,14 @@ export const EurorackMatrix: React.FC = () => {
               16 STEPS
             </button>
             <button
+              id="btn-arp-lane"
+              className="oled-pill-btn cyan"
+              title="Alternar Carril del Secuenciador por Paso (LANE:VEL / LANE:RATCH 1x..4x / LANE:OCT ±1)"
+              type="button"
+            >
+              LANE:VEL
+            </button>
+            <button
               id="btn-arp-mode"
               className="oled-pill-btn amber"
               title="Ciclar modo del Arpegiador Polifónico"
@@ -954,7 +1034,17 @@ export const EurorackMatrix: React.FC = () => {
         <i className="hex-screw br"></i>
         <div className="mod-header">
           <span className="mod-title">OTT, DRIVE &amp; CANYON</span>
-          <span className="mod-sub-tag cyan">MASTER FX BUS</span>
+          <div className="mod-header-pills">
+            <button
+              id="btn-fx-bus-mode"
+              className="oled-pill-btn cyan"
+              title="Ciclar Modo del Bus Espacial FX (CANYON / PHASER 6-STG / TAPE WOW)"
+              type="button"
+            >
+              FX:CANYON
+            </button>
+            <span className="mod-sub-tag cyan">MASTER FX BUS</span>
+          </div>
         </div>
 
         <div className="reverb-oled-and-vu">

@@ -158,9 +158,9 @@ export function TepuiKnob({
             <span className="knob-tick" />
           </Knob.Mark>
         ))}
-        <svg className="knob-mod-svg" viewBox="0 0 46 46" aria-hidden="true">
+        <svg className="knob-mod-svg knob-mod-ring-svg" viewBox="0 0 46 46" aria-hidden="true">
           <circle
-            className="knob-mod-track"
+            className="knob-mod-span"
             cx="23"
             cy="23"
             r="20.6"
@@ -170,6 +170,21 @@ export function TepuiKnob({
             strokeDasharray="0 129.4"
             strokeDashoffset="0"
             strokeLinecap="round"
+            transform="rotate(135 23 23)"
+            opacity="0"
+          />
+          <circle
+            className="knob-mod-track"
+            cx="23"
+            cy="23"
+            r="20.6"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.1"
+            strokeDasharray="0 129.4"
+            strokeDashoffset="0"
+            strokeLinecap="round"
+            transform="rotate(135 23 23)"
             opacity="0"
           />
         </svg>

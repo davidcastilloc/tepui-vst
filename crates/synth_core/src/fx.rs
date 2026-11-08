@@ -146,7 +146,7 @@ pub struct StereoFxRack {
     allpass_r: [AllPassFilter; 2],
     reverb_tail_energy: f32,
 
-    // Vital / Serum FX: Tube Drive Distortion + OTT Upward/Downward Multiband Compressor
+    // Vital / Serum FX: Tube Drive Distortion + OTT Upward/Downward Multiband Compressor + Multi-Mode Bus (Canyon / 6-Stage Phaser / Analog Tape)
     drive_amount: f32,
     current_drive: f32,
     ott_amount: f32,
@@ -155,6 +155,12 @@ pub struct StereoFxRack {
     ott_env_r: f32,
     air_lp_l: f32,
     air_lp_r: f32,
+    fx_mode: u8, // 0 = Canyon Chorus/Reverb, 1 = 6-Stage Stereo Phaser, 2 = Analog Tape Wow/Flutter
+    phaser_ap_l: [f32; 6],
+    phaser_ap_r: [f32; 6],
+    phaser_fb_l: f32,
+    phaser_fb_r: f32,
+    flutter_phase: f32,
     vital_fx_frames: u32,
 }
 
@@ -212,8 +218,25 @@ impl StereoFxRack {
             ott_env_r: 0.0,
             air_lp_l: 0.0,
             air_lp_r: 0.0,
+            fx_mode: 0,
+            phaser_ap_l: [0.0; 6],
+            phaser_ap_r: [0.0; 6],
+            phaser_fb_l: 0.0,
+            phaser_fb_r: 0.0,
+            flutter_phase: 0.0,
             vital_fx_frames: 0,
         }
+    }
+
+    /// Configura el modo de carácter del bus espacial (`0` = Canyon, `1` = 6-Stage Stereo Phaser, `2` = Analog Tape Flutter).
+    #[inline]
+    pub fn set_fx_mode(&mut self, mode: u8) {
+        self.fx_mode = mode.min(2);
+    }
+
+    #[inline]
+    pub fn fx_mode(&self) -> u8 {
+        self.fx_mode
     }
 
     /// Configura la saturación de tubo / distorsión armónica (`0.0..=1.0`) estilo Serum/Vital.
@@ -325,6 +348,11 @@ impl StereoFxRack {
             a.reset();
         }
         self.reverb_tail_energy = 0.0;
+        self.phaser_ap_l = [0.0; 6];
+        self.phaser_ap_r = [0.0; 6];
+        self.phaser_fb_l = 0.0;
+        self.phaser_fb_r = 0.0;
+        self.flutter_phase = 0.0;
     }
 
     #[inline(always)]
@@ -357,6 +385,7 @@ impl StereoFxRack {
             && self.current_drive <= 0.0005
             && self.ott_amount <= 0.0005
             && self.current_ott <= 0.0005
+            && self.fx_mode == 0
             && self.lp_state_l.abs() < 1.0e-6
             && self.lp_state_r.abs() < 1.0e-6
             && self.reverb_tail_energy < 1.0e-6
@@ -371,20 +400,22 @@ impl StereoFxRack {
             || self.current_drive > 0.001
             || self.ott_amount > 0.001
             || self.current_ott > 0.001
+            || self.fx_mode > 0
         {
             self.vital_fx_frames = self.vital_fx_frames.wrapping_add(frames as u32);
         }
 
         let sr = self.sample_rate.max(8000.0);
-        let lfo_inc = (2.0 * PI * 0.65) / sr; // 0.65 Hz Chorus LFO
+        let lfo_inc = (2.0 * PI * 0.65) / sr; // 0.65 Hz Chorus / Phaser LFO
+        let flutter_inc = (2.0 * PI * 5.4) / sr; // 5.4 Hz Analog Tape Flutter
         let base_chorus_samples = 0.012 * sr; // 12 ms centro
         let chorus_depth_samples = 0.0035 * sr; // ±3.5 ms modulación
 
         let (delay_l_ms, delay_r_ms) = self.delay_times_ms();
         let delay_l_samples = ((delay_l_ms * 0.001) * sr).clamp(64.0, (DELAY_BUF_LEN - 8) as f32);
         let delay_r_samples = ((delay_r_ms * 0.001) * sr).clamp(64.0, (DELAY_BUF_LEN - 8) as f32);
-        let feedback = 0.36_f32;
-        let damp = 0.35_f32; // Filtro paso-bajo cálido en las repeticiones
+        let feedback = if self.fx_mode == 2 { 0.44_f32 } else { 0.36_f32 };
+        let damp = if self.fx_mode == 2 { 0.62_f32 } else { 0.35_f32 }; // Filtro paso-bajo más cálido en modo Tape
 
         let rev_feedback = 0.84_f32; // Decaimiento acústico tipo Cañón de Tepui / Sala de Concierto
         let rev_damp = 0.28_f32;
@@ -394,7 +425,11 @@ impl StereoFxRack {
             self.current_mix += (self.target_mix - self.current_mix) * 0.005;
             self.current_drive += (self.drive_amount - self.current_drive) * 0.012;
             self.current_ott += (self.ott_amount - self.current_ott) * 0.012;
-            let mix = self.current_mix;
+            let mix = if self.fx_mode > 0 {
+                self.current_mix.max(0.28)
+            } else {
+                self.current_mix
+            };
 
             let mut dry_l = flush_denormal(left[i]);
             let mut dry_r = flush_denormal(right[i]);
@@ -429,31 +464,74 @@ impl StereoFxRack {
                 dry_r = ((dry_r * up_r + air_r) * (1.0 - ott * 0.15)).tanh();
             }
 
-            // 1. Chorus Analógico Estéreo en Cuadratura (L = sin, R = cos)
+            // 1. Chorus Analógico Estéreo en Cuadratura (L = sin, R = cos) + Modos Phaser 6-Etapas / Tape Flutter
             let mod_l = self.lfo_phase.sin();
             let mod_r = self.lfo_phase.cos();
             self.lfo_phase += lfo_inc;
             if self.lfo_phase >= 2.0 * PI {
                 self.lfo_phase -= 2.0 * PI;
             }
+            self.flutter_phase += flutter_inc;
+            if self.flutter_phase >= 2.0 * PI {
+                self.flutter_phase -= 2.0 * PI;
+            }
+            let flutter = self.flutter_phase.sin() * 0.32;
 
             let cw = self.chorus_write;
             self.chorus_buf_l[cw] = dry_l;
             self.chorus_buf_r[cw] = dry_r;
 
-            let ch_l = Self::read_ring_interpolated(
+            let tap_mod_l = if self.fx_mode == 2 {
+                (mod_l * 1.35 + flutter) * chorus_depth_samples
+            } else {
+                mod_l * chorus_depth_samples
+            };
+            let tap_mod_r = if self.fx_mode == 2 {
+                (mod_r * 1.35 - flutter) * chorus_depth_samples
+            } else {
+                mod_r * chorus_depth_samples
+            };
+
+            let mut ch_l = Self::read_ring_interpolated(
                 &self.chorus_buf_l,
                 CHORUS_MASK,
                 cw,
-                base_chorus_samples + mod_l * chorus_depth_samples,
+                base_chorus_samples + tap_mod_l,
             );
-            let ch_r = Self::read_ring_interpolated(
+            let mut ch_r = Self::read_ring_interpolated(
                 &self.chorus_buf_r,
                 CHORUS_MASK,
                 cw,
-                base_chorus_samples + mod_r * chorus_depth_samples,
+                base_chorus_samples + tap_mod_r,
             );
             self.chorus_write = (cw + 1) & CHORUS_MASK;
+
+            if self.fx_mode == 1 {
+                // Modo 1 (PHASER): Cascada All-Pass Estéreo de 6 Etapas con Realimentación Resonante
+                let coeff_l = (0.18 + 0.64 * (0.5 + 0.5 * mod_l)).clamp(0.10, 0.88);
+                let coeff_r = (0.18 + 0.64 * (0.5 + 0.5 * mod_r)).clamp(0.10, 0.88);
+                let mut x_l = dry_l + self.phaser_fb_l * 0.42;
+                let mut x_r = dry_r + self.phaser_fb_r * 0.42;
+                for st in 0..6 {
+                    let prev_l = self.phaser_ap_l[st];
+                    let y_l = flush_denormal(-coeff_l * x_l + prev_l);
+                    self.phaser_ap_l[st] = flush_denormal(x_l + coeff_l * y_l);
+                    x_l = y_l;
+
+                    let prev_r = self.phaser_ap_r[st];
+                    let y_r = flush_denormal(-coeff_r * x_r + prev_r);
+                    self.phaser_ap_r[st] = flush_denormal(x_r + coeff_r * y_r);
+                    x_r = y_r;
+                }
+                self.phaser_fb_l = x_l.clamp(-1.5, 1.5);
+                self.phaser_fb_r = x_r.clamp(-1.5, 1.5);
+                ch_l = ch_l * 0.35 + x_l * 0.85;
+                ch_r = ch_r * 0.35 + x_r * 0.85;
+            } else if self.fx_mode == 2 {
+                // Modo 2 (TAPE): Saturación Cálida de Cabezal Magnético + Wow/Flutter
+                ch_l = (ch_l * 1.45).tanh() * 0.88;
+                ch_r = (ch_r * 1.45).tanh() * 0.88;
+            }
 
             // 2. Space Cross-Delay Difuso con Damping Analógico
             let dw = self.delay_write;

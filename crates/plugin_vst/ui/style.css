@@ -6116,8 +6116,190 @@ body.skin-phosphor .sequencer.tepui-arp-sequencer {
 }
 
 .pads-and-chips-deck {
-  grid-template-columns: 1fr auto !important;
-  gap: 12px !important;
+  grid-template-columns: 1fr auto auto !important;
+  gap: 10px !important;
+  align-items: center !important;
+}
+
+/* =========================================================================
+   LIVE MODULATION RINGS ON ROTARY KNOBS & 2D VECTOR XY MACRO PAD
+   ========================================================================= */
+.knob-control .knob-mod-svg.knob-mod-ring-svg {
+  position: absolute;
+  inset: -4px;
+  width: calc(100% + 8px);
+  height: calc(100% + 8px);
+  pointer-events: none;
+  overflow: visible;
+  z-index: 3;
+  color: var(--color-cyan, #00ebff);
+}
+
+.knob-container.amber-accent .knob-control .knob-mod-svg.knob-mod-ring-svg {
+  color: var(--color-amber, #ffaa00);
+}
+
+.knob-container.green-accent .knob-control .knob-mod-svg.knob-mod-ring-svg {
+  color: var(--color-green, #10b981);
+}
+
+body.skin-minimal .knob-control .knob-mod-svg.knob-mod-ring-svg {
+  color: #e8452c;
+}
+body.skin-retro .knob-control .knob-mod-svg.knob-mod-ring-svg {
+  color: #c84b31;
+}
+body.skin-synth70 .knob-control .knob-mod-svg.knob-mod-ring-svg {
+  color: #ffb028;
+}
+body.skin-gunmetal .knob-control .knob-mod-svg.knob-mod-ring-svg {
+  color: #38bdf8;
+}
+body.skin-phosphor .knob-control .knob-mod-svg.knob-mod-ring-svg {
+  color: #6dff9c;
+}
+
+.tepui-xy-pad-shell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.xy-pad.tepui-xy-pad {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 6px;
+  border-radius: 5px;
+  background: var(--bg-module, rgba(11, 16, 25, 0.92));
+  border: 1px solid var(--border-module, rgba(148, 163, 184, 0.28));
+  color: var(--color-cyan, #00ebff);
+  user-select: none;
+}
+
+.xy-pad.tepui-xy-pad .xy-pad-control {
+  position: relative;
+  width: 84px;
+  height: 46px;
+  border-radius: 3px;
+  background:
+    linear-gradient(90deg, rgba(148, 163, 184, 0.12) 1px, transparent 1px) 0 0 / 21px 100%,
+    linear-gradient(0deg, rgba(148, 163, 184, 0.12) 1px, transparent 1px) 0 0 / 100% 23px,
+    var(--bg-oled, #05070b);
+  border: 1px solid var(--border-bezel, rgba(148, 163, 184, 0.35));
+  overflow: hidden;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.xy-pad.tepui-xy-pad .xy-pad-crosshair-x {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--xy-pad-x, 0%);
+  width: 1px;
+  background: color-mix(in oklab, currentColor 55%, transparent);
+  pointer-events: none;
+}
+
+.xy-pad.tepui-xy-pad .xy-pad-crosshair-y {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: var(--xy-pad-y, 100%);
+  height: 1px;
+  background: color-mix(in oklab, currentColor 55%, transparent);
+  pointer-events: none;
+}
+
+.xy-pad.tepui-xy-pad .xy-pad-thumb {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--bg-oled, #05070b);
+  border: 2px solid currentColor;
+  box-shadow: 0 0 6px color-mix(in oklab, currentColor 65%, transparent);
+  cursor: grab;
+}
+
+.xy-pad.tepui-xy-pad .xy-pad-thumb[data-dragging] {
+  background: currentColor;
+  cursor: grabbing;
+}
+
+.xy-pad.tepui-xy-pad .xy-pad-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 7.5px;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+}
+
+.xy-pad.tepui-xy-pad .xy-pad-label {
+  color: var(--text-med, #94a3b8);
+}
+
+.xy-pad.tepui-xy-pad .xy-pad-value {
+  color: var(--text-high, #f8fafc);
+  font-variant-numeric: tabular-nums;
+}
+
+body.skin-minimal .xy-pad.tepui-xy-pad {
+  background: #efede6;
+  border: 1px solid #17181a;
+  border-radius: 2px;
+  color: #e8452c;
+}
+body.skin-minimal .xy-pad.tepui-xy-pad .xy-pad-control {
+  background:
+    linear-gradient(90deg, rgba(23, 24, 26, 0.10) 1px, transparent 1px) 0 0 / 21px 100%,
+    linear-gradient(0deg, rgba(23, 24, 26, 0.10) 1px, transparent 1px) 0 0 / 100% 23px,
+    #faf9f5;
+  border: 1px solid #17181a;
+  border-radius: 1px;
+}
+body.skin-minimal .xy-pad.tepui-xy-pad .xy-pad-thumb {
+  background: #faf9f5;
+  border-color: #17181a;
+  box-shadow: none;
+}
+
+body.skin-retro .xy-pad.tepui-xy-pad {
+  background: #e5decb;
+  border: 1px solid #231f1c;
+  color: #c84b31;
+}
+body.skin-retro .xy-pad.tepui-xy-pad .xy-pad-control {
+  background:
+    linear-gradient(90deg, rgba(35, 31, 28, 0.10) 1px, transparent 1px) 0 0 / 21px 100%,
+    linear-gradient(0deg, rgba(35, 31, 28, 0.10) 1px, transparent 1px) 0 0 / 100% 23px,
+    #f3ede0;
+  border: 1px solid #231f1c;
+}
+
+body.skin-synth70 .xy-pad.tepui-xy-pad {
+  color: #ffb028;
+}
+body.skin-gunmetal .xy-pad.tepui-xy-pad {
+  color: #f59e0b;
+}
+body.skin-phosphor .xy-pad.tepui-xy-pad {
+  background: #040a05;
+  border: 1px solid #2f6d44;
+  border-radius: 0;
+  color: #6dff9c;
+}
+body.skin-phosphor .xy-pad.tepui-xy-pad .xy-pad-control {
+  border-radius: 0;
+  border-color: #2f6d44;
+  background: #020503;
 }
 
 .btn-cloud-credits {

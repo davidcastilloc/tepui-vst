@@ -1,11 +1,14 @@
 import React from "react";
 import { Pad } from "@audio-ui/react/pad";
+import { XYPad } from "@audio-ui/react/xypad";
 import { FOLKLORE_PADS, STUDIO_CHIPS } from "../types";
-import { synthStore, useSynthSnapshot } from "../state/synthStore";
+import { synthStore, useSynthParam, useSynthSnapshot } from "../state/synthStore";
 import { TepuiKnob } from "./TepuiKnob";
 
 export const TepuiPadsDeck: React.FC = () => {
   const snap = useSynthSnapshot();
+  const macro1 = useSynthParam("macro1");
+  const macro2 = useSynthParam("macro2");
 
   return (
     <section className="pads-and-chips-deck">
@@ -91,6 +94,58 @@ export const TepuiPadsDeck: React.FC = () => {
           initialDisplay="0 %"
           className="macro-knob"
         />
+      </div>
+
+      <div
+        className="tepui-xy-pad-shell"
+        title="Pad Vectorial 2D (@audio-ui/react/xypad) — Eje X: M1 TIMBRE • Eje Y: M2 WARP"
+      >
+        <XYPad.Root
+          id="xy-macro-pad"
+          className="xy-pad tepui-xy-pad"
+          minX={0}
+          maxX={1}
+          stepX={0.01}
+          minY={0}
+          maxY={1}
+          stepY={0.01}
+          value={{ x: macro1, y: macro2 }}
+          defaultValue={{ x: 0.0, y: 0.0 }}
+          aria-label="Vector XY Morph Pad (Timbre X / Warp Y)"
+          format={{ maximumFractionDigits: 2 }}
+          onValueChange={({ x, y }) => {
+            const nx = Math.max(0, Math.min(1, Number(x) || 0));
+            const ny = Math.max(0, Math.min(1, Number(y) || 0));
+            synthStore.setParamNormalized("macro1", nx);
+            synthStore.setParamNormalized("macro2", ny);
+            window.__tepuiOnParamChange?.("macro1", nx, null);
+            window.__tepuiOnParamChange?.("macro2", ny, null);
+          }}
+          onValueCommitted={({ x, y }) => {
+            const nx = Math.max(0, Math.min(1, Number(x) || 0));
+            const ny = Math.max(0, Math.min(1, Number(y) || 0));
+            window.__tepuiOnParamCommit?.("macro1", nx);
+            window.__tepuiOnParamCommit?.("macro2", ny);
+          }}
+        >
+          <XYPad.Control className="xy-pad-control">
+            <span className="xy-pad-crosshair-x" aria-hidden="true" />
+            <span className="xy-pad-crosshair-y" aria-hidden="true" />
+            <XYPad.Thumb
+              className="xy-pad-thumb"
+              aria-label="Vector Morph Cursor"
+              getAriaLabel={(axis) => (axis === "x" ? "M1 Timbre" : "M2 Warp")}
+            />
+          </XYPad.Control>
+          <div className="xy-pad-footer">
+            <XYPad.Label className="xy-pad-label">XY MORPH</XYPad.Label>
+            <XYPad.Value className="xy-pad-value">
+              {(_fx, _fy, pt) =>
+                `${Math.round(pt.x * 100)}/${Math.round(pt.y * 100)}%`
+              }
+            </XYPad.Value>
+          </div>
+        </XYPad.Root>
       </div>
 
       <div className="studio-chips-bay">

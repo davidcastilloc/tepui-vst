@@ -104,6 +104,7 @@ pub struct Voice {
     // Motor Wavetable 3D + Super-Unison + Sub-Oscillator + OSC B (FM A<-B) + Custom Drawn Wavetable estilo Vital / Serum (0 asignaciones)
     pub wt_pos: f32,
     pub wt_warp: f32,
+    pub wt_warp_mode: u8, // 0 = Fold, 1 = Asym Bend, 2 = Hard Sync, 3 = Bit Quantize
     pub unison_voices: u8,
     pub unison_detune: f32,
     pub sub_level: f32,
@@ -149,6 +150,7 @@ impl Voice {
             grain_phases: [0.0, 0.25, 0.50, 0.75],
             wt_pos: 0.0,
             wt_warp: 0.0,
+            wt_warp_mode: 0,
             unison_voices: 1,
             unison_detune: 0.20,
             sub_level: 0.0,
@@ -467,6 +469,7 @@ impl Voice {
         if self.custom_wt_active
             || eff_wt_pos > 0.001
             || self.wt_warp > 0.001
+            || self.wt_warp_mode > 0
             || u_voices > 1
             || self.sub_level > 0.001
             || fm_amt > 0.001
@@ -603,14 +606,61 @@ impl Voice {
                 sig_right += sub_wave;
             }
 
-            // 3. Spectral Warp / Wavefold (Bend +/- & Wavefolder estilo Serum/Vital)
-            if self.wt_warp > 0.001 {
-                let w = self.wt_warp.clamp(0.0, 1.0);
-                let fold_drive = 1.0 + w * 2.8;
-                let folded_l = (sig_left * fold_drive).sin();
-                let folded_r = (sig_right * fold_drive).sin();
-                sig_left = sig_left * (1.0 - w * 0.65) + folded_l * (w * 0.65);
-                sig_right = sig_right * (1.0 - w * 0.65) + folded_r * (w * 0.65);
+            // 3. Spectral Warp Multi-Modo (0 = Wavefold, 1 = Asym Bend, 2 = Hard Sync, 3 = Bit Quantize)
+            let eff_warp = if self.wt_warp_mode > 0 {
+                self.wt_warp.max(0.38).clamp(0.0, 1.0)
+            } else {
+                self.wt_warp.clamp(0.0, 1.0)
+            };
+            if eff_warp > 0.001 {
+                let w = eff_warp;
+                match self.wt_warp_mode {
+                    1 => {
+                        // Modo 1 (ASYM): Saturación/Pinzamiento Asimétrico con armónicos pares
+                        let drive = 1.0 + w * 3.4;
+                        let asym_l = if sig_left >= 0.0 {
+                            (sig_left * drive).tanh()
+                        } else {
+                            (sig_left * (drive * 0.45)).sin() * 1.15
+                        };
+                        let asym_r = if sig_right >= 0.0 {
+                            (sig_right * drive).tanh()
+                        } else {
+                            (sig_right * (drive * 0.45)).sin() * 1.15
+                        };
+                        sig_left = sig_left * (1.0 - w * 0.72) + asym_l * (w * 0.72);
+                        sig_right = sig_right * (1.0 - w * 0.72) + asym_r * (w * 0.72);
+                    }
+                    2 => {
+                        // Modo 2 (SYNC): Bloqueo Armónico Hard-Sync Virtual
+                        let sync_ratio = 1.5 + w * 4.5;
+                        let sync_ph = ((self.playback_pos as f32 * 0.025 * sync_ratio)
+                            + self.unison_phases[0] * sync_ratio)
+                            .fract();
+                        let sync_carrier =
+                            (sync_ph * std::f32::consts::TAU).sin() * (1.0 - sync_ph * 0.65);
+                        let synced_l = (sig_left * (1.0 + w * 1.8) + sync_carrier * 0.75).tanh();
+                        let synced_r = (sig_right * (1.0 + w * 1.8) - sync_carrier * 0.75).tanh();
+                        sig_left = sig_left * (1.0 - w * 0.70) + synced_l * (w * 0.70);
+                        sig_right = sig_right * (1.0 - w * 0.70) + synced_r * (w * 0.70);
+                    }
+                    3 => {
+                        // Modo 3 (QUANT): Cuantizador Espectral Staircase / Bit-Crush Musical
+                        let steps = (18.0 - w * 14.0).max(3.0);
+                        let quant_l = (sig_left * steps).round() / steps;
+                        let quant_r = (sig_right * steps).round() / steps;
+                        sig_left = sig_left * (1.0 - w * 0.75) + quant_l * (w * 0.75);
+                        sig_right = sig_right * (1.0 - w * 0.75) + quant_r * (w * 0.75);
+                    }
+                    _ => {
+                        // Modo 0 (FOLD): Wavefolder Sinusoidal Clásico Serum/Vital
+                        let fold_drive = 1.0 + w * 2.8;
+                        let folded_l = (sig_left * fold_drive).sin();
+                        let folded_r = (sig_right * fold_drive).sin();
+                        sig_left = sig_left * (1.0 - w * 0.65) + folded_l * (w * 0.65);
+                        sig_right = sig_right * (1.0 - w * 0.65) + folded_r * (w * 0.65);
+                    }
+                }
             }
         }
 

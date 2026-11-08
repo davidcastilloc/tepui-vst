@@ -73,6 +73,7 @@ pub struct VoiceManager {
     // Motor Vital / Serum: Wavetable 3D + Super-Unison + Sub-Oscillator + OSC B (FM A<-B) + 4 Macros + LFO Shape + Custom Drawn WT
     wt_pos: f32,
     wt_warp: f32,
+    wt_warp_mode: u8,
     unison_voices: u8,
     unison_detune: f32,
     sub_level: f32,
@@ -154,6 +155,7 @@ impl VoiceManager {
             advanced_filter_frames: 0,
             wt_pos: 0.0,
             wt_warp: 0.0,
+            wt_warp_mode: 0,
             unison_voices: 1,
             unison_detune: 0.20,
             sub_level: 0.0,
@@ -292,12 +294,28 @@ impl VoiceManager {
         for voice in &mut self.voices {
             voice.wt_pos = cur_wt_pos;
             voice.wt_warp = cur_wt_warp;
+            voice.wt_warp_mode = self.wt_warp_mode;
             voice.unison_voices = eff_unison_voices;
             voice.unison_detune = eff_detune;
             voice.sub_level = eff_sub;
             voice.fm_from_b = eff_fm;
             voice.osc_b_level = self.osc_b_level;
         }
+    }
+
+    /// Configura el algoritmo de deformación espectral (`0` = Wavefold, `1` = Asym Bend, `2` = Hard Sync, `3` = Bit Quantize).
+    #[inline]
+    pub fn set_wt_warp_mode(&mut self, mode: u8) {
+        let m = mode.min(3);
+        self.wt_warp_mode = m;
+        for voice in &mut self.voices {
+            voice.wt_warp_mode = m;
+        }
+    }
+
+    #[inline]
+    pub fn wt_warp_mode(&self) -> u8 {
+        self.wt_warp_mode
     }
 
     /// Configura el segundo oscilador independiente (`OSC B`) y la modulación cruzada `FM A <- B` / `Ring Mod` (`0.0..=1.0`).
@@ -447,6 +465,38 @@ impl VoiceManager {
     #[inline]
     pub fn set_arp_step_accents(&mut self, accents: &[f32; 16], active: bool) {
         self.arp.set_step_accents(accents, active);
+    }
+
+    /// Configura la subdivisión Ratchet (`1..=4`) de un paso individual (`0..16`) del arpegiador.
+    #[inline]
+    pub fn set_arp_step_ratchet(&mut self, step_idx: usize, repeats: u8) {
+        self.arp.set_step_ratchet(step_idx, repeats);
+    }
+
+    /// Sincroniza la tabla de 16 Ratchets (`1..=4`) cuando la edición por paso está activa.
+    #[inline]
+    pub fn set_arp_step_ratchets(&mut self, ratchets: &[u8; 16], active: bool) {
+        if active {
+            for (idx, &r) in ratchets.iter().enumerate() {
+                self.arp.set_step_ratchet(idx, r.clamp(1, 4));
+            }
+        }
+    }
+
+    /// Configura el desplazamiento de octava (`-2..=2`) de un paso individual (`0..16`) del arpegiador.
+    #[inline]
+    pub fn set_arp_step_octave(&mut self, step_idx: usize, octave_offset: i8) {
+        self.arp.set_step_octave(step_idx, octave_offset);
+    }
+
+    /// Sincroniza la tabla de 16 desplazamientos de octava (`-2..=2`) cuando la edición por paso está activa.
+    #[inline]
+    pub fn set_arp_step_octaves(&mut self, octaves: &[i8; 16], active: bool) {
+        if active {
+            for (idx, &oct) in octaves.iter().enumerate() {
+                self.arp.set_step_octave(idx, oct.clamp(-2, 2));
+            }
+        }
     }
 
     /// Actualiza en vivo la velocidad base de las notas retenidas en el arpegiador y de las voces activas.
@@ -1126,6 +1176,7 @@ impl VoiceManager {
             voice.region_override = self.region_override;
             voice.wt_pos = (self.wt_pos + self.macros[0] * 0.55).clamp(0.0, 1.0);
             voice.wt_warp = (self.wt_warp + self.macros[1] * 0.70).clamp(0.0, 1.0);
+            voice.wt_warp_mode = self.wt_warp_mode;
             voice.unison_voices = if self.macros[2] > 0.15 && self.unison_voices < 4 {
                 4
             } else {
@@ -1478,6 +1529,7 @@ impl VoiceManager {
                 if voice.custom_wt_active
                     || voice.wt_pos > 0.001
                     || voice.wt_warp > 0.001
+                    || voice.wt_warp_mode > 0
                     || voice.unison_voices > 1
                     || voice.sub_level > 0.001
                     || voice.fm_from_b > 0.001

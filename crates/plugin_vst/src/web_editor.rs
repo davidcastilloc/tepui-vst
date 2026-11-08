@@ -125,6 +125,10 @@ struct ParamValues {
     arp_rate_div: u8,
     arp_step_count: u8,
     granular_mode: u8,
+    wt_warp_mode: u8,
+    fx_mode: u8,
+    arp_step_ratchets: [u8; 16],
+    arp_step_octaves: [i8; 16],
     midi_cc_map: Vec<(u8, i32)>,
 }
 
@@ -875,6 +879,10 @@ pub fn build_init_state_json(
             arp_rate_div: live_params.get_arp_rate_div(),
             arp_step_count: live_params.get_arp_step_count(),
             granular_mode: live_params.get_granular_mode(),
+            wt_warp_mode: live_params.get_wt_warp_mode(),
+            fx_mode: live_params.get_fx_mode(),
+            arp_step_ratchets: live_params.get_arp_step_ratchets(),
+            arp_step_octaves: live_params.get_arp_step_octaves(),
             midi_cc_map: live_params.export_midi_cc_map(),
         },
         normalized: ParamNormalized {
@@ -968,6 +976,10 @@ pub fn build_telemetry_json(
             arp_rate_div: live_params.get_arp_rate_div(),
             arp_step_count: live_params.get_arp_step_count(),
             granular_mode: live_params.get_granular_mode(),
+            wt_warp_mode: live_params.get_wt_warp_mode(),
+            fx_mode: live_params.get_fx_mode(),
+            arp_step_ratchets: live_params.get_arp_step_ratchets(),
+            arp_step_octaves: live_params.get_arp_step_octaves(),
             midi_cc_map: live_params.export_midi_cc_map(),
         },
         normalized: ParamNormalized {
@@ -2015,6 +2027,74 @@ pub(crate) fn handle_native_ipc_message(
             live_params.bump_gui_param_sync();
             live_params.bump_revision();
             return;
+        }
+    }
+
+    // 4a-wtwarpmode. Ultra-fast compact path: "wtwarpmode,<0..3>" (Spectral Warp Algorithm: Fold / Asym / Sync / Quant)
+    let wtwarpmode_rest = trimmed
+        .strip_prefix("wtwarpmode,")
+        .or_else(|| trimmed.strip_prefix("wtwarpmode:"));
+    if let Some(rest) = wtwarpmode_rest {
+        if let Ok(mode) = rest.trim().parse::<u8>() {
+            let m = mode.min(3);
+            live_params.set_wt_warp_mode(m);
+            if m > 0 && live_params.get_wt_warp() < 0.05 {
+                live_params.set_wt_warp(0.38);
+            }
+            live_params.bump_gui_param_sync();
+            live_params.bump_revision();
+            return;
+        }
+    }
+
+    // 4a-fxmode. Ultra-fast compact path: "fxmode,<0..2>" (Master Bus FX Character: Canyon / 6-Stage Phaser / Analog Tape)
+    let fxmode_rest = trimmed
+        .strip_prefix("fxmode,")
+        .or_else(|| trimmed.strip_prefix("fxmode:"));
+    if let Some(rest) = fxmode_rest {
+        if let Ok(mode) = rest.trim().parse::<u8>() {
+            let m = mode.min(2);
+            live_params.set_fx_mode(m);
+            if m > 0 && live_params.get_space_mix() < 0.05 {
+                live_params.set_space_mix(0.32);
+            }
+            live_params.bump_gui_param_sync();
+            live_params.bump_revision();
+            return;
+        }
+    }
+
+    // 4a-arpratchet. Ultra-fast compact path: "arpratchet,<idx>,<1..4>" (Arp Step Ratchet Subdivision)
+    let arpratchet_rest = trimmed
+        .strip_prefix("arpratchet,")
+        .or_else(|| trimmed.strip_prefix("arpratchet:"));
+    if let Some(rest) = arpratchet_rest {
+        let mut parts = rest.split(',');
+        if let (Some(s_idx), Some(s_rep)) = (parts.next(), parts.next()) {
+            if let (Ok(idx), Ok(rep)) = (s_idx.trim().parse::<usize>(), s_rep.trim().parse::<u8>())
+            {
+                live_params.set_arp_step_ratchet(idx.min(15), rep.clamp(1, 4));
+                live_params.bump_gui_param_sync();
+                live_params.bump_revision();
+                return;
+            }
+        }
+    }
+
+    // 4a-arpoct. Ultra-fast compact path: "arpoct,<idx>,<-2..2>" (Arp Step Octave Offset)
+    let arpoct_rest = trimmed
+        .strip_prefix("arpoct,")
+        .or_else(|| trimmed.strip_prefix("arpoct:"));
+    if let Some(rest) = arpoct_rest {
+        let mut parts = rest.split(',');
+        if let (Some(s_idx), Some(s_oct)) = (parts.next(), parts.next()) {
+            if let (Ok(idx), Ok(oct)) = (s_idx.trim().parse::<usize>(), s_oct.trim().parse::<i8>())
+            {
+                live_params.set_arp_step_octave(idx.min(15), oct.clamp(-2, 2));
+                live_params.bump_gui_param_sync();
+                live_params.bump_revision();
+                return;
+            }
         }
     }
 

@@ -71,6 +71,7 @@ pub enum SynthControlId {
     BtnWavToWt,
     BtnWtDrawToggle,
     BtnWt3dToggle,
+    BtnWtWarpMode,
     BtnGranularMode,
     BtnDragWav,
     BtnUnisonVoices,
@@ -121,6 +122,7 @@ pub enum SynthControlId {
 
     // --- MÓDULO 6: OTT, DRIVE, CANYON REVERB & MASTER RECORDER ---
     OledReverbFx,
+    BtnFxBusMode,
     KnobDrive,
     KnobOtt,
     KnobSpaceMix,
@@ -157,6 +159,7 @@ impl SynthControlId {
         Self::BtnWavToWt,
         Self::BtnWtDrawToggle,
         Self::BtnWt3dToggle,
+        Self::BtnWtWarpMode,
         Self::BtnGranularMode,
         Self::BtnDragWav,
         Self::BtnUnisonVoices,
@@ -197,6 +200,7 @@ impl SynthControlId {
         Self::BtnArpSeqSteps,
         Self::GroupArpModeButtons,
         Self::OledReverbFx,
+        Self::BtnFxBusMode,
         Self::KnobDrive,
         Self::KnobOtt,
         Self::KnobSpaceMix,
@@ -279,6 +283,12 @@ impl SynthControlId {
                 dom_token: "btn-wt3d-toggle",
                 ipc_prefix: "wt3d,",
                 stimulus_ipc: "wt3d,1",
+                impact: DspImpactProof::WaveformMutates,
+            },
+            Self::BtnWtWarpMode => SynthControlSpec {
+                dom_token: "btn-wt-warp-mode",
+                ipc_prefix: "wtwarpmode,",
+                stimulus_ipc: "wtwarpmode,2",
                 impact: DspImpactProof::WaveformMutates,
             },
             Self::BtnGranularMode => SynthControlSpec {
@@ -531,6 +541,12 @@ impl SynthControlId {
                 stimulus_ipc: "p,space_mix,0.75",
                 impact: DspImpactProof::WaveformMutates,
             },
+            Self::BtnFxBusMode => SynthControlSpec {
+                dom_token: "btn-fx-bus-mode",
+                ipc_prefix: "fxmode,",
+                stimulus_ipc: "fxmode,1",
+                impact: DspImpactProof::WaveformMutates,
+            },
             Self::KnobDrive => SynthControlSpec {
                 dom_token: "drive",
                 ipc_prefix: "p,",
@@ -673,6 +689,7 @@ pub const SHELL_VIEW_BUTTON_IDS: &[&str] = &[
     "btn-preset-audition",
     "btn-close-browser",
     "btn-svf-fft-toggle",
+    "btn-arp-lane",
     "btn-close-settings",
     "settings-tab-audio",
     "settings-tab-ai",
@@ -753,11 +770,19 @@ pub const CANONICAL_IPC_PREFIXES: &[&str] = &[
     "envcrv:",
     "gran,",
     "gran:",
+    "wtwarpmode,",
+    "wtwarpmode:",
+    "fxmode,",
+    "fxmode:",
     "midi_learn:",
     "midi_learn,",
     "drag_wav_export",
     "arpstep,",
     "arpstep:",
+    "arpratchet,",
+    "arpratchet:",
+    "arpoct,",
+    "arpoct:",
     "arpsteps,",
     "arpsteps:",
     "vel,",
@@ -838,12 +863,22 @@ pub enum IpcCommand {
     },
     SetEnvCurve(f32),
     SetGranularMode(u8),
+    SetWtWarpMode(u8),
+    SetFxMode(u8),
     ArmMidiLearn(String),
     DragWavExport,
     SetArpSteps(Vec<f32>),
     SetArpStep {
         index: usize,
         accent: f32,
+    },
+    SetArpStepRatchet {
+        index: usize,
+        repeats: u8,
+    },
+    SetArpStepOctave {
+        index: usize,
+        octave: i8,
     },
     SetVelocity(f32),
     SetWt3d(bool),
@@ -998,6 +1033,22 @@ impl IpcCommand {
                 return Some(Self::SetGranularMode(v.min(2)));
             }
         }
+        if let Some(rest) = trimmed
+            .strip_prefix("wtwarpmode,")
+            .or_else(|| trimmed.strip_prefix("wtwarpmode:"))
+        {
+            if let Ok(v) = rest.trim().parse::<u8>() {
+                return Some(Self::SetWtWarpMode(v.min(3)));
+            }
+        }
+        if let Some(rest) = trimmed
+            .strip_prefix("fxmode,")
+            .or_else(|| trimmed.strip_prefix("fxmode:"))
+        {
+            if let Ok(v) = rest.trim().parse::<u8>() {
+                return Some(Self::SetFxMode(v.min(2)));
+            }
+        }
         if let Some(rest) = trimmed.strip_prefix("wtdraw:") {
             let cmd = rest.trim();
             if cmd.eq_ignore_ascii_case("from_sample") {
@@ -1149,6 +1200,34 @@ impl IpcCommand {
                     return Some(Self::SetArpStep {
                         index: idx.min(15),
                         accent: acc.clamp(0.05, 1.0),
+                    });
+                }
+            }
+        }
+        if let Some(rest) = trimmed
+            .strip_prefix("arpratchet,")
+            .or_else(|| trimmed.strip_prefix("arpratchet:"))
+        {
+            let mut parts = rest.split(',');
+            if let (Some(si), Some(sr)) = (parts.next(), parts.next()) {
+                if let (Ok(idx), Ok(rep)) = (si.trim().parse::<usize>(), sr.trim().parse::<u8>()) {
+                    return Some(Self::SetArpStepRatchet {
+                        index: idx.min(15),
+                        repeats: rep.clamp(1, 4),
+                    });
+                }
+            }
+        }
+        if let Some(rest) = trimmed
+            .strip_prefix("arpoct,")
+            .or_else(|| trimmed.strip_prefix("arpoct:"))
+        {
+            let mut parts = rest.split(',');
+            if let (Some(si), Some(so)) = (parts.next(), parts.next()) {
+                if let (Ok(idx), Ok(oct)) = (si.trim().parse::<usize>(), so.trim().parse::<i8>()) {
+                    return Some(Self::SetArpStepOctave {
+                        index: idx.min(15),
+                        octave: oct.clamp(-2, 2),
                     });
                 }
             }
@@ -2342,6 +2421,166 @@ mod tests {
         let skin_cfg: crate::audio_devices::StandaloneAudioConfig =
             serde_json::from_str(skin_cfg_json).expect("StandaloneAudioConfig with ui_skin must deserialize");
         assert_eq!(skin_cfg.ui_skin.as_deref(), Some("minimal"));
+    }
+
+    #[test]
+    fn test_v1_19_warp_modes_fx_modes_arp_ratchet_oct_lanes_and_xy_mod_rings_contract() {
+        let sr = 48000.0_f32;
+        let samples: Vec<f32> = (0..12000)
+            .map(|i| {
+                let t = i as f32 / sr;
+                let w = std::f32::consts::TAU * 220.0 * t;
+                (0.55 * w.sin() + 0.25 * (w * 2.0).sin() + 0.15 * (w * 3.0).sin()) * 0.7
+            })
+            .collect();
+        let mut sample_buf = SampleBuffer::new_mono(samples, sr, 60);
+        sample_buf.loop_enabled = true;
+        sample_buf.loop_start = 480;
+        sample_buf.loop_end = 9600;
+
+        let (gui_midi_tx, _gui_midi_rx) = crossbeam_channel::bounded(64);
+        let live_params = Arc::new(LiveParamStore::default());
+        let ai_worker = Arc::new(AiWorker::new(sr));
+        let sample_rate = Arc::new(AtomicU32::new(sr.to_bits()));
+        let params = Arc::new(SamplerParams::new_linked(
+            live_params.clone(),
+            Some(ai_worker.clone()),
+            Some(sample_rate.clone()),
+        ));
+
+        // 1. Verificar que los 4 algoritmos de Spectral Warp (0=FOLD, 1=ASYM, 2=SYNC, 3=QUANT) producen formas de onda distintas
+        live_params.set_wt_pos(0.55);
+        live_params.set_wt_warp(0.65);
+        let mut warp_renders: Vec<Vec<f32>> = Vec::with_capacity(4);
+        for mode in 0..=3u8 {
+            handle_native_ipc_message(
+                &format!("wtwarpmode,{}", mode),
+                &gui_midi_tx,
+                &params,
+                &live_params,
+                &ai_worker,
+                &sample_rate,
+                &None,
+            );
+            assert_eq!(live_params.get_wt_warp_mode(), mode);
+            let mut vm = VoiceManager::new(sr, 16);
+            let mut fx = StereoFxRack::new(sr);
+            let mut rev = 0u32;
+            live_params.project_to_dsp(&mut vm, &mut fx, Some(120.0), &sample_buf, &mut rev);
+            vm.note_on(60, 0.9, &sample_buf);
+            let mut l = vec![0.0_f32; 512];
+            let mut r = vec![0.0_f32; 512];
+            vm.process_block(&sample_buf, &mut l, &mut r);
+            warp_renders.push(l);
+        }
+        for i in 0..4 {
+            for j in (i + 1)..4 {
+                let diff: f32 = warp_renders[i]
+                    .iter()
+                    .zip(warp_renders[j].iter())
+                    .map(|(a, b)| (a - b).abs())
+                    .sum();
+                assert!(
+                    diff > 0.05,
+                    "Los modos de Spectral Warp {} y {} deben generar espectros distintos (diff={})",
+                    i,
+                    j,
+                    diff
+                );
+            }
+        }
+
+        // 2. Verificar que los 3 modos de Master Bus FX (0=CANYON, 1=PHASER, 2=TAPE) producen salidas estéreo distintas
+        live_params.set_space_mix(0.65);
+        let mut fx_renders: Vec<Vec<f32>> = Vec::with_capacity(3);
+        for mode in 0..=2u8 {
+            handle_native_ipc_message(
+                &format!("fxmode,{}", mode),
+                &gui_midi_tx,
+                &params,
+                &live_params,
+                &ai_worker,
+                &sample_rate,
+                &None,
+            );
+            assert_eq!(live_params.get_fx_mode(), mode);
+            let mut vm = VoiceManager::new(sr, 16);
+            let mut fx = StereoFxRack::new(sr);
+            let mut rev = 0u32;
+            live_params.project_to_dsp(&mut vm, &mut fx, Some(120.0), &sample_buf, &mut rev);
+            vm.note_on(60, 0.9, &sample_buf);
+            let mut l = vec![0.0_f32; 1024];
+            let mut r = vec![0.0_f32; 1024];
+            vm.process_block(&sample_buf, &mut l, &mut r);
+            fx.process_block(&mut l, &mut r);
+            fx_renders.push(l);
+        }
+        for i in 0..3 {
+            for j in (i + 1)..3 {
+                let diff: f32 = fx_renders[i]
+                    .iter()
+                    .zip(fx_renders[j].iter())
+                    .map(|(a, b)| (a - b).abs())
+                    .sum();
+                assert!(
+                    diff > 0.05,
+                    "Los modos de Master Bus FX {} y {} deben producir salidas distintas (diff={})",
+                    i,
+                    j,
+                    diff
+                );
+            }
+        }
+
+        // 3. Verificar carriles de arpegiador por paso: Ratchet (1x..4x) y Octave (-1..+1) + persistencia TepuiPatch
+        handle_native_ipc_message(
+            "arpratchet,0,3",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        handle_native_ipc_message(
+            "arpoct,2,-1",
+            &gui_midi_tx,
+            &params,
+            &live_params,
+            &ai_worker,
+            &sample_rate,
+            &None,
+        );
+        assert_eq!(live_params.get_arp_step_ratchets()[0], 3);
+        assert_eq!(live_params.get_arp_step_octaves()[2], -1);
+
+        let patch = crate::params::TepuiPatch::export_from_live(&live_params, &ai_worker);
+        assert_eq!(patch.wt_warp_mode, 3);
+        assert_eq!(patch.fx_mode, 2);
+        assert_eq!(patch.arp_step_ratchets[0], 3);
+        assert_eq!(patch.arp_step_octaves[2], -1);
+
+        // 4. Verificar que el bundle UI incluye XY Macro Pad y anillos de modulación en vivo
+        let js = include_str!("../ui/app.js");
+        let css = include_str!("../ui/style.css");
+        for token in [
+            "xy-macro-pad",
+            "knob-mod-span",
+            "knob-mod-track",
+            "btn-wt-warp-mode",
+            "btn-fx-bus-mode",
+            "btn-arp-lane",
+        ] {
+            assert!(
+                js.contains(token),
+                "app.js debe incluir el componente v1.19 '{}'",
+                token
+            );
+        }
+        assert!(
+            css.contains(".xy-pad.tepui-xy-pad") && css.contains(".knob-mod-ring-svg"),
+            "style.css debe estilizar el XY Macro Pad y los anillos de modulación en vivo"
+        );
     }
 }
 

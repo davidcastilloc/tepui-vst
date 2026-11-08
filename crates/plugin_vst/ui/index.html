@@ -183,6 +183,7 @@
             <button id="btn-wav-to-wt" class="oled-pill-btn green" title="Resintetizar ciclo armónico de 64 puntos desde la muestra activa (Vital/Serum Audio-to-Wavetable)" type="button">WAV→WT</button>
             <button id="btn-wtdraw-toggle" class="oled-pill-btn cyan" title="Dibujar tu propia tabla de ondas con el mouse sobre el OLED (Doble clic para limpiar)" type="button">WT DRAW</button>
             <button id="btn-wt3d-toggle" class="oled-pill-btn amber active" title="Alternar vista 3D Wavetable / Osciloscopio 2D" type="button">3D WT</button>
+            <button id="btn-wt-warp-mode" class="oled-pill-btn amber" title="Ciclar Algoritmo de Spectral Warp (FOLD / ASYM / SYNC / QUANT)" type="button">WARP:FOLD</button>
             <button id="btn-granular-mode" class="oled-pill-btn cyan" title="Motor Granular &amp; Time-Stretch (OFF / CLOUD 4-GRAIN HANN / FREEZE)" type="button">GRAN:OFF</button>
             <button id="btn-drag-wav" class="oled-pill-btn amber" draggable="true" title="Arrastra o haz clic para exportar clip WAV renderizado directo a la pista del DAW" type="button">DRAG WAV ↗</button>
             <button id="btn-unison-voices" class="oled-pill-btn green" title="Voces de Super-Unison Estéreo (1V..8V)" type="button">UNI:1V</button>
@@ -405,6 +406,7 @@
           <div class="mod-header-pills">
             <button id="btn-arp-rate" class="oled-pill-btn cyan" title="Sincronización Rítmica al Transporte del DAW (1/4, 1/8, 1/16, 1/8T Tresillo, 1/16D Puntillo)" type="button">RATE:1/16</button>
             <button id="btn-arp-steps" class="oled-pill-btn green" title="Alternar Secuenciador de 12 Pasos (6/8) o 16 Pasos con Ratchet Sub-Repeats" type="button">16 STEPS</button>
+            <button id="btn-arp-lane" class="oled-pill-btn cyan" title="Alternar Carril del Secuenciador por Paso (LANE:VEL / LANE:RATCH 1x..4x / LANE:OCT ±1)" type="button">LANE:VEL</button>
             <button id="btn-arp-mode" class="oled-pill-btn amber" title="Ciclar modo del Arpegiador Polifónico" type="button">ARP: OFF</button>
           </div>
         </div>
@@ -433,7 +435,10 @@
         <i class="hex-screw tl"></i><i class="hex-screw tr"></i><i class="hex-screw bl"></i><i class="hex-screw br"></i>
         <div class="mod-header">
           <span class="mod-title">OTT, DRIVE &amp; CANYON</span>
-          <span class="mod-sub-tag cyan">MASTER FX BUS</span>
+          <div class="mod-header-pills">
+            <button id="btn-fx-bus-mode" class="oled-pill-btn cyan" title="Ciclar Modo del Bus Espacial FX (CANYON / PHASER 6-STG / TAPE WOW)" type="button">FX:CANYON</button>
+            <span class="mod-sub-tag cyan">MASTER FX BUS</span>
+          </div>
         </div>
 
         <div class="reverb-oled-and-vu">

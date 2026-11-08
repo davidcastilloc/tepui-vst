@@ -779,7 +779,7 @@
   var require_react_dom_production = __commonJS({
     "node_modules/react-dom/cjs/react-dom.production.js"(exports) {
       "use strict";
-      var React18 = require_react();
+      var React19 = require_react();
       function formatProdErrorMessage(code) {
         var url = "https://react.dev/errors/" + code;
         if (1 < arguments.length) {
@@ -821,7 +821,7 @@
           implementation
         };
       }
-      var ReactSharedInternals = React18.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
+      var ReactSharedInternals = React19.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
       function getCrossOriginStringAs(as, input) {
         if ("font" === as) return "";
         if ("string" === typeof input)
@@ -963,7 +963,7 @@
     "node_modules/react-dom/cjs/react-dom-client.production.js"(exports) {
       "use strict";
       var Scheduler = require_scheduler();
-      var React18 = require_react();
+      var React19 = require_react();
       var ReactDOM = require_react_dom();
       function formatProdErrorMessage(code) {
         var url = "https://react.dev/errors/" + code;
@@ -1256,7 +1256,7 @@
         return null;
       }
       var isArrayImpl = Array.isArray;
-      var ReactSharedInternals = React18.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
+      var ReactSharedInternals = React19.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
       var ReactDOMSharedInternals = ReactDOM.__DOM_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
       var sharedNotPendingObject = {
         pending: false,
@@ -4536,7 +4536,7 @@
         null === (null === workInProgressHook ? index2.memoizedState : workInProgressHook.next) && (index2 = index2.alternate, ReactSharedInternals.H = null === index2 || null === index2.memoizedState ? HooksDispatcherOnMount : HooksDispatcherOnUpdate);
         return thenable;
       }
-      function use16(usable) {
+      function use17(usable) {
         if (null !== usable && "object" === typeof usable) {
           if ("function" === typeof usable.then) return useThenable(usable);
           if (usable.$$typeof === REACT_RECOVERABLE_TYPE) return;
@@ -5303,7 +5303,7 @@
       }
       var ContextOnlyDispatcher = {
         readContext,
-        use: use16,
+        use: use17,
         useCallback: throwInvalidHookError,
         useContext: throwInvalidHookError,
         useEffect: throwInvalidHookError,
@@ -5329,7 +5329,7 @@
       };
       var HooksDispatcherOnMount = {
         readContext,
-        use: use16,
+        use: use17,
         useCallback: function(callback, deps) {
           mountWorkInProgressHook().memoizedState = [
             callback,
@@ -5515,7 +5515,7 @@
       };
       var HooksDispatcherOnUpdate = {
         readContext,
-        use: use16,
+        use: use17,
         useCallback: updateCallback,
         useContext: readContext,
         useEffect: updateEffect,
@@ -5560,7 +5560,7 @@
       };
       var HooksDispatcherOnRerender = {
         readContext,
-        use: use16,
+        use: use17,
         useCallback: updateCallback,
         useContext: readContext,
         useEffect: updateEffect,
@@ -14405,7 +14405,7 @@
           0 === i && attemptExplicitHydrationTarget(target);
         }
       };
-      var isomorphicReactPackageVersion$jscomp$inline_2043 = React18.version;
+      var isomorphicReactPackageVersion$jscomp$inline_2043 = React19.version;
       if ("19.3.1" !== isomorphicReactPackageVersion$jscomp$inline_2043)
         throw Error(
           formatProdErrorMessage(
@@ -17519,13 +17519,606 @@
     });
   }
 
+  // node_modules/@audio-ui/core/dist/xypad.js
+  var LARGE_STEP_MULTIPLIER = 10;
+  var STATE_ATTRIBUTES_MAPPING = {
+    maxX: () => null,
+    maxY: () => null,
+    minX: () => null,
+    minY: () => null,
+    value: () => null
+  };
+  function toPercent(value, min, max) {
+    return clamp((value - min) / (max - min || 1), 0, 1);
+  }
+  function createXYPadController(initial = {}) {
+    let options = initial;
+    const bounds = () => ({
+      maxX: options.maxX ?? 100,
+      maxY: options.maxY ?? 100,
+      minX: options.minX ?? 0,
+      minY: options.minY ?? 0,
+      stepX: options.stepX ?? 1,
+      stepY: options.stepY ?? 1
+    });
+    const resetValue = () => {
+      const { maxX, maxY, minX, minY } = bounds();
+      return options.defaultValue ?? {
+        x: minX + (maxX - minX) / 2,
+        y: minY + (maxY - minY) / 2
+      };
+    };
+    let uncontrolled;
+    let dragValue = null;
+    let dragging = false;
+    let gesture = null;
+    const listeners2 = /* @__PURE__ */ new Set();
+    const notify = () => {
+      for (const listener of listeners2) {
+        listener();
+      }
+    };
+    let formatter = null;
+    let formatKey = [];
+    const format = () => {
+      if (!formatter || formatKey[0] !== options.locale || formatKey[1] !== options.format) {
+        formatter = new Intl.NumberFormat(options.locale, options.format);
+        formatKey = [options.locale, options.format];
+      }
+      return formatter;
+    };
+    const displayed = () => {
+      const { maxX, maxY, minX, minY } = bounds();
+      if (dragValue) {
+        return dragValue;
+      }
+      const held = options.value === void 0 ? uncontrolled ?? resetValue() : options.value;
+      return {
+        x: clampFinite(held.x, minX, maxX),
+        y: clampFinite(held.y, minY, maxY)
+      };
+    };
+    const onGrid = (raw) => {
+      const { maxX, maxY, minX, minY, stepX, stepY } = bounds();
+      return {
+        x: clamp(roundToStep(raw.x, stepX, minX), minX, maxX),
+        y: clamp(roundToStep(raw.y, stepY, minY), minY, maxY)
+      };
+    };
+    let snapshot = null;
+    const getSnapshot2 = () => {
+      const bound = bounds();
+      const value = displayed();
+      const { disabled = false } = options;
+      const numberFormat = format();
+      const formatted = {
+        x: numberFormat.format(value.x),
+        y: numberFormat.format(value.y)
+      };
+      const formattedPair = createPairFormatter(numberFormat)(value.x, value.y);
+      if (snapshot && snapshot.value.x === value.x && snapshot.value.y === value.y && snapshot.dragging === dragging && snapshot.disabled === disabled && snapshot.minX === bound.minX && snapshot.maxX === bound.maxX && snapshot.minY === bound.minY && snapshot.maxY === bound.maxY && snapshot.stepX === bound.stepX && snapshot.stepY === bound.stepY && snapshot.formattedPair === formattedPair && snapshot.formatted.x === formatted.x && snapshot.formatted.y === formatted.y) {
+        return snapshot;
+      }
+      snapshot = {
+        disabled,
+        dragging,
+        formatted,
+        formattedPair,
+        maxX: bound.maxX,
+        maxY: bound.maxY,
+        minX: bound.minX,
+        minY: bound.minY,
+        percentX: toPercent(value.x, bound.minX, bound.maxX),
+        percentY: toPercent(value.y, bound.minY, bound.maxY),
+        stepX: bound.stepX,
+        stepY: bound.stepY,
+        value
+      };
+      return snapshot;
+    };
+    const change = (raw, details) => {
+      const next = onGrid(raw);
+      const current = displayed();
+      if (next.x === current.x && next.y === current.y) {
+        return false;
+      }
+      options.onValueChange?.(next, details);
+      if (details.isCanceled) {
+        return false;
+      }
+      if (options.value === void 0) {
+        uncontrolled = next;
+      } else if (dragging) {
+        dragValue = next;
+      }
+      notify();
+      return true;
+    };
+    const commit = (next, details) => {
+      options.onValueCommitted?.(next, details);
+    };
+    const setAtOnce = (next, reason, event) => {
+      const details = createChangeEventDetails(
+        reason,
+        event
+      );
+      if (change(next, details)) {
+        commit(onGrid(next), { event, reason });
+      }
+    };
+    const valueAt = (current, x, y) => {
+      const { maxX, maxY, minX, minY } = bounds();
+      const { rect } = current;
+      const fromLeft = clamp((x - rect.left) / Math.max(rect.width, 1), 0, 1);
+      const fromBottom = clamp(
+        (rect.bottom - y) / Math.max(rect.height, 1),
+        0,
+        1
+      );
+      return {
+        x: minX + fromLeft * (maxX - minX),
+        y: minY + fromBottom * (maxY - minY)
+      };
+    };
+    const finish = (end) => {
+      if (!gesture) {
+        return;
+      }
+      const current = gesture;
+      gesture = null;
+      dragging = false;
+      const settled = displayed();
+      dragValue = null;
+      notify();
+      if (current.changed) {
+        commit(settled, {
+          event: end,
+          reason: current.moved ? "drag" : "press"
+        });
+      }
+    };
+    const press = (event, control) => {
+      if (options.disabled || event.button !== 0) {
+        return;
+      }
+      if (event.altKey) {
+        setAtOnce(resetValue(), "reset", event);
+        return;
+      }
+      control.setPointerCapture?.(event.pointerId);
+      const started = {
+        changed: false,
+        moved: false,
+        pointerId: event.pointerId,
+        rect: control.getBoundingClientRect()
+      };
+      gesture = started;
+      dragging = true;
+      notify();
+      started.changed = change(
+        valueAt(started, event.clientX, event.clientY),
+        createChangeEventDetails("press", event)
+      );
+      const drag = new AbortController();
+      const doc = control.ownerDocument;
+      const { signal } = drag;
+      doc.addEventListener(
+        "pointermove",
+        (moveEvent) => {
+          if (!gesture || moveEvent.pointerId !== started.pointerId) {
+            return;
+          }
+          if (isReleased(moveEvent)) {
+            drag.abort();
+            finish(moveEvent);
+            return;
+          }
+          started.moved = true;
+          if (change(
+            valueAt(started, moveEvent.clientX, moveEvent.clientY),
+            createChangeEventDetails(
+              "drag",
+              moveEvent
+            )
+          )) {
+            started.changed = true;
+          }
+        },
+        { signal }
+      );
+      const release = (endEvent) => {
+        if (!gesture || endEvent.pointerId !== started.pointerId) {
+          return;
+        }
+        drag.abort();
+        finish(endEvent);
+      };
+      doc.addEventListener("pointerup", release, { signal });
+      doc.addEventListener("pointercancel", release, { signal });
+    };
+    const keyDown = (event) => {
+      if (options.disabled) {
+        return false;
+      }
+      if (event.key === "Delete" || event.key === "Backspace") {
+        setAtOnce(resetValue(), "reset", event);
+        return true;
+      }
+      const { maxX, minX, stepX, stepY } = bounds();
+      const current = displayed();
+      const multiplier = event.shiftKey ? LARGE_STEP_MULTIPLIER : 1;
+      const dx = stepX * multiplier;
+      const dy = stepY * multiplier;
+      const largeDy = stepY * LARGE_STEP_MULTIPLIER;
+      const targets = {
+        ArrowDown: { x: current.x, y: current.y - dy },
+        ArrowLeft: { x: current.x - dx, y: current.y },
+        ArrowRight: { x: current.x + dx, y: current.y },
+        ArrowUp: { x: current.x, y: current.y + dy },
+        End: { x: maxX, y: current.y },
+        Home: { x: minX, y: current.y },
+        PageDown: { x: current.x, y: current.y - largeDy },
+        PageUp: { x: current.x, y: current.y + largeDy }
+      };
+      const target = targets[event.key];
+      if (!target) {
+        return false;
+      }
+      setAtOnce(target, "keyboard", event);
+      return true;
+    };
+    const attachWheel = (element) => {
+      const handle = (event) => {
+        if (options.disabled || event.ctrlKey || event.metaKey) {
+          return;
+        }
+        event.preventDefault();
+        const { maxX, maxY, minX, minY } = bounds();
+        const rect = element.getBoundingClientRect();
+        const current = displayed();
+        setAtOnce(
+          {
+            x: current.x + event.deltaX * (maxX - minX) / Math.max(rect.width, 1),
+            y: current.y - event.deltaY * (maxY - minY) / Math.max(rect.height, 1)
+          },
+          "wheel",
+          event
+        );
+      };
+      const wheel = new AbortController();
+      element.addEventListener("wheel", handle, {
+        passive: false,
+        signal: wheel.signal
+      });
+      return () => wheel.abort();
+    };
+    return {
+      attachWheel,
+      getSnapshot: getSnapshot2,
+      keyDown,
+      press,
+      reset: (event) => setAtOnce(resetValue(), "reset", event),
+      setOptions: (next) => {
+        options = next;
+      },
+      subscribe: (listener) => {
+        listeners2.add(listener);
+        return () => listeners2.delete(listener);
+      },
+      type: (axis, typed, event) => setAtOnce({ ...displayed(), [axis]: typed }, "input-change", event)
+    };
+  }
+
+  // node_modules/@audio-ui/react/dist/chunk-WGLX2GOX.js
+  var React24 = __toESM(require_react(), 1);
+  var React8 = __toESM(require_react(), 1);
+  var React35 = __toESM(require_react(), 1);
+  var React44 = __toESM(require_react(), 1);
+  var import_jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
+  var React54 = __toESM(require_react(), 1);
+  var import_jsx_runtime11 = __toESM(require_jsx_runtime(), 1);
+  var xypad_exports = {};
+  __export(xypad_exports, {
+    Control: () => Control,
+    Label: () => Label,
+    Root: () => Root4,
+    Thumb: () => Thumb,
+    Value: () => Value
+  });
+  var XYPadContext = React8.createContext(null);
+  function useXYPadContext(part) {
+    const context = React8.use(XYPadContext);
+    if (!context) {
+      throw new Error(`XYPad.${part} must be used within XYPad.Root`);
+    }
+    return context;
+  }
+  function Control(componentProps) {
+    const { className, ref, render, style, ...elementProps } = componentProps;
+    const { controller, inputRef, state: state2 } = useXYPadContext("Control");
+    const wheelRef = React24.useCallback(
+      (node) => node ? controller.attachWheel(node) : void 0,
+      [controller]
+    );
+    const handlePointerDown = React24.useCallback(
+      (event) => {
+        if (state2.disabled || event.button !== 0) {
+          return;
+        }
+        event.preventDefault();
+        inputRef.current?.focus({ focusVisible: false, preventScroll: true });
+        controller.press(event.nativeEvent, event.currentTarget);
+      },
+      [controller, inputRef, state2.disabled]
+    );
+    const handleDoubleClick = React24.useCallback(
+      (event) => {
+        if (!state2.disabled) {
+          controller.reset(event.nativeEvent);
+        }
+      },
+      [controller, state2.disabled]
+    );
+    return useRender({
+      defaultTagName: "div",
+      props: mergeProps(
+        {
+          onDoubleClick: handleDoubleClick,
+          onPointerDown: handlePointerDown,
+          style: { position: "relative", touchAction: "none" }
+        },
+        { ...elementProps, ...resolveStyling(className, style, state2) }
+      ),
+      ref: ref ? [ref, wheelRef] : wheelRef,
+      render,
+      state: state2,
+      stateAttributesMapping: STATE_ATTRIBUTES_MAPPING
+    });
+  }
+  function Label(componentProps) {
+    const {
+      className,
+      id: idProp,
+      ref,
+      render,
+      style,
+      ...elementProps
+    } = componentProps;
+    const { setLabelId, state: state2 } = useXYPadContext("Label");
+    const generatedId = React35.useId();
+    const id = idProp ?? generatedId;
+    React35.useEffect(() => {
+      setLabelId(id);
+      return () => setLabelId(void 0);
+    }, [id, setLabelId]);
+    return useRender({
+      defaultTagName: "div",
+      props: mergeProps(
+        { id },
+        { ...elementProps, ...resolveStyling(className, style, state2) }
+      ),
+      ref,
+      render,
+      state: state2,
+      stateAttributesMapping: STATE_ATTRIBUTES_MAPPING
+    });
+  }
+  function Root4(componentProps) {
+    const {
+      className,
+      defaultValue,
+      disabled = false,
+      format,
+      locale,
+      maxX = 100,
+      maxY = 100,
+      minX = 0,
+      minY = 0,
+      name,
+      onValueChange,
+      onValueCommitted,
+      ref,
+      render,
+      stepX = 1,
+      stepY = 1,
+      style,
+      value,
+      ...elementProps
+    } = componentProps;
+    const resolvedLocale = useLocale(locale);
+    const [controller] = React44.useState(() => createXYPadController());
+    controller.setOptions({
+      defaultValue,
+      disabled,
+      format,
+      locale: resolvedLocale,
+      maxX,
+      maxY,
+      minX,
+      minY,
+      onValueChange,
+      onValueCommitted,
+      stepX,
+      stepY,
+      value
+    });
+    const snapshot = React44.useSyncExternalStore(
+      controller.subscribe,
+      controller.getSnapshot,
+      controller.getSnapshot
+    );
+    const inputRef = React44.useRef(null);
+    const [labelId, setLabelId] = React44.useState();
+    const state2 = React44.useMemo(
+      () => ({
+        disabled: snapshot.disabled,
+        dragging: snapshot.dragging,
+        maxX: snapshot.maxX,
+        maxY: snapshot.maxY,
+        minX: snapshot.minX,
+        minY: snapshot.minY,
+        value: snapshot.value
+      }),
+      [snapshot]
+    );
+    const context = React44.useMemo(
+      () => ({
+        controller,
+        inputRef,
+        labelId,
+        name,
+        setLabelId,
+        snapshot,
+        state: state2
+      }),
+      [controller, labelId, name, snapshot, state2]
+    );
+    const element = useRender({
+      defaultTagName: "div",
+      props: mergeProps(
+        {
+          style: {
+            "--xy-pad-x": `${snapshot.percentX * 100}%`,
+            "--xy-pad-y": `${100 - snapshot.percentY * 100}%`
+          }
+        },
+        { ...elementProps, ...resolveStyling(className, style, state2) }
+      ),
+      ref,
+      render,
+      state: state2,
+      stateAttributesMapping: STATE_ATTRIBUTES_MAPPING
+    });
+    return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(XYPadContext, { value: context, children: element });
+  }
+  function Thumb(componentProps) {
+    const {
+      "aria-describedby": ariaDescribedBy,
+      "aria-label": ariaLabel,
+      "aria-labelledby": ariaLabelledBy,
+      children,
+      className,
+      getAriaLabel,
+      getAriaValueText,
+      ref,
+      render,
+      style,
+      ...elementProps
+    } = componentProps;
+    const { controller, inputRef, labelId, name, snapshot, state: state2 } = useXYPadContext("Thumb");
+    const handleKeyDown = React54.useCallback(
+      (event) => {
+        if (controller.keyDown(event.nativeEvent)) {
+          event.preventDefault();
+        }
+      },
+      [controller]
+    );
+    const handleChangeX = React54.useCallback(
+      (event) => controller.type(
+        "x",
+        Number(event.currentTarget.value),
+        event.nativeEvent
+      ),
+      [controller]
+    );
+    const handleChangeY = React54.useCallback(
+      (event) => controller.type(
+        "y",
+        Number(event.currentTarget.value),
+        event.nativeEvent
+      ),
+      [controller]
+    );
+    const inputProps = (axis) => {
+      const value = state2.value[axis];
+      const formattedValue = snapshot.formatted[axis];
+      let label = getAriaLabel?.(axis);
+      if (label === void 0 && ariaLabel) {
+        label = `${ariaLabel} ${axis.toUpperCase()}`;
+      }
+      return {
+        "aria-describedby": ariaDescribedBy,
+        "aria-label": label,
+        "aria-labelledby": ariaLabelledBy ?? (label === void 0 ? labelId : void 0),
+        "aria-orientation": axis === "x" ? "horizontal" : "vertical",
+        "aria-valuetext": getAriaValueText ? getAriaValueText(formattedValue, value, axis) : formattedValue,
+        disabled: state2.disabled,
+        name: name === void 0 ? void 0 : `${name}.${axis}`,
+        max: axis === "x" ? state2.maxX : state2.maxY,
+        min: axis === "x" ? state2.minX : state2.minY,
+        onKeyDown: handleKeyDown,
+        step: axis === "x" ? snapshot.stepX : snapshot.stepY,
+        style: VISUALLY_HIDDEN,
+        type: "range",
+        value
+      };
+    };
+    return useRender({
+      defaultTagName: "div",
+      props: mergeProps(
+        {
+          children: /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(import_jsx_runtime11.Fragment, { children: [
+            children,
+            /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+              "input",
+              {
+                ...inputProps("x"),
+                onChange: handleChangeX,
+                ref: inputRef
+              }
+            ),
+            /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+              "input",
+              {
+                ...inputProps("y"),
+                onChange: handleChangeY,
+                tabIndex: -1
+              }
+            )
+          ] }),
+          style: {
+            left: `${snapshot.percentX * 100}%`,
+            top: `${100 - snapshot.percentY * 100}%`,
+            translate: "-50% -50%"
+          }
+        },
+        { ...elementProps, ...resolveStyling(className, style, state2) }
+      ),
+      ref,
+      render,
+      state: state2,
+      stateAttributesMapping: STATE_ATTRIBUTES_MAPPING
+    });
+  }
+  function Value(componentProps) {
+    const { children, className, ref, render, style, ...elementProps } = componentProps;
+    const { snapshot, state: state2 } = useXYPadContext("Value");
+    const formattedX = snapshot.formatted.x;
+    const formattedY = snapshot.formatted.y;
+    return useRender({
+      defaultTagName: "output",
+      props: mergeProps(
+        {
+          "aria-live": "off",
+          children: typeof children === "function" ? children(formattedX, formattedY, state2.value) : children ?? snapshot.formattedPair
+        },
+        { ...elementProps, ...resolveStyling(className, style, state2) }
+      ),
+      ref,
+      render,
+      state: state2,
+      stateAttributesMapping: STATE_ATTRIBUTES_MAPPING
+    });
+  }
+
   // node_modules/@audio-ui/core/dist/envelope.js
   var CURVE_RATE = 11;
   var CURVE_SAMPLES = 24;
   var CURVE_TOLERANCE = 5e-4;
   var CURVE_EPSILON = 5e-3;
   var CURVE_STEP_MULTIPLIER = 5;
-  var LARGE_STEP_MULTIPLIER = 10;
+  var LARGE_STEP_MULTIPLIER2 = 10;
   function segmentShape(t, curve) {
     if (!curve) {
       return t;
@@ -17605,7 +18198,7 @@
       return null;
     }
     const lift = to.y > from.y ? -1 : 1;
-    const distance = step * CURVE_STEP_MULTIPLIER * (event.shiftKey ? LARGE_STEP_MULTIPLIER : 1);
+    const distance = step * CURVE_STEP_MULTIPLIER * (event.shiftKey ? LARGE_STEP_MULTIPLIER2 : 1);
     return direction * lift * distance;
   }
   function snapTo(value, step) {
@@ -18058,7 +18651,7 @@
         removePoint(index, event);
         return true;
       }
-      const distance = bounds().step * (event.shiftKey ? LARGE_STEP_MULTIPLIER : 1);
+      const distance = bounds().step * (event.shiftKey ? LARGE_STEP_MULTIPLIER2 : 1);
       const targets = {
         ArrowDown: { x: current.x, y: current.y - distance },
         ArrowLeft: { x: current.x - distance, y: current.y },
@@ -18136,14 +18729,14 @@
   }
 
   // node_modules/@audio-ui/react/dist/chunk-XF2DQZ3D.js
-  var React8 = __toESM(require_react(), 1);
-  var React24 = __toESM(require_react(), 1);
-  var React35 = __toESM(require_react(), 1);
-  var import_jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
-  var React44 = __toESM(require_react(), 1);
-  var import_jsx_runtime11 = __toESM(require_jsx_runtime(), 1);
-  var React54 = __toESM(require_react(), 1);
+  var React9 = __toESM(require_react(), 1);
+  var React25 = __toESM(require_react(), 1);
+  var React36 = __toESM(require_react(), 1);
   var import_jsx_runtime12 = __toESM(require_jsx_runtime(), 1);
+  var React45 = __toESM(require_react(), 1);
+  var import_jsx_runtime13 = __toESM(require_jsx_runtime(), 1);
+  var React55 = __toESM(require_react(), 1);
+  var import_jsx_runtime14 = __toESM(require_jsx_runtime(), 1);
   var envelope_exports = {};
   __export(envelope_exports, {
     Fill: () => Fill,
@@ -18151,18 +18744,18 @@
     Line: () => Line2,
     Point: () => Point,
     Points: () => Points,
-    Root: () => Root4,
+    Root: () => Root5,
     Segment: () => Segment,
     Segments: () => Segments
   });
-  var STATE_ATTRIBUTES_MAPPING = {
+  var STATE_ATTRIBUTES_MAPPING2 = {
     value: () => null
   };
-  var EnvelopeContext = React8.createContext(
+  var EnvelopeContext = React9.createContext(
     null
   );
   function useEnvelopeContext(part) {
-    const context = React8.use(EnvelopeContext);
+    const context = React9.use(EnvelopeContext);
     if (!context) {
       throw new Error(`Envelope.${part} must be used within Envelope.Root`);
     }
@@ -18181,13 +18774,13 @@
       ref,
       render,
       state: state2,
-      stateAttributesMapping: STATE_ATTRIBUTES_MAPPING
+      stateAttributesMapping: STATE_ATTRIBUTES_MAPPING2
     });
   }
   function Graph2(componentProps) {
     const { className, ref, render, style, ...elementProps } = componentProps;
     const { addPoint, controller, graphRef, snapshot, state: state2 } = useEnvelopeContext("Graph");
-    const graphState = React24.useMemo(
+    const graphState = React25.useMemo(
       () => ({ ...state2, blocked: snapshot.isAddBlocked }),
       [snapshot.isAddBlocked, state2]
     );
@@ -18234,7 +18827,7 @@
       ref: ref ? [ref, graphRef] : graphRef,
       render,
       state: graphState,
-      stateAttributesMapping: STATE_ATTRIBUTES_MAPPING
+      stateAttributesMapping: STATE_ATTRIBUTES_MAPPING2
     });
   }
   function Line2(componentProps) {
@@ -18253,7 +18846,7 @@
       ref,
       render,
       state: state2,
-      stateAttributesMapping: STATE_ATTRIBUTES_MAPPING
+      stateAttributesMapping: STATE_ATTRIBUTES_MAPPING2
     });
   }
   function Point(componentProps) {
@@ -18278,7 +18871,7 @@
       state: state2
     } = useEnvelopeContext("Point");
     const point = state2.value[index];
-    const pointState = React35.useMemo(
+    const pointState = React36.useMemo(
       () => ({
         blocked: snapshot.blockedIndex === index,
         disabled: state2.disabled,
@@ -18345,7 +18938,7 @@
         event.preventDefault();
       }
     };
-    const registerRef = React35.useCallback(
+    const registerRef = React36.useCallback(
       (node) => registerPoint(index, node),
       [index, registerPoint]
     );
@@ -18384,14 +18977,14 @@
       ref: ref ? [ref, registerRef] : registerRef,
       render,
       state: pointState,
-      stateAttributesMapping: STATE_ATTRIBUTES_MAPPING
+      stateAttributesMapping: STATE_ATTRIBUTES_MAPPING2
     });
   }
   function Points({ children }) {
     const { state: state2 } = useEnvelopeContext("Points");
-    return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(import_jsx_runtime10.Fragment, { children: state2.value.map((point, index) => children(point, index, state2.value)) });
+    return /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(import_jsx_runtime12.Fragment, { children: state2.value.map((point, index) => children(point, index, state2.value)) });
   }
-  function Root4(componentProps) {
+  function Root5(componentProps) {
     const {
       className,
       defaultValue,
@@ -18411,7 +19004,7 @@
       ...elementProps
     } = componentProps;
     const resolvedLocale = useLocale(locale);
-    const [controller] = React44.useState(() => createEnvelopeController());
+    const [controller] = React45.useState(() => createEnvelopeController());
     controller.setOptions({
       defaultValue,
       disabled,
@@ -18425,17 +19018,17 @@
       step,
       value
     });
-    const snapshot = React44.useSyncExternalStore(
+    const snapshot = React45.useSyncExternalStore(
       controller.subscribe,
       controller.getSnapshot,
       controller.getSnapshot
     );
-    React44.useEffect(() => () => controller.dispose(), [controller]);
-    const [focusedIndex, setFocusedIndex] = React44.useState(0);
-    const [focusedSegmentIndex, setFocusedSegmentIndex] = React44.useState(0);
-    const pointElementsRef = React44.useRef(/* @__PURE__ */ new Map());
-    const segmentElementsRef = React44.useRef(/* @__PURE__ */ new Map());
-    const registerPoint = React44.useCallback(
+    React45.useEffect(() => () => controller.dispose(), [controller]);
+    const [focusedIndex, setFocusedIndex] = React45.useState(0);
+    const [focusedSegmentIndex, setFocusedSegmentIndex] = React45.useState(0);
+    const pointElementsRef = React45.useRef(/* @__PURE__ */ new Map());
+    const segmentElementsRef = React45.useRef(/* @__PURE__ */ new Map());
+    const registerPoint = React45.useCallback(
       (index, node) => {
         if (node) {
           pointElementsRef.current.set(index, node);
@@ -18445,7 +19038,7 @@
       },
       []
     );
-    const registerSegment = React44.useCallback(
+    const registerSegment = React45.useCallback(
       (index, node) => {
         if (node) {
           segmentElementsRef.current.set(index, node);
@@ -18455,12 +19048,12 @@
       },
       []
     );
-    const focusPoint = React44.useCallback((index) => {
+    const focusPoint = React45.useCallback((index) => {
       setFocusedIndex(index);
       pointElementsRef.current.get(index)?.focus();
     }, []);
     const segmentCount = snapshot.value.length - 1;
-    const focusSegment = React44.useCallback(
+    const focusSegment = React45.useCallback(
       (index) => {
         const last = Math.max(0, segmentCount - 1);
         const target = Math.min(last, Math.max(0, index));
@@ -18469,7 +19062,7 @@
       },
       [segmentCount]
     );
-    const addPoint = React44.useCallback(
+    const addPoint = React45.useCallback(
       (at, event) => {
         const index = controller.addPointAt(at, event);
         if (index !== null) {
@@ -18478,7 +19071,7 @@
       },
       [controller]
     );
-    const removePoint = React44.useCallback(
+    const removePoint = React45.useCallback(
       (index, event) => {
         if (!controller.removePoint(index, event)) {
           return;
@@ -18488,8 +19081,8 @@
       },
       [controller, focusPoint]
     );
-    const graphRef = React44.useRef(null);
-    const state2 = React44.useMemo(
+    const graphRef = React45.useRef(null);
+    const state2 = React45.useMemo(
       () => ({
         disabled: snapshot.disabled,
         dragging: snapshot.dragging,
@@ -18497,7 +19090,7 @@
       }),
       [snapshot]
     );
-    const context = React44.useMemo(
+    const context = React45.useMemo(
       () => ({
         addPoint,
         controller,
@@ -18537,13 +19130,13 @@
       ref,
       render,
       state: state2,
-      stateAttributesMapping: STATE_ATTRIBUTES_MAPPING
+      stateAttributesMapping: STATE_ATTRIBUTES_MAPPING2
     });
-    return /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(EnvelopeContext, { value: context, children: element });
+    return /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(EnvelopeContext, { value: context, children: element });
   }
   function Segments({ children }) {
     const { state: state2 } = useEnvelopeContext("Segments");
-    return /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(import_jsx_runtime12.Fragment, { children: state2.value.slice(0, -1).map((point, index) => children(point, index, state2.value)) });
+    return /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(import_jsx_runtime14.Fragment, { children: state2.value.slice(0, -1).map((point, index) => children(point, index, state2.value)) });
   }
   function Segment(componentProps) {
     const {
@@ -18567,13 +19160,13 @@
     } = useEnvelopeContext("Segment");
     const from = state2.value[index];
     const to = state2.value[index + 1];
-    const registerRef = React54.useCallback(
+    const registerRef = React55.useCallback(
       (node) => registerSegment(index, node),
       [index, registerSegment]
     );
     const curve = from?.curve ?? 0;
     const flat = from && to ? Math.abs(to.y - from.y) < 1e-6 : true;
-    const segmentState = React54.useMemo(
+    const segmentState = React55.useMemo(
       () => ({
         curve,
         disabled: state2.disabled,
@@ -18663,13 +19256,13 @@
       ref: ref ? [ref, registerRef] : registerRef,
       render,
       state: segmentState,
-      stateAttributesMapping: STATE_ATTRIBUTES_MAPPING
+      stateAttributesMapping: STATE_ATTRIBUTES_MAPPING2
     });
   }
 
   // node_modules/@audio-ui/react/dist/chunk-4KLYLITC.js
-  var React9 = __toESM(require_react(), 1);
-  var import_jsx_runtime13 = __toESM(require_jsx_runtime(), 1);
+  var React10 = __toESM(require_react(), 1);
+  var import_jsx_runtime15 = __toESM(require_jsx_runtime(), 1);
   function parseTypedNumber(text) {
     const parsed = Number.parseFloat(text.trim().replace(",", "."));
     return Number.isFinite(parsed) ? parsed : null;
@@ -18679,9 +19272,9 @@
     disabled,
     editable
   }) {
-    const [editing, setEditing] = React9.useState(false);
-    const readoutRef = React9.useRef(null);
-    const finish = React9.useCallback(
+    const [editing, setEditing] = React10.useState(false);
+    const readoutRef = React10.useRef(null);
+    const finish = React10.useCallback(
       (text, event) => {
         setEditing(false);
         readoutRef.current?.focus({ preventScroll: true });
@@ -18724,9 +19317,9 @@
     finish,
     initial
   }) {
-    const inputRef = React9.useRef(null);
-    const done = React9.useRef(false);
-    const settle = React9.useCallback(
+    const inputRef = React10.useRef(null);
+    const done = React10.useRef(false);
+    const settle = React10.useCallback(
       (text, event) => {
         if (!done.current) {
           done.current = true;
@@ -18735,15 +19328,15 @@
       },
       [finish]
     );
-    React9.useEffect(() => {
+    React10.useEffect(() => {
       inputRef.current?.focus({ preventScroll: true });
       inputRef.current?.select();
     }, []);
-    const handleBlur = React9.useCallback(
+    const handleBlur = React10.useCallback(
       (event) => settle(event.currentTarget.value, event.nativeEvent),
       [settle]
     );
-    const handleKeyDown = React9.useCallback(
+    const handleKeyDown = React10.useCallback(
       (event) => {
         event.stopPropagation();
         if (event.key === "Enter") {
@@ -18756,7 +19349,7 @@
       },
       [settle]
     );
-    return /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+    return /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
       "input",
       {
         "aria-label": ariaLabel,
@@ -18773,10 +19366,10 @@
   }
 
   // node_modules/@audio-ui/react/dist/chunk-QBROF56I.js
-  var React25 = __toESM(require_react(), 1);
-  var React10 = __toESM(require_react(), 1);
-  var React36 = __toESM(require_react(), 1);
-  var React45 = __toESM(require_react(), 1);
+  var React26 = __toESM(require_react(), 1);
+  var React11 = __toESM(require_react(), 1);
+  var React37 = __toESM(require_react(), 1);
+  var React46 = __toESM(require_react(), 1);
 
   // node_modules/@audio-ui/core/dist/fader.js
   var DEFAULT_MIN = -60;
@@ -19031,39 +19624,39 @@
   }
 
   // node_modules/@audio-ui/react/dist/chunk-QBROF56I.js
-  var React55 = __toESM(require_react(), 1);
-  var import_jsx_runtime14 = __toESM(require_jsx_runtime(), 1);
-  var React63 = __toESM(require_react(), 1);
-  var import_jsx_runtime15 = __toESM(require_jsx_runtime(), 1);
+  var React56 = __toESM(require_react(), 1);
   var import_jsx_runtime16 = __toESM(require_jsx_runtime(), 1);
+  var React63 = __toESM(require_react(), 1);
+  var import_jsx_runtime17 = __toESM(require_jsx_runtime(), 1);
+  var import_jsx_runtime18 = __toESM(require_jsx_runtime(), 1);
   var fader_exports = {};
   __export(fader_exports, {
-    Control: () => Control,
+    Control: () => Control2,
     Indicator: () => Indicator,
-    Label: () => Label,
+    Label: () => Label2,
     Mark: () => Mark2,
-    Root: () => Root5,
-    Thumb: () => Thumb,
+    Root: () => Root6,
+    Thumb: () => Thumb2,
     Track: () => Track,
-    Value: () => Value
+    Value: () => Value2
   });
-  var FaderContext = React10.createContext(null);
+  var FaderContext = React11.createContext(null);
   function useFaderContext(part) {
-    const context = React10.use(FaderContext);
+    const context = React11.use(FaderContext);
     if (!context) {
       throw new Error(`Fader.${part} must be used within Fader.Root`);
     }
     return context;
   }
   var FADER_STATE_ATTRIBUTES = { value: () => null };
-  function Control(componentProps) {
+  function Control2(componentProps) {
     const { className, ref, render, style, ...elementProps } = componentProps;
     const { controller, disabled, inputRef, state: state2, thumbRef } = useFaderContext("Control");
-    const wheelRef = React25.useCallback(
+    const wheelRef = React26.useCallback(
       (node) => node ? controller.attachWheel(node) : void 0,
       [controller]
     );
-    const handlePointerDown = React25.useCallback(
+    const handlePointerDown = React26.useCallback(
       (event) => {
         if (disabled || event.button !== 0) {
           return;
@@ -19078,7 +19671,7 @@
       },
       [controller, disabled, inputRef, thumbRef]
     );
-    const handleDoubleClick = React25.useCallback(
+    const handleDoubleClick = React26.useCallback(
       (event) => {
         if (!disabled) {
           controller.reset(event.nativeEvent);
@@ -19086,7 +19679,7 @@
       },
       [controller, disabled]
     );
-    const handlePointerDownCapture = React25.useCallback(
+    const handlePointerDownCapture = React26.useCallback(
       (event) => {
         if (event.altKey && event.button === 0 && !disabled) {
           event.preventDefault();
@@ -19096,7 +19689,7 @@
       },
       [controller, disabled]
     );
-    const handleKeyDown = React25.useCallback(
+    const handleKeyDown = React26.useCallback(
       (event) => {
         if (!disabled && (event.key === "Delete" || event.key === "Backspace")) {
           event.preventDefault();
@@ -19148,7 +19741,7 @@
       stateAttributesMapping: FADER_STATE_ATTRIBUTES
     });
   }
-  function Label(componentProps) {
+  function Label2(componentProps) {
     const {
       className,
       id: idProp,
@@ -19158,9 +19751,9 @@
       ...elementProps
     } = componentProps;
     const { setLabelId, state: state2 } = useFaderContext("Label");
-    const generatedId = React36.useId();
+    const generatedId = React37.useId();
     const id = idProp ?? generatedId;
-    React36.useLayoutEffect(() => {
+    React37.useLayoutEffect(() => {
       setLabelId(id);
       return () => setLabelId(void 0);
     }, [id, setLabelId]);
@@ -19184,7 +19777,7 @@
     const share = clamp((value - min) / (max - min || 1) * 100, 0, 100);
     const from = anchor ?? min;
     const active = value >= Math.min(from, context.value) && value <= Math.max(from, context.value);
-    const state2 = React45.useMemo(
+    const state2 = React46.useMemo(
       () => ({ active, disabled, orientation }),
       [active, disabled, orientation]
     );
@@ -19205,7 +19798,7 @@
       state: state2
     });
   }
-  function Root5(componentProps) {
+  function Root6(componentProps) {
     const {
       anchor,
       className,
@@ -19228,7 +19821,7 @@
       ...elementProps
     } = componentProps;
     const resolvedLocale = useLocale(locale);
-    const [controller] = React55.useState(() => createFaderController());
+    const [controller] = React56.useState(() => createFaderController());
     controller.setOptions({
       anchor,
       defaultValue,
@@ -19244,16 +19837,16 @@
       step,
       value
     });
-    const snapshot = React55.useSyncExternalStore(
+    const snapshot = React56.useSyncExternalStore(
       controller.subscribe,
       controller.getSnapshot,
       controller.getSnapshot
     );
-    const [labelId, setLabelId] = React55.useState();
-    const inputId = React55.useId();
-    const inputRef = React55.useRef(null);
-    const thumbRef = React55.useRef(null);
-    const state2 = React55.useMemo(
+    const [labelId, setLabelId] = React56.useState();
+    const inputId = React56.useId();
+    const inputRef = React56.useRef(null);
+    const thumbRef = React56.useRef(null);
+    const state2 = React56.useMemo(
       () => ({
         disabled: snapshot.disabled,
         dragging: snapshot.dragging,
@@ -19262,7 +19855,7 @@
       }),
       [snapshot]
     );
-    const contextValue = React55.useMemo(
+    const contextValue = React56.useMemo(
       () => ({
         anchor: snapshot.anchor,
         controller,
@@ -19297,9 +19890,9 @@
       state: state2,
       stateAttributesMapping: FADER_STATE_ATTRIBUTES
     });
-    return /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(FaderContext, { value: contextValue, children: element });
+    return /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(FaderContext, { value: contextValue, children: element });
   }
-  function Thumb(componentProps) {
+  function Thumb2(componentProps) {
     const {
       "aria-describedby": ariaDescribedBy,
       "aria-label": ariaLabel,
@@ -19374,9 +19967,9 @@
       defaultTagName: "div",
       props: mergeProps(
         {
-          children: /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(import_jsx_runtime15.Fragment, { children: [
+          children: /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(import_jsx_runtime17.Fragment, { children: [
             children,
-            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
               "input",
               {
                 "aria-describedby": ariaDescribedBy,
@@ -19432,7 +20025,7 @@
       stateAttributesMapping: FADER_STATE_ATTRIBUTES
     });
   }
-  function Value(componentProps) {
+  function Value2(componentProps) {
     const {
       children,
       className,
@@ -19450,7 +20043,7 @@
     });
     let content = formatted;
     if (editing) {
-      content = /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+      content = /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
         ValueInput,
         {
           "aria-label": elementProps["aria-label"],
@@ -19494,7 +20087,7 @@
   var FINE_DRAG2 = 0.25;
   var POSITION_STEP = 0.01;
   var LARGE_POSITION_STEP = 0.1;
-  var STATE_ATTRIBUTES_MAPPING2 = {
+  var STATE_ATTRIBUTES_MAPPING3 = {
     dragMode: (value) => ({ "data-drag-mode": value }),
     max: () => null,
     min: () => null,
@@ -19829,47 +20422,47 @@
   }
 
   // node_modules/@audio-ui/react/dist/chunk-UNGHBYUM.js
-  var React26 = __toESM(require_react(), 1);
-  var React11 = __toESM(require_react(), 1);
-  var import_jsx_runtime17 = __toESM(require_jsx_runtime(), 1);
-  var React37 = __toESM(require_react(), 1);
-  var React46 = __toESM(require_react(), 1);
-  var React56 = __toESM(require_react(), 1);
-  var import_jsx_runtime18 = __toESM(require_jsx_runtime(), 1);
-  var React64 = __toESM(require_react(), 1);
+  var React27 = __toESM(require_react(), 1);
+  var React12 = __toESM(require_react(), 1);
   var import_jsx_runtime19 = __toESM(require_jsx_runtime(), 1);
-  var React72 = __toESM(require_react(), 1);
+  var React38 = __toESM(require_react(), 1);
+  var React47 = __toESM(require_react(), 1);
+  var React57 = __toESM(require_react(), 1);
   var import_jsx_runtime20 = __toESM(require_jsx_runtime(), 1);
+  var React64 = __toESM(require_react(), 1);
   var import_jsx_runtime21 = __toESM(require_jsx_runtime(), 1);
+  var React72 = __toESM(require_react(), 1);
+  var import_jsx_runtime22 = __toESM(require_jsx_runtime(), 1);
+  var import_jsx_runtime23 = __toESM(require_jsx_runtime(), 1);
   var knob_exports = {};
   __export(knob_exports, {
-    Control: () => Control2,
+    Control: () => Control3,
     Indicator: () => Indicator2,
-    Label: () => Label2,
+    Label: () => Label3,
     Mark: () => Mark3,
     Provider: () => Provider,
-    Root: () => Root6,
-    Thumb: () => Thumb2,
+    Root: () => Root7,
+    Thumb: () => Thumb3,
     Track: () => Track2,
-    Value: () => Value2
+    Value: () => Value3
   });
-  var KnobDefaultsContext = React11.createContext({});
-  var KnobContext = React11.createContext(null);
+  var KnobDefaultsContext = React12.createContext({});
+  var KnobContext = React12.createContext(null);
   function useKnobContext(part) {
-    const context = React11.use(KnobContext);
+    const context = React12.use(KnobContext);
     if (!context) {
       throw new Error(`Knob.${part} must be used within Knob.Root`);
     }
     return context;
   }
-  function Control2(componentProps) {
+  function Control3(componentProps) {
     const { className, ref, render, style, ...elementProps } = componentProps;
     const { controller, inputRef, state: state2 } = useKnobContext("Control");
-    const wheelRef = React26.useCallback(
+    const wheelRef = React27.useCallback(
       (node) => node ? controller.attachWheel(node) : void 0,
       [controller]
     );
-    const handlePointerDown = React26.useCallback(
+    const handlePointerDown = React27.useCallback(
       (event) => {
         if (state2.disabled || event.button !== 0) {
           return;
@@ -19892,14 +20485,14 @@
       ref: ref ? [ref, wheelRef] : wheelRef,
       render,
       state: state2,
-      stateAttributesMapping: STATE_ATTRIBUTES_MAPPING2
+      stateAttributesMapping: STATE_ATTRIBUTES_MAPPING3
     });
   }
   function useArcProps(strokeWidth, from, to) {
     const hasArc = Math.abs(to - from) > 1e-3;
     return {
       "aria-hidden": true,
-      children: hasArc ? /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
+      children: hasArc ? /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(
         "path",
         {
           d: arcPath(ARC_OUTER_RADIUS - strokeWidth / 2, from, to),
@@ -19933,10 +20526,10 @@
       ref,
       render,
       state: state2,
-      stateAttributesMapping: STATE_ATTRIBUTES_MAPPING2
+      stateAttributesMapping: STATE_ATTRIBUTES_MAPPING3
     });
   }
-  function Label2(componentProps) {
+  function Label3(componentProps) {
     const {
       className,
       id: idProp,
@@ -19946,9 +20539,9 @@
       ...elementProps
     } = componentProps;
     const { setLabelId, state: state2 } = useKnobContext("Label");
-    const generatedId = React37.useId();
+    const generatedId = React38.useId();
     const id = idProp ?? generatedId;
-    React37.useEffect(() => {
+    React38.useEffect(() => {
       setLabelId(id);
       return () => setLabelId(void 0);
     }, [id, setLabelId]);
@@ -19961,7 +20554,7 @@
       ref,
       render,
       state: state2,
-      stateAttributesMapping: STATE_ATTRIBUTES_MAPPING2
+      stateAttributesMapping: STATE_ATTRIBUTES_MAPPING3
     });
   }
   function Mark3(componentProps) {
@@ -19976,7 +20569,7 @@
     const lower = Math.min(snapshot.anchorPercent, snapshot.percent);
     const upper = Math.max(snapshot.anchorPercent, snapshot.percent);
     const active = position >= lower - 1e-9 && position <= upper + 1e-9;
-    const state2 = React46.useMemo(
+    const state2 = React47.useMemo(
       () => ({ ...rootState, active }),
       [active, rootState]
     );
@@ -19998,14 +20591,14 @@
       ref,
       render,
       state: state2,
-      stateAttributesMapping: STATE_ATTRIBUTES_MAPPING2
+      stateAttributesMapping: STATE_ATTRIBUTES_MAPPING3
     });
   }
   function Provider({ children, dragMode }) {
-    const value = React56.useMemo(() => ({ dragMode }), [dragMode]);
-    return /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(KnobDefaultsContext, { value, children });
+    const value = React57.useMemo(() => ({ dragMode }), [dragMode]);
+    return /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(KnobDefaultsContext, { value, children });
   }
-  function Root6(componentProps) {
+  function Root7(componentProps) {
     const {
       anchor,
       className,
@@ -20088,11 +20681,11 @@
       ref,
       render,
       state: state2,
-      stateAttributesMapping: STATE_ATTRIBUTES_MAPPING2
+      stateAttributesMapping: STATE_ATTRIBUTES_MAPPING3
     });
-    return /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(KnobContext, { value: context, children: element });
+    return /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(KnobContext, { value: context, children: element });
   }
-  function Thumb2(componentProps) {
+  function Thumb3(componentProps) {
     const {
       "aria-describedby": ariaDescribedBy,
       "aria-label": ariaLabel,
@@ -20144,9 +20737,9 @@
       defaultTagName: "div",
       props: mergeProps(
         {
-          children: /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(import_jsx_runtime20.Fragment, { children: [
+          children: /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(import_jsx_runtime22.Fragment, { children: [
             children,
-            /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
               "input",
               {
                 "aria-describedby": ariaDescribedBy,
@@ -20176,7 +20769,7 @@
       ref,
       render,
       state: state2,
-      stateAttributesMapping: STATE_ATTRIBUTES_MAPPING2
+      stateAttributesMapping: STATE_ATTRIBUTES_MAPPING3
     });
   }
   function Track2(componentProps) {
@@ -20198,10 +20791,10 @@
       ref,
       render,
       state: state2,
-      stateAttributesMapping: STATE_ATTRIBUTES_MAPPING2
+      stateAttributesMapping: STATE_ATTRIBUTES_MAPPING3
     });
   }
-  function Value2(componentProps) {
+  function Value3(componentProps) {
     const {
       children,
       className,
@@ -20220,7 +20813,7 @@
     });
     let content = typeof children === "function" ? children(formattedValue, state2.value) : children ?? formattedValue;
     if (editing) {
-      content = /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
+      content = /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(
         ValueInput,
         {
           "aria-label": elementProps["aria-label"],
@@ -20243,13 +20836,13 @@
       ref: ref ? [ref, readoutRef] : readoutRef,
       render,
       state: state2,
-      stateAttributesMapping: STATE_ATTRIBUTES_MAPPING2
+      stateAttributesMapping: STATE_ATTRIBUTES_MAPPING3
     });
   }
 
   // node_modules/@audio-ui/react/dist/chunk-HN7WDWLL.js
-  var React38 = __toESM(require_react(), 1);
-  var React12 = __toESM(require_react(), 1);
+  var React39 = __toESM(require_react(), 1);
+  var React13 = __toESM(require_react(), 1);
 
   // node_modules/@audio-ui/core/dist/meter.js
   function iecDeflection(level) {
@@ -20314,12 +20907,12 @@
     const { clipThreshold, formatter, min, position, warnThreshold } = config;
     const level = frame.levels[index] ?? min;
     const peak = frame.peaks?.[index];
-    const toPercent = position;
+    const toPercent2 = position;
     const valueNow = Math.round(level * 10) / 10;
     return {
       clipping: level >= clipThreshold,
-      peakPercent: peak === void 0 ? void 0 : toPercent(peak),
-      percent: toPercent(level),
+      peakPercent: peak === void 0 ? void 0 : toPercent2(peak),
+      percent: toPercent2(level),
       text: formatter.format(valueNow),
       valueNow,
       warning: level >= warnThreshold && level < clipThreshold
@@ -20370,30 +20963,30 @@
   }
 
   // node_modules/@audio-ui/react/dist/chunk-HN7WDWLL.js
-  var React27 = __toESM(require_react(), 1);
-  var import_jsx_runtime22 = __toESM(require_jsx_runtime(), 1);
-  var import_jsx_runtime23 = __toESM(require_jsx_runtime(), 1);
-  var React47 = __toESM(require_react(), 1);
-  var React57 = __toESM(require_react(), 1);
-  var React65 = __toESM(require_react(), 1);
+  var React28 = __toESM(require_react(), 1);
   var import_jsx_runtime24 = __toESM(require_jsx_runtime(), 1);
+  var import_jsx_runtime25 = __toESM(require_jsx_runtime(), 1);
+  var React48 = __toESM(require_react(), 1);
+  var React58 = __toESM(require_react(), 1);
+  var React65 = __toESM(require_react(), 1);
+  var import_jsx_runtime26 = __toESM(require_jsx_runtime(), 1);
   var meter_exports = {};
   __export(meter_exports, {
     Channel: () => Channel,
     Channels: () => Channels,
     Indicator: () => Indicator3,
-    Label: () => Label3,
+    Label: () => Label4,
     Mark: () => Mark4,
     Peak: () => Peak,
-    Root: () => Root7,
+    Root: () => Root8,
     Track: () => Track3,
-    Value: () => Value3
+    Value: () => Value4
   });
-  var MeterContext = React12.createContext(null);
-  var ChannelIndexContext = React12.createContext(null);
-  var ChannelLabelContext = React12.createContext(null);
+  var MeterContext = React13.createContext(null);
+  var ChannelIndexContext = React13.createContext(null);
+  var ChannelLabelContext = React13.createContext(null);
   function useMeterContext(part) {
-    const context = React12.use(MeterContext);
+    const context = React13.use(MeterContext);
     if (!context) {
       throw new Error(`Meter.${part} must be used within Meter.Root`);
     }
@@ -20402,7 +20995,7 @@
   function useChannelPart(part, index, nodeKey) {
     const { actions, meta, state: state2 } = useMeterContext(part);
     const view = channelView(meta.frame, index, meta.config);
-    const partState = React27.useMemo(
+    const partState = React28.useMemo(
       () => ({
         clipping: view.clipping,
         index,
@@ -20412,21 +21005,21 @@
       [index, state2.orientation, view.clipping, view.warning]
     );
     const { registerNode } = actions;
-    const registerRef = React27.useCallback(
+    const registerRef = React28.useCallback(
       (node) => registerNode(index, nodeKey, node),
       [index, nodeKey, registerNode]
     );
     return { actions, config: meta.config, partState, registerRef, view };
   }
   function useChannelIndex(part) {
-    const index = React27.use(ChannelIndexContext);
+    const index = React28.use(ChannelIndexContext);
     if (index === null) {
       throw new Error(`Meter.${part} must be used within Meter.Channel`);
     }
     return index;
   }
   function useMergedRef2(a, b) {
-    return React27.useCallback(
+    return React28.useCallback(
       (node) => {
         b(node);
         if (typeof a === "function") {
@@ -20464,7 +21057,7 @@
     );
     actions.setAriaValueTextGetter(index, getAriaValueText);
     const mergedRef = useMergedRef2(ref, registerRef);
-    const [labelId, setLabelId] = React38.useState();
+    const [labelId, setLabelId] = React39.useState();
     const valueNow = Math.min(config.max, Math.max(config.min, view.valueNow));
     const element = useRender({
       defaultTagName: "div",
@@ -20476,9 +21069,9 @@
           "aria-valuemin": config.min,
           "aria-valuenow": valueNow,
           "aria-valuetext": getAriaValueText?.(view.text, view.valueNow, index) ?? view.text,
-          children: /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(import_jsx_runtime22.Fragment, { children: [
+          children: /* @__PURE__ */ (0, import_jsx_runtime24.jsxs)(import_jsx_runtime24.Fragment, { children: [
             children,
-            /* @__PURE__ */ (0, import_jsx_runtime22.jsx)("span", { role: "presentation", style: VISUALLY_HIDDEN, children: "x" })
+            /* @__PURE__ */ (0, import_jsx_runtime24.jsx)("span", { role: "presentation", style: VISUALLY_HIDDEN, children: "x" })
           ] }),
           role: "meter"
         },
@@ -20490,11 +21083,11 @@
       state: partState,
       stateAttributesMapping: CHANNEL_STATE_ATTRIBUTES
     });
-    return /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(ChannelIndexContext, { value: index, children: /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(ChannelLabelContext, { value: setLabelId, children: element }) });
+    return /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(ChannelIndexContext, { value: index, children: /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(ChannelLabelContext, { value: setLabelId, children: element }) });
   }
   function Channels({ children }) {
     const { meta } = useMeterContext("Channels");
-    return /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(import_jsx_runtime23.Fragment, { children: Array.from(
+    return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(import_jsx_runtime25.Fragment, { children: Array.from(
       { length: meta.channelCount },
       (_, index) => children(index, meta.channelCount)
     ) });
@@ -20543,7 +21136,7 @@
     });
   }
   var NO_STATE = {};
-  function Label3(componentProps) {
+  function Label4(componentProps) {
     const {
       className,
       id: idProp,
@@ -20552,13 +21145,13 @@
       style,
       ...elementProps
     } = componentProps;
-    const setLabelId = React47.use(ChannelLabelContext);
+    const setLabelId = React48.use(ChannelLabelContext);
     if (!setLabelId) {
       throw new Error("Meter.Label must be used within Meter.Channel");
     }
-    const generatedId = React47.useId();
+    const generatedId = React48.useId();
     const id = idProp ?? generatedId;
-    React47.useLayoutEffect(() => {
+    React48.useLayoutEffect(() => {
       setLabelId(id);
       return () => setLabelId(void 0);
     }, [id, setLabelId]);
@@ -20578,7 +21171,7 @@
     const { className, ref, render, style, value, ...elementProps } = componentProps;
     const { meta, state: state2 } = useMeterContext("Mark");
     const share = meta.config.position(value) * 100;
-    const markState = React57.useMemo(
+    const markState = React58.useMemo(
       () => ({ orientation: state2.orientation }),
       [state2.orientation]
     );
@@ -20623,7 +21216,7 @@
       render
     });
   }
-  function Root7(componentProps) {
+  function Root8(componentProps) {
     const {
       className,
       clipThreshold = 0,
@@ -20732,7 +21325,7 @@
       render,
       state: state2
     });
-    return /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(MeterContext, { value: context, children: element });
+    return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(MeterContext, { value: context, children: element });
   }
   var NO_STATE2 = {};
   function Track3(componentProps) {
@@ -20749,7 +21342,7 @@
     });
   }
   var NO_STATE3 = {};
-  function Value3(componentProps) {
+  function Value4(componentProps) {
     const { children, className, ref, render, style, ...elementProps } = componentProps;
     const index = useChannelIndex("Value");
     const { registerRef, view } = useChannelPart("Value", index, "value");
@@ -20771,8 +21364,8 @@
   }
 
   // node_modules/@audio-ui/react/dist/chunk-7AF5CGRU.js
-  var React28 = __toESM(require_react(), 1);
-  var React13 = __toESM(require_react(), 1);
+  var React29 = __toESM(require_react(), 1);
+  var React14 = __toESM(require_react(), 1);
 
   // node_modules/@audio-ui/core/dist/pad.js
   var MIN_VELOCITY2 = 0.25;
@@ -20973,16 +21566,16 @@
   }
 
   // node_modules/@audio-ui/react/dist/chunk-7AF5CGRU.js
-  var React39 = __toESM(require_react(), 1);
-  var import_jsx_runtime25 = __toESM(require_jsx_runtime(), 1);
+  var React310 = __toESM(require_react(), 1);
+  var import_jsx_runtime27 = __toESM(require_jsx_runtime(), 1);
   var pad_exports = {};
   __export(pad_exports, {
     Item: () => Item,
-    Root: () => Root8
+    Root: () => Root9
   });
-  var PadContext = React13.createContext(null);
+  var PadContext = React14.createContext(null);
   function usePadContext(part) {
-    const context = React13.use(PadContext);
+    const context = React14.use(PadContext);
     if (!context) {
       throw new Error(`Pad.${part} must be used within Pad.Root`);
     }
@@ -21008,7 +21601,7 @@
     } = usePadContext("Item");
     const disabled = rootState.disabled || disabledProp;
     const pad = { chokeGroup, value };
-    const itemRef = React28.useCallback(
+    const itemRef = React29.useCallback(
       (node) => registerItem(value, node, disabled),
       [disabled, registerItem, value]
     );
@@ -21040,7 +21633,7 @@
         controller.keyOff(value, event.nativeEvent);
       }
     };
-    const state2 = React28.useMemo(
+    const state2 = React29.useMemo(
       () => ({ active: meta.active.has(value), disabled }),
       [disabled, meta.active, value]
     );
@@ -21071,7 +21664,7 @@
   }
   var NO_PADS = { disabledValues: [], values: [] };
   var sameOrder = (a, b) => a.values.join("\n") === b.values.join("\n") && a.disabledValues.join("\n") === b.disabledValues.join("\n");
-  function Root8(componentProps) {
+  function Root9(componentProps) {
     const {
       activePads,
       className,
@@ -21084,10 +21677,10 @@
       style,
       ...elementProps
     } = componentProps;
-    const itemsRef = React39.useRef(
+    const itemsRef = React310.useRef(
       /* @__PURE__ */ new Map()
     );
-    const [order, setOrder] = React39.useState(NO_PADS);
+    const [order, setOrder] = React310.useState(NO_PADS);
     const options = {
       activePads,
       columns,
@@ -21097,14 +21690,14 @@
       onPadOn,
       values: order.values
     };
-    const [controller] = React39.useState(() => createPadController(options));
+    const [controller] = React310.useState(() => createPadController(options));
     controller.setOptions(options);
-    const snapshot = React39.useSyncExternalStore(
+    const snapshot = React310.useSyncExternalStore(
       controller.subscribe,
       controller.getSnapshot,
       controller.getSnapshot
     );
-    React39.useLayoutEffect(() => {
+    React310.useLayoutEffect(() => {
       const items = [...itemsRef.current].sort(
         ([, a], [, b]) => a.node.compareDocumentPosition(b.node) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1
       );
@@ -21114,7 +21707,7 @@
       };
       setOrder((previous) => sameOrder(previous, next) ? previous : next);
     });
-    const registerItem = React39.useCallback(
+    const registerItem = React310.useCallback(
       (value, node, itemDisabled) => {
         if (node) {
           itemsRef.current.set(value, { disabled: itemDisabled, node });
@@ -21124,18 +21717,18 @@
       },
       []
     );
-    const focusPad = React39.useCallback(
+    const focusPad = React310.useCallback(
       (value, focusVisible = true) => {
         controller.focusPad(value);
         itemsRef.current.get(value)?.node.focus({ focusVisible, preventScroll: true });
       },
       [controller]
     );
-    const state2 = React39.useMemo(
+    const state2 = React310.useMemo(
       () => ({ disabled: snapshot.disabled }),
       [snapshot.disabled]
     );
-    const context = React39.useMemo(
+    const context = React310.useMemo(
       () => ({
         controller,
         focusPad,
@@ -21159,11 +21752,11 @@
       render,
       state: state2
     });
-    return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(PadContext, { value: context, children: element });
+    return /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(PadContext, { value: context, children: element });
   }
 
   // node_modules/@audio-ui/react/dist/chunk-MXPV7V42.js
-  var import_jsx_runtime26 = __toESM(require_jsx_runtime(), 1);
+  var import_jsx_runtime28 = __toESM(require_jsx_runtime(), 1);
   var piano_exports = {};
   __export(piano_exports, {
     Key: () => Key,
@@ -21173,7 +21766,7 @@
   });
   function Keys({ children }) {
     const { meta } = usePianoContext("Keys");
-    return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(import_jsx_runtime26.Fragment, { children: meta.pitches.map((pitch) => /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(KeyContext, { value: pitch, children: children(pitch) }, pitch)) });
+    return /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(import_jsx_runtime28.Fragment, { children: meta.pitches.map((pitch) => /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(KeyContext, { value: pitch, children: children(pitch) }, pitch)) });
   }
 
   // src/state/synthStore.ts
@@ -21193,7 +21786,12 @@
     activeNotes: [],
     uiSkin: "minimal",
     filterMode: 0,
-    arpSteps: [0.95, 0.48, 0.78, 0.92, 0.52, 0.86, 0.95, 0.48, 0.78, 0.92, 0.52, 0.86]
+    wtWarpMode: 0,
+    fxMode: 0,
+    arpLaneMode: "vel",
+    arpSteps: [0.95, 0.48, 0.78, 0.92, 0.52, 0.86, 0.95, 0.48, 0.78, 0.92, 0.52, 0.86],
+    arpStepRatchets: [1, 1, 1, 2, 1, 1, 1, 2, 1, 1, 1, 2, 1, 1, 2, 3],
+    arpStepOctaves: [0, 0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 1, 0, 0, 1, 1]
   };
   var listeners = /* @__PURE__ */ new Set();
   function emitChange() {
@@ -21271,12 +21869,47 @@
       currentSnapshot = { ...currentSnapshot, filterMode: m };
       emitChange();
     },
+    setWtWarpMode(mode) {
+      const m = Math.max(0, Math.min(3, Math.round(Number(mode) || 0)));
+      if (currentSnapshot.wtWarpMode === m) return;
+      currentSnapshot = { ...currentSnapshot, wtWarpMode: m };
+      emitChange();
+    },
+    setFxMode(mode) {
+      const m = Math.max(0, Math.min(2, Math.round(Number(mode) || 0)));
+      if (currentSnapshot.fxMode === m) return;
+      currentSnapshot = { ...currentSnapshot, fxMode: m };
+      emitChange();
+    },
+    setArpLaneMode(lane) {
+      if (currentSnapshot.arpLaneMode === lane) return;
+      currentSnapshot = { ...currentSnapshot, arpLaneMode: lane };
+      emitChange();
+    },
     setArpSteps(steps) {
       if (!Array.isArray(steps) || steps.length === 0) return;
       if (steps.length === currentSnapshot.arpSteps.length && steps.every((v, i) => Math.abs(v - currentSnapshot.arpSteps[i]) < 1e-4)) {
         return;
       }
       currentSnapshot = { ...currentSnapshot, arpSteps: [...steps] };
+      emitChange();
+    },
+    setArpStepRatchets(ratchets) {
+      if (!Array.isArray(ratchets) || ratchets.length === 0) return;
+      const cleaned = ratchets.map((v) => Math.max(1, Math.min(4, Math.round(Number(v) || 1))));
+      if (cleaned.length === currentSnapshot.arpStepRatchets.length && cleaned.every((v, i) => v === currentSnapshot.arpStepRatchets[i])) {
+        return;
+      }
+      currentSnapshot = { ...currentSnapshot, arpStepRatchets: cleaned };
+      emitChange();
+    },
+    setArpStepOctaves(octaves) {
+      if (!Array.isArray(octaves) || octaves.length === 0) return;
+      const cleaned = octaves.map((v) => Math.max(-2, Math.min(2, Math.round(Number(v) || 0))));
+      if (cleaned.length === currentSnapshot.arpStepOctaves.length && cleaned.every((v, i) => v === currentSnapshot.arpStepOctaves[i])) {
+        return;
+      }
+      currentSnapshot = { ...currentSnapshot, arpStepOctaves: cleaned };
       emitChange();
     }
   };
@@ -21297,21 +21930,21 @@
   }
 
   // src/components/StudioHeader.tsx
-  var import_jsx_runtime27 = __toESM(require_jsx_runtime(), 1);
+  var import_jsx_runtime29 = __toESM(require_jsx_runtime(), 1);
   var StudioHeader = () => {
     const activeSkinId = useSynthStore((s) => s.uiSkin);
     const activeSkin = UI_SKINS.find((sk) => sk.id === activeSkinId) || UI_SKINS[0];
-    return /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)("header", { className: "studio-header", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)("div", { className: "brand", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("img", { src: "tepui-icon.png", alt: "TEPUI", className: "brand-logo" }),
-        /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("h1", { className: "brand-title", children: "TEPUI" }),
-        /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("span", { className: "brand-separator", children: "//" }),
-        /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("span", { className: "brand-subtitle", children: "EURORACK MATRIX" }),
-        /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("span", { className: "brand-badge", children: "VST3 \u2022 CLAP \u2022 24-BIT" })
+    return /* @__PURE__ */ (0, import_jsx_runtime29.jsxs)("header", { className: "studio-header", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime29.jsxs)("div", { className: "brand", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("img", { src: "tepui-icon.png", alt: "TEPUI", className: "brand-logo" }),
+        /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("h1", { className: "brand-title", children: "TEPUI" }),
+        /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("span", { className: "brand-separator", children: "//" }),
+        /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("span", { className: "brand-subtitle", children: "EURORACK MATRIX" }),
+        /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("span", { className: "brand-badge", children: "VST3 \u2022 CLAP \u2022 24-BIT" })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)("div", { className: "header-right", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)("div", { className: "io-toolbar", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)(
+      /* @__PURE__ */ (0, import_jsx_runtime29.jsxs)("div", { className: "header-right", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime29.jsxs)("div", { className: "io-toolbar", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime29.jsxs)(
             "button",
             {
               id: "btn-import-wav",
@@ -21319,12 +21952,12 @@
               title: "Importar archivo WAV desde tu PC (o arrastra al osciloscopio)",
               type: "button",
               children: [
-                /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("svg", { className: "hw-svg", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("path", { d: "M2 11v2a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-2M8 2v8M5 7l3 3 3-3" }) }),
-                /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("span", { children: "IN WAV" })
+                /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("svg", { className: "hw-svg", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("path", { d: "M2 11v2a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-2M8 2v8M5 7l3 3 3-3" }) }),
+                /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("span", { children: "IN WAV" })
               ]
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)(
+          /* @__PURE__ */ (0, import_jsx_runtime29.jsxs)(
             "button",
             {
               id: "btn-export-wav",
@@ -21332,12 +21965,12 @@
               title: "Exportar el sample actual como archivo WAV",
               type: "button",
               children: [
-                /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("svg", { className: "hw-svg", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("path", { d: "M2 11v2a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-2M8 10V2M5 5l3-3 3 3" }) }),
-                /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("span", { children: "OUT WAV" })
+                /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("svg", { className: "hw-svg", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("path", { d: "M2 11v2a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-2M8 10V2M5 5l3-3 3 3" }) }),
+                /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("span", { children: "OUT WAV" })
               ]
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)(
+          /* @__PURE__ */ (0, import_jsx_runtime29.jsxs)(
             "button",
             {
               id: "btn-load-patch",
@@ -21345,12 +21978,12 @@
               title: "Cargar Patch completo .tepui",
               type: "button",
               children: [
-                /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("svg", { className: "hw-svg", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("path", { d: "M2 4h5l2 2h5v7H2V4z" }) }),
-                /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("span", { children: "LOAD" })
+                /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("svg", { className: "hw-svg", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("path", { d: "M2 4h5l2 2h5v7H2V4z" }) }),
+                /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("span", { children: "LOAD" })
               ]
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)(
+          /* @__PURE__ */ (0, import_jsx_runtime29.jsxs)(
             "button",
             {
               id: "btn-save-patch",
@@ -21358,12 +21991,12 @@
               title: "Guardar Patch completo .tepui",
               type: "button",
               children: [
-                /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("svg", { className: "hw-svg", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("path", { d: "M3 2h8l2 2v9a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1zm2 0v4h6V2M5 9h6v5H5z" }) }),
-                /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("span", { children: "SAVE" })
+                /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("svg", { className: "hw-svg", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("path", { d: "M3 2h8l2 2v9a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1zm2 0v4h6V2M5 9h6v5H5z" }) }),
+                /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("span", { children: "SAVE" })
               ]
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(
             "input",
             {
               type: "file",
@@ -21372,7 +22005,7 @@
               className: "hidden-file-input"
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(
             "input",
             {
               type: "file",
@@ -21382,7 +22015,7 @@
             }
           )
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(
           "button",
           {
             id: "btn-ui-scale",
@@ -21392,7 +22025,7 @@
             children: "SCALE 100%"
           }
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(
           "button",
           {
             id: "btn-oled-theme",
@@ -21402,7 +22035,7 @@
             children: activeSkin.shortBadge
           }
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)(
+        /* @__PURE__ */ (0, import_jsx_runtime29.jsxs)(
           "button",
           {
             id: "btn-cloud-credits",
@@ -21410,12 +22043,12 @@
             title: "Selector de Proveedor IA Open Source (Community KV, Ollama Local, Gemini, Groq, OpenAI, Intel NPU)",
             type: "button",
             children: [
-              /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("span", { className: "cloud-dot" }),
-              /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("span", { id: "cloud-credits-text", children: "AI: COMMUNITY KV" })
+              /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("span", { className: "cloud-dot" }),
+              /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("span", { id: "cloud-credits-text", children: "AI: COMMUNITY KV" })
             ]
           }
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)(
+        /* @__PURE__ */ (0, import_jsx_runtime29.jsxs)(
           "button",
           {
             id: "btn-audio-settings",
@@ -21423,39 +22056,39 @@
             title: "Configuraci\xF3n de Audio, MIDI y Proveedores IA",
             type: "button",
             children: [
-              /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)("svg", { className: "hw-svg", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("circle", { cx: "8", cy: "8", r: "2.3" }),
-                /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("path", { d: "M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4" })
+              /* @__PURE__ */ (0, import_jsx_runtime29.jsxs)("svg", { className: "hw-svg", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("circle", { cx: "8", cy: "8", r: "2.3" }),
+                /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("path", { d: "M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("span", { className: "settings-text", children: "AUDIO & MIDI" })
+              /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("span", { className: "settings-text", children: "AUDIO & MIDI" })
             ]
           }
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)("div", { id: "engine-badge", className: "engine-badge engine-ipc", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("span", { className: "engine-dot" }),
-          /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("span", { id: "engine-text", children: "NATIVE IPC (0-LAG)" })
+        /* @__PURE__ */ (0, import_jsx_runtime29.jsxs)("div", { id: "engine-badge", className: "engine-badge engine-ipc", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("span", { className: "engine-dot" }),
+          /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("span", { id: "engine-text", children: "NATIVE IPC (0-LAG)" })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)("div", { className: "voice-monitor", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("span", { className: "voice-label", children: "VOICES" }),
-          /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("span", { id: "voice-count", className: "voice-num", children: "0" }),
-          /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("span", { className: "voice-max", children: "/ 16" }),
-          /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)("div", { id: "voice-leds", className: "voice-leds", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("i", {}),
-            /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("i", {}),
-            /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("i", {}),
-            /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("i", {}),
-            /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("i", {}),
-            /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("i", {}),
-            /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("i", {}),
-            /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("i", {}),
-            /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("i", {}),
-            /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("i", {}),
-            /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("i", {}),
-            /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("i", {}),
-            /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("i", {}),
-            /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("i", {}),
-            /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("i", {}),
-            /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("i", {})
+        /* @__PURE__ */ (0, import_jsx_runtime29.jsxs)("div", { className: "voice-monitor", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("span", { className: "voice-label", children: "VOICES" }),
+          /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("span", { id: "voice-count", className: "voice-num", children: "0" }),
+          /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("span", { className: "voice-max", children: "/ 16" }),
+          /* @__PURE__ */ (0, import_jsx_runtime29.jsxs)("div", { id: "voice-leds", className: "voice-leds", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("i", {}),
+            /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("i", {}),
+            /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("i", {}),
+            /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("i", {}),
+            /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("i", {}),
+            /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("i", {}),
+            /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("i", {}),
+            /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("i", {}),
+            /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("i", {}),
+            /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("i", {}),
+            /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("i", {}),
+            /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("i", {}),
+            /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("i", {}),
+            /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("i", {}),
+            /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("i", {}),
+            /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("i", {})
           ] })
         ] })
       ] })
@@ -21463,11 +22096,11 @@
   };
 
   // src/components/CommandDock.tsx
-  var import_jsx_runtime28 = __toESM(require_jsx_runtime(), 1);
+  var import_jsx_runtime30 = __toESM(require_jsx_runtime(), 1);
   var CommandDock = () => {
-    return /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("section", { className: "studio-card command-dock", children: /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)("div", { className: "command-row", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)("div", { className: "preset-browser-nav", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(
+    return /* @__PURE__ */ (0, import_jsx_runtime30.jsx)("section", { className: "studio-card command-dock", children: /* @__PURE__ */ (0, import_jsx_runtime30.jsxs)("div", { className: "command-row", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime30.jsxs)("div", { className: "preset-browser-nav", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime30.jsx)(
           "button",
           {
             id: "btn-preset-prev",
@@ -21477,7 +22110,7 @@
             children: "\u25C0"
           }
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)(
+        /* @__PURE__ */ (0, import_jsx_runtime30.jsxs)(
           "button",
           {
             id: "btn-preset-browser",
@@ -21485,13 +22118,13 @@
             type: "button",
             title: "Abrir/Cerrar Explorador de Bancos de Sonido y Categor\xEDas",
             children: [
-              /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("span", { className: "browser-led" }),
-              /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("span", { id: "preset-browser-label", children: "PRESET BROWSER (1,250+ PRESETS)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("span", { className: "browser-chevron", children: "\u25BE" })
+              /* @__PURE__ */ (0, import_jsx_runtime30.jsx)("span", { className: "browser-led" }),
+              /* @__PURE__ */ (0, import_jsx_runtime30.jsx)("span", { id: "preset-browser-label", children: "PRESET BROWSER (1,250+ PRESETS)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime30.jsx)("span", { className: "browser-chevron", children: "\u25BE" })
             ]
           }
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime30.jsx)(
           "button",
           {
             id: "btn-preset-next",
@@ -21502,9 +22135,9 @@
           }
         )
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)("div", { className: "prompt-input-shell", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("span", { className: "prompt-sparkle", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("svg", { className: "hw-svg cyan-svg", viewBox: "0 0 16 16", children: /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("path", { d: "M8 1.5l1.7 4.8L14.5 8l-4.8 1.7L8 14.5 6.3 9.7 1.5 8l4.8-1.7L8 1.5z" }) }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime30.jsxs)("div", { className: "prompt-input-shell", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime30.jsx)("span", { className: "prompt-sparkle", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime30.jsx)("svg", { className: "hw-svg cyan-svg", viewBox: "0 0 16 16", children: /* @__PURE__ */ (0, import_jsx_runtime30.jsx)("path", { d: "M8 1.5l1.7 4.8L14.5 8l-4.8 1.7L8 14.5 6.3 9.7 1.5 8l4.8-1.7L8 1.5z" }) }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime30.jsx)(
           "input",
           {
             type: "text",
@@ -21514,8 +22147,8 @@
           }
         )
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("button", { id: "btn-generate", className: "btn-generate-ia", type: "button", children: /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("span", { className: "btn-text", children: "SYNTHESIZE" }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)(
+      /* @__PURE__ */ (0, import_jsx_runtime30.jsx)("button", { id: "btn-generate", className: "btn-generate-ia", type: "button", children: /* @__PURE__ */ (0, import_jsx_runtime30.jsx)("span", { className: "btn-text", children: "SYNTHESIZE" }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime30.jsxs)(
         "button",
         {
           id: "btn-ab-compare",
@@ -21523,18 +22156,18 @@
           type: "button",
           title: "Comparador instant\xE1neo A/B entre el timbre actual (Slot A) y el timbre previo (Slot B)",
           children: [
-            /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("span", { className: "ab-slot active", id: "ab-slot-a", children: "A" }),
-            /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("span", { className: "ab-sep", children: "/" }),
-            /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("span", { className: "ab-slot", id: "ab-slot-b", children: "B" })
+            /* @__PURE__ */ (0, import_jsx_runtime30.jsx)("span", { className: "ab-slot active", id: "ab-slot-a", children: "A" }),
+            /* @__PURE__ */ (0, import_jsx_runtime30.jsx)("span", { className: "ab-sep", children: "/" }),
+            /* @__PURE__ */ (0, import_jsx_runtime30.jsx)("span", { className: "ab-slot", id: "ab-slot-b", children: "B" })
           ]
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)("div", { className: "pack-pills-group", "aria-label": "Packs por G\xE9nero", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("button", { className: "pack-pill", "data-pack": "pack-01", type: "button", children: "Vital Wavetables" }),
-        /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("button", { className: "pack-pill", "data-pack": "pack-02", type: "button", children: "Reese & 808 Bass" }),
-        /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("button", { className: "pack-pill", "data-pack": "pack-03", type: "button", children: "Cinematic Pads" }),
-        /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("button", { className: "pack-pill", "data-pack": "pack-04", type: "button", children: "Supersaw & Leads" }),
-        /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("button", { className: "pack-pill", "data-pack": "pack-05", type: "button", children: "Karplus Acoustic" })
+      /* @__PURE__ */ (0, import_jsx_runtime30.jsxs)("div", { className: "pack-pills-group", "aria-label": "Packs por G\xE9nero", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime30.jsx)("button", { className: "pack-pill", "data-pack": "pack-01", type: "button", children: "Vital Wavetables" }),
+        /* @__PURE__ */ (0, import_jsx_runtime30.jsx)("button", { className: "pack-pill", "data-pack": "pack-02", type: "button", children: "Reese & 808 Bass" }),
+        /* @__PURE__ */ (0, import_jsx_runtime30.jsx)("button", { className: "pack-pill", "data-pack": "pack-03", type: "button", children: "Cinematic Pads" }),
+        /* @__PURE__ */ (0, import_jsx_runtime30.jsx)("button", { className: "pack-pill", "data-pack": "pack-04", type: "button", children: "Supersaw & Leads" }),
+        /* @__PURE__ */ (0, import_jsx_runtime30.jsx)("button", { className: "pack-pill", "data-pack": "pack-05", type: "button", children: "Karplus Acoustic" })
       ] })
     ] }) });
   };
@@ -21544,7 +22177,7 @@
 
   // src/components/TepuiKnob.tsx
   var import_react3 = __toESM(require_react(), 1);
-  var import_jsx_runtime29 = __toESM(require_jsx_runtime(), 1);
+  var import_jsx_runtime31 = __toESM(require_jsx_runtime(), 1);
   function formatTepuiParam(id, norm) {
     const n = Math.max(0, Math.min(1, Number.isFinite(norm) ? norm : 0));
     if (id === "attack" || id === "decay") {
@@ -21612,7 +22245,7 @@
     const resolvedMax = max !== void 0 ? String(max) : maxAttr;
     const resolvedSkew = skew !== void 0 ? String(skew) : skewAttr;
     const mergedClass = `${extraClass} ${className}`.trim();
-    return /* @__PURE__ */ (0, import_jsx_runtime29.jsxs)(
+    return /* @__PURE__ */ (0, import_jsx_runtime31.jsxs)(
       knob_exports.Root,
       {
         ref: rootRef,
@@ -21641,10 +22274,10 @@
           window.__tepuiOnKnobContextMenu?.(param, e);
         },
         children: [
-          /* @__PURE__ */ (0, import_jsx_runtime29.jsxs)(knob_exports.Control, { className: "knob-control knob-widget", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(knob_exports.Track, { className: "knob-track" }),
-            /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(knob_exports.Indicator, { className: "knob-indicator" }),
-            /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime31.jsxs)(knob_exports.Control, { className: "knob-control knob-widget", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime31.jsx)(knob_exports.Track, { className: "knob-track" }),
+            /* @__PURE__ */ (0, import_jsx_runtime31.jsx)(knob_exports.Indicator, { className: "knob-indicator" }),
+            /* @__PURE__ */ (0, import_jsx_runtime31.jsx)(
               knob_exports.Thumb,
               {
                 className: `knob-thumb knob-cap ${accentClass}`,
@@ -21652,26 +22285,46 @@
                 getAriaValueText: (_fmt, v) => formatTepuiParam(param, v)
               }
             ),
-            KNOB_MARKS.map((m) => /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(knob_exports.Mark, { value: m, className: "knob-mark", children: /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("span", { className: "knob-tick" }) }, m)),
-            /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("svg", { className: "knob-mod-svg", viewBox: "0 0 46 46", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(
-              "circle",
-              {
-                className: "knob-mod-track",
-                cx: "23",
-                cy: "23",
-                r: "20.6",
-                fill: "none",
-                stroke: "currentColor",
-                strokeWidth: "1.5",
-                strokeDasharray: "0 129.4",
-                strokeDashoffset: "0",
-                strokeLinecap: "round",
-                opacity: "0"
-              }
-            ) })
+            KNOB_MARKS.map((m) => /* @__PURE__ */ (0, import_jsx_runtime31.jsx)(knob_exports.Mark, { value: m, className: "knob-mark", children: /* @__PURE__ */ (0, import_jsx_runtime31.jsx)("span", { className: "knob-tick" }) }, m)),
+            /* @__PURE__ */ (0, import_jsx_runtime31.jsxs)("svg", { className: "knob-mod-svg knob-mod-ring-svg", viewBox: "0 0 46 46", "aria-hidden": "true", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime31.jsx)(
+                "circle",
+                {
+                  className: "knob-mod-span",
+                  cx: "23",
+                  cy: "23",
+                  r: "20.6",
+                  fill: "none",
+                  stroke: "currentColor",
+                  strokeWidth: "1.5",
+                  strokeDasharray: "0 129.4",
+                  strokeDashoffset: "0",
+                  strokeLinecap: "round",
+                  transform: "rotate(135 23 23)",
+                  opacity: "0"
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime31.jsx)(
+                "circle",
+                {
+                  className: "knob-mod-track",
+                  cx: "23",
+                  cy: "23",
+                  r: "20.6",
+                  fill: "none",
+                  stroke: "currentColor",
+                  strokeWidth: "2.1",
+                  strokeDasharray: "0 129.4",
+                  strokeDashoffset: "0",
+                  strokeLinecap: "round",
+                  transform: "rotate(135 23 23)",
+                  opacity: "0"
+                }
+              )
+            ] })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(knob_exports.Value, { id: `val-${param}`, className: "knob-value knob-val", editable: true, children: (_formatted, v) => formatTepuiParam(param, v) }),
-          /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(knob_exports.Label, { className: "knob-label", children: label })
+          /* @__PURE__ */ (0, import_jsx_runtime31.jsx)(knob_exports.Value, { id: `val-${param}`, className: "knob-value knob-val", editable: true, children: (_formatted, v) => formatTepuiParam(param, v) }),
+          /* @__PURE__ */ (0, import_jsx_runtime31.jsx)(knob_exports.Label, { className: "knob-label", children: label })
         ]
       }
     );
@@ -21679,7 +22332,7 @@
 
   // src/components/TepuiFader.tsx
   var import_react4 = __toESM(require_react(), 1);
-  var import_jsx_runtime30 = __toESM(require_jsx_runtime(), 1);
+  var import_jsx_runtime32 = __toESM(require_jsx_runtime(), 1);
   function TepuiFader({
     param,
     label,
@@ -21697,7 +22350,7 @@
     const resolvedMin = min !== void 0 ? String(min) : minAttr;
     const resolvedMax = max !== void 0 ? String(max) : maxAttr;
     const resolvedSkew = skew !== void 0 ? String(skew) : skewAttr;
-    return /* @__PURE__ */ (0, import_jsx_runtime30.jsxs)(
+    return /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)(
       fader_exports.Root,
       {
         ref: rootRef,
@@ -21726,15 +22379,15 @@
           window.__tepuiOnKnobContextMenu?.(param, e);
         },
         children: [
-          /* @__PURE__ */ (0, import_jsx_runtime30.jsxs)(fader_exports.Control, { className: "fader-control", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime30.jsx)(fader_exports.Track, { className: "fader-track", children: /* @__PURE__ */ (0, import_jsx_runtime30.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)(fader_exports.Control, { className: "fader-control", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(fader_exports.Track, { className: "fader-track", children: /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
               fader_exports.Indicator,
               {
                 id: `fader-fill-${param}`,
                 className: "fader-indicator fader-fill"
               }
             ) }),
-            /* @__PURE__ */ (0, import_jsx_runtime30.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
               fader_exports.Thumb,
               {
                 id: `fader-thumb-${param}`,
@@ -21744,17 +22397,17 @@
               }
             )
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime30.jsx)(fader_exports.Value, { id: `val-${param}`, className: "knob-value knob-val", editable: true, children: (_formatted, values) => formatTepuiParam(param, values[0] ?? val) }),
-          /* @__PURE__ */ (0, import_jsx_runtime30.jsx)(fader_exports.Label, { className: "knob-label", children: label })
+          /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(fader_exports.Value, { id: `val-${param}`, className: "knob-value knob-val", editable: true, children: (_formatted, values) => formatTepuiParam(param, values[0] ?? val) }),
+          /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(fader_exports.Label, { className: "knob-label", children: label })
         ]
       }
     );
   }
 
   // src/components/TepuiMeter.tsx
-  var import_jsx_runtime31 = __toESM(require_jsx_runtime(), 1);
+  var import_jsx_runtime33 = __toESM(require_jsx_runtime(), 1);
   function TepuiMeter() {
-    return /* @__PURE__ */ (0, import_jsx_runtime31.jsxs)(
+    return /* @__PURE__ */ (0, import_jsx_runtime33.jsxs)(
       meter_exports.Root,
       {
         className: "meter-panel meter audio-ui-meter",
@@ -21766,31 +22419,31 @@
         clipThreshold: 0.94,
         source: vuMeterSource,
         children: [
-          /* @__PURE__ */ (0, import_jsx_runtime31.jsxs)("div", { className: "meter-scale", "aria-hidden": "true", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime31.jsx)("span", { children: "0" }),
-            /* @__PURE__ */ (0, import_jsx_runtime31.jsx)("span", { children: "-6" }),
-            /* @__PURE__ */ (0, import_jsx_runtime31.jsx)("span", { children: "-12" }),
-            /* @__PURE__ */ (0, import_jsx_runtime31.jsx)("span", { children: "-24" })
+          /* @__PURE__ */ (0, import_jsx_runtime33.jsxs)("div", { className: "meter-scale", "aria-hidden": "true", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("span", { children: "0" }),
+            /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("span", { children: "-6" }),
+            /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("span", { children: "-12" }),
+            /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("span", { children: "-24" })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime31.jsx)(meter_exports.Channels, { children: (index) => {
+          /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(meter_exports.Channels, { children: (index) => {
             const isLeft = index === 0;
             const label = isLeft ? "L" : "R";
-            return /* @__PURE__ */ (0, import_jsx_runtime31.jsxs)(
+            return /* @__PURE__ */ (0, import_jsx_runtime33.jsxs)(
               meter_exports.Channel,
               {
                 index,
                 className: "meter-channel meter-column",
                 "aria-label": `Master Output ${label}`,
                 children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime31.jsxs)(meter_exports.Track, { className: "meter-track vu-meter", children: [
-                    /* @__PURE__ */ (0, import_jsx_runtime31.jsx)(
+                  /* @__PURE__ */ (0, import_jsx_runtime33.jsxs)(meter_exports.Track, { className: "meter-track vu-meter", children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
                       meter_exports.Indicator,
                       {
                         id: isLeft ? "meter-fill-l" : "meter-fill-r",
                         className: "meter-indicator vu-fill"
                       }
                     ),
-                    /* @__PURE__ */ (0, import_jsx_runtime31.jsx)(
+                    /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
                       meter_exports.Peak,
                       {
                         id: isLeft ? "meter-peak-l" : "meter-peak-r",
@@ -21798,7 +22451,7 @@
                       }
                     )
                   ] }),
-                  /* @__PURE__ */ (0, import_jsx_runtime31.jsx)(meter_exports.Label, { className: "knob-label meter-lbl", children: label })
+                  /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(meter_exports.Label, { className: "knob-label meter-lbl", children: label })
                 ]
               },
               index
@@ -21810,7 +22463,7 @@
   }
 
   // src/components/EurorackMatrix.tsx
-  var import_jsx_runtime32 = __toESM(require_jsx_runtime(), 1);
+  var import_jsx_runtime34 = __toESM(require_jsx_runtime(), 1);
   var PLOT_FREQ_LINES = [100, 1e3, 1e4];
   var PLOT_GAIN_LINES = [-12, 0, 12];
   var ADSR_STAGE_LABELS = ["Start", "Attack", "Decay", "Sustain", "Release"];
@@ -21864,7 +22517,7 @@
       },
       [cutoffHz, cutoffNorm, resNorm, filterMode]
     );
-    return /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)(
+    return /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)(
       plot_exports.Root,
       {
         className: "plot tepui-svf-plot",
@@ -21875,10 +22528,10 @@
         maxY: 18,
         "aria-label": "Filter response",
         children: [
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)(plot_exports.Graph, { className: "plot-graph", children: [
-            PLOT_FREQ_LINES.map((f) => /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(plot_exports.Line, { axis: "x", value: f, className: "plot-grid" }, f)),
-            PLOT_GAIN_LINES.map((g) => /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(plot_exports.Line, { axis: "y", value: g, className: "plot-grid" }, g)),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)(plot_exports.Graph, { className: "plot-graph", children: [
+            PLOT_FREQ_LINES.map((f) => /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(plot_exports.Line, { axis: "x", value: f, className: "plot-grid" }, f)),
+            PLOT_GAIN_LINES.map((g) => /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(plot_exports.Line, { axis: "y", value: g, className: "plot-grid" }, g)),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               plot_exports.Trace,
               {
                 source: svfSpectrumSource,
@@ -21886,7 +22539,7 @@
                 className: "plot-trace"
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               plot_exports.Curve,
               {
                 fn: svfResponseFn,
@@ -21895,7 +22548,7 @@
               }
             )
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
             plot_exports.Handle,
             {
               axis: "both",
@@ -21988,7 +22641,7 @@
       },
       [attack, decay, sustain, release]
     );
-    return /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)(
+    return /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)(
       envelope_exports.Root,
       {
         className: "envelope tepui-adsr-envelope",
@@ -21999,11 +22652,11 @@
         onValueChange: (pts) => syncBreakpointsToParams(pts, false),
         onValueCommitted: (pts) => syncBreakpointsToParams(pts, true),
         children: [
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)(envelope_exports.Graph, { className: "envelope-graph", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(envelope_exports.Fill, { className: "envelope-fill" }),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(envelope_exports.Line, { className: "envelope-line" })
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)(envelope_exports.Graph, { className: "envelope-graph", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(envelope_exports.Fill, { className: "envelope-fill" }),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(envelope_exports.Line, { className: "envelope-line" })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(envelope_exports.Points, { children: (_pt, index) => /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(envelope_exports.Points, { children: (_pt, index) => /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
             envelope_exports.Point,
             {
               index,
@@ -22018,51 +22671,104 @@
   };
   var TepuiArpSequencer = () => {
     const arpSteps = useSynthStore((s) => s.arpSteps);
+    const arpLaneMode = useSynthStore((s) => s.arpLaneMode);
+    const arpStepRatchets = useSynthStore((s) => s.arpStepRatchets);
+    const arpStepOctaves = useSynthStore((s) => s.arpStepOctaves);
+    const numSteps = arpSteps.length > 0 ? arpSteps.length : 12;
     const pattern = (0, import_react5.useMemo)(() => {
       const steps = arpSteps.length > 0 ? arpSteps : [0.95, 0.48, 0.78, 0.92, 0.52, 0.86, 0.95, 0.48, 0.78, 0.92, 0.52, 0.86];
+      if (arpLaneMode === "ratchet") {
+        const row2x = steps.map((_, idx) => (arpStepRatchets[idx] ?? 1) >= 2);
+        const row3x = steps.map((_, idx) => (arpStepRatchets[idx] ?? 1) >= 3);
+        return [row2x, row3x];
+      }
+      if (arpLaneMode === "oct") {
+        const rowUp = steps.map((_, idx) => (arpStepOctaves[idx] ?? 0) > 0);
+        const rowDn = steps.map((_, idx) => (arpStepOctaves[idx] ?? 0) < 0);
+        return [rowUp, rowDn];
+      }
       const gateRow = steps.map((v) => v > 0.2);
       const accRow = steps.map((v) => v >= 0.8);
       return [gateRow, accRow];
-    }, [arpSteps]);
+    }, [arpSteps, arpLaneMode, arpStepRatchets, arpStepOctaves]);
     const handlePatternChange = (0, import_react5.useCallback)(
       (nextPattern) => {
-        const gateRow = nextPattern[0] ?? [];
-        const accRow = nextPattern[1] ?? [];
+        const row0 = nextPattern[0] ?? [];
+        const row1 = nextPattern[1] ?? [];
+        if (arpLaneMode === "ratchet") {
+          const nextRatch = Array.from(
+            { length: numSteps },
+            (_, i) => arpStepRatchets[i] ?? 1
+          );
+          for (let s = 0; s < row0.length; s++) {
+            const prev0 = pattern[0]?.[s] ?? false;
+            const prev1 = pattern[1]?.[s] ?? false;
+            if (row0[s] !== prev0 || row1[s] !== prev1) {
+              const rep = row1[s] ? 3 : row0[s] ? 2 : 1;
+              nextRatch[s] = rep;
+              synthStore.setArpStepRatchets(nextRatch);
+              window.__tepuiOnArpRatchetChange?.(s, rep);
+            }
+          }
+          return;
+        }
+        if (arpLaneMode === "oct") {
+          const nextOct = Array.from(
+            { length: numSteps },
+            (_, i) => arpStepOctaves[i] ?? 0
+          );
+          for (let s = 0; s < row0.length; s++) {
+            const prev0 = pattern[0]?.[s] ?? false;
+            const prev1 = pattern[1]?.[s] ?? false;
+            if (row0[s] !== prev0 || row1[s] !== prev1) {
+              let oct = 0;
+              if (row0[s] && !prev0) oct = 1;
+              else if (row1[s] && !prev1) oct = -1;
+              else if (row0[s]) oct = 1;
+              else if (row1[s]) oct = -1;
+              nextOct[s] = oct;
+              synthStore.setArpStepOctaves(nextOct);
+              window.__tepuiOnArpOctaveChange?.(s, oct);
+            }
+          }
+          return;
+        }
         const nextSteps = [...arpSteps];
-        for (let s = 0; s < gateRow.length; s++) {
+        for (let s = 0; s < row0.length; s++) {
           const prevGate = pattern[0]?.[s] ?? true;
           const prevAcc = pattern[1]?.[s] ?? false;
-          if (gateRow[s] !== prevGate || accRow[s] !== prevAcc) {
-            const vel = accRow[s] ? 0.95 : gateRow[s] ? 0.65 : 0.1;
+          if (row0[s] !== prevGate || row1[s] !== prevAcc) {
+            const vel = row1[s] ? 0.95 : row0[s] ? 0.65 : 0.1;
             nextSteps[s] = vel;
             synthStore.setArpSteps(nextSteps);
             window.__tepuiOnArpSequencerChange?.(s, vel);
           }
         }
       },
-      [arpSteps, pattern]
+      [arpSteps, arpLaneMode, arpStepRatchets, arpStepOctaves, numSteps, pattern]
     );
-    return /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+    const rowNames = arpLaneMode === "ratchet" ? ["RATCH 2x", "RATCH 3x"] : arpLaneMode === "oct" ? ["OCT +1", "OCT -1"] : SEQ_ROW_NAMES;
+    return /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
       sequencer_exports.Root,
       {
         className: "sequencer tepui-arp-sequencer",
         style: { "--arp-cols": pattern[0]?.length || 12 },
         value: pattern,
         source: arpStepSource,
-        "aria-label": `Arpeggiator ${pattern[0]?.length || 12}-Step Pattern`,
+        "aria-label": `Arpeggiator ${pattern[0]?.length || 12}-Step Pattern (${arpLaneMode.toUpperCase()})`,
         onValueChange: handlePatternChange,
-        children: /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(sequencer_exports.Rows, { children: (row) => /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+        children: /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(sequencer_exports.Rows, { children: (row) => /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
           sequencer_exports.Row,
           {
             index: row,
             className: "sequencer-row",
-            "aria-label": SEQ_ROW_NAMES[row] ?? `Row ${row + 1}`,
-            children: /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(sequencer_exports.Cells, { children: (step) => /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+            "aria-label": rowNames[row] ?? `Row ${row + 1}`,
+            children: /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(sequencer_exports.Cells, { children: (step) => /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               sequencer_exports.Cell,
               {
                 step,
                 className: "step arp-seq-step",
-                "aria-label": `${SEQ_ROW_NAMES[row]} step ${step + 1}`
+                "aria-label": `${rowNames[row]} step ${step + 1}`
               },
               step
             ) })
@@ -22073,22 +22779,22 @@
     );
   };
   var EurorackMatrix = () => {
-    return /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("section", { className: "eurorack-chassis", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { id: "preset-browser-drawer", className: "preset-browser-drawer hidden", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "browser-packs-col", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "browser-col-header", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { className: "b-screw" }),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { className: "b-title", children: "SOUND PACK CARDS" }),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { className: "b-screw" })
+    return /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("section", { className: "eurorack-chassis", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { id: "preset-browser-drawer", className: "preset-browser-drawer hidden", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "browser-packs-col", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "browser-col-header", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "b-screw" }),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "b-title", children: "SOUND PACK CARDS" }),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "b-screw" })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("div", { id: "sound-pack-list", className: "sound-pack-list" })
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("div", { id: "sound-pack-list", className: "sound-pack-list" })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "browser-table-col", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "browser-col-header", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { className: "b-screw" }),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { className: "b-title", children: "PRESET SEARCH & TABLE" }),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "browser-header-actions", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "browser-table-col", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "browser-col-header", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "b-screw" }),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "b-title", children: "PRESET SEARCH & TABLE" }),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "browser-header-actions", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
                 "button",
                 {
                   id: "btn-preset-audition",
@@ -22098,7 +22804,7 @@
                   children: "\u{1F50A} AUTO"
                 }
               ),
-              /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+              /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
                 "button",
                 {
                   id: "btn-close-browser",
@@ -22110,12 +22816,12 @@
               )
             ] })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "browser-search-bar", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { className: "search-icon", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("svg", { className: "hw-svg", viewBox: "0 0 16 16", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("circle", { cx: "7", cy: "7", r: "4.5" }),
-              /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("path", { d: "M10.5 10.5L14 14" })
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "browser-search-bar", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "search-icon", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("svg", { className: "hw-svg", viewBox: "0 0 16 16", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("circle", { cx: "7", cy: "7", r: "4.5" }),
+              /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("path", { d: "M10.5 10.5L14 14" })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               "input",
               {
                 type: "text",
@@ -22123,37 +22829,37 @@
                 placeholder: "Search 1,250+ presets por nombre, instrumento, g\xE9nero o comp\xE1s..."
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { id: "preset-count-badge", className: "preset-count-badge", children: "1,250" })
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { id: "preset-count-badge", className: "preset-count-badge", children: "1,250" })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { id: "preset-category-pills", className: "preset-category-pills", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("button", { className: "cat-pill active", "data-cat": "ALL", type: "button", children: "All" }),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("button", { className: "cat-pill", "data-cat": "FAV", type: "button", children: "\u25C6 Favs" }),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("button", { className: "cat-pill", "data-cat": "Plucks", type: "button", children: "Plucks" }),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("button", { className: "cat-pill", "data-cat": "Strings", type: "button", children: "Strings" }),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("button", { className: "cat-pill", "data-cat": "Percussion", type: "button", children: "Percussion" }),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("button", { className: "cat-pill", "data-cat": "Pads", type: "button", children: "Pads" }),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("button", { className: "cat-pill", "data-cat": "Leads", type: "button", children: "Leads" }),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("button", { className: "cat-pill", "data-cat": "Basses", type: "button", children: "Basses" }),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("button", { className: "cat-pill", "data-cat": "Arps 6/8", type: "button", children: "Arps 6/8" })
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { id: "preset-category-pills", className: "preset-category-pills", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("button", { className: "cat-pill active", "data-cat": "ALL", type: "button", children: "All" }),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("button", { className: "cat-pill", "data-cat": "FAV", type: "button", children: "\u25C6 Favs" }),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("button", { className: "cat-pill", "data-cat": "Plucks", type: "button", children: "Plucks" }),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("button", { className: "cat-pill", "data-cat": "Strings", type: "button", children: "Strings" }),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("button", { className: "cat-pill", "data-cat": "Percussion", type: "button", children: "Percussion" }),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("button", { className: "cat-pill", "data-cat": "Pads", type: "button", children: "Pads" }),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("button", { className: "cat-pill", "data-cat": "Leads", type: "button", children: "Leads" }),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("button", { className: "cat-pill", "data-cat": "Basses", type: "button", children: "Basses" }),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("button", { className: "cat-pill", "data-cat": "Arps 6/8", type: "button", children: "Arps 6/8" })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "preset-table-head", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { className: "col-fav", children: "\u25C6" }),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { className: "col-name", children: "Preset" }),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { className: "col-genre", children: "Genre / Category" }),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { className: "col-rhythm", children: "Rhythm" })
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "preset-table-head", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "col-fav", children: "\u25C6" }),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "col-name", children: "Preset" }),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "col-genre", children: "Genre / Category" }),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "col-rhythm", children: "Rhythm" })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("div", { id: "preset-table-body", className: "preset-table-body" })
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("div", { id: "preset-table-body", className: "preset-table-body" })
         ] })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "eurorack-module mod-waveform", id: "mod-waveform", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { className: "hex-screw tl" }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { className: "hex-screw tr" }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { className: "hex-screw bl" }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { className: "hex-screw br" }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "mod-header", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { className: "mod-title", children: "WAVETABLE & UNISON" }),
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "mod-header-pills", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "eurorack-module mod-waveform", id: "mod-waveform", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { className: "hex-screw tl" }),
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { className: "hex-screw tr" }),
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { className: "hex-screw bl" }),
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { className: "hex-screw br" }),
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "mod-header", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "mod-title", children: "WAVETABLE & UNISON" }),
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "mod-header-pills", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               "button",
               {
                 id: "btn-wav-to-wt",
@@ -22163,7 +22869,7 @@
                 children: "WAV\u2192WT"
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               "button",
               {
                 id: "btn-wtdraw-toggle",
@@ -22173,7 +22879,7 @@
                 children: "WT DRAW"
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               "button",
               {
                 id: "btn-wt3d-toggle",
@@ -22183,7 +22889,17 @@
                 children: "3D WT"
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+              "button",
+              {
+                id: "btn-wt-warp-mode",
+                className: "oled-pill-btn amber",
+                title: "Ciclar Algoritmo de Spectral Warp (FOLD / ASYM / SYNC / QUANT)",
+                type: "button",
+                children: "WARP:FOLD"
+              }
+            ),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               "button",
               {
                 id: "btn-granular-mode",
@@ -22193,7 +22909,7 @@
                 children: "GRAN:OFF"
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               "button",
               {
                 id: "btn-drag-wav",
@@ -22204,7 +22920,7 @@
                 children: "DRAG WAV \u2197"
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               "button",
               {
                 id: "btn-unison-voices",
@@ -22214,7 +22930,7 @@
                 children: "UNI:1V"
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               "button",
               {
                 id: "btn-loop-toggle",
@@ -22226,26 +22942,26 @@
             )
           ] })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "oled-bezel cyan-bezel screen-body", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "oled-hud-top", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { id: "telemetry-root", children: "SAMPLE: GRAND PIANO \u2022 C4" }),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { id: "telemetry-dur", children: "3.50s" }),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { id: "telemetry-samples", className: "hud-dim", children: "154,350 smp" })
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "oled-bezel cyan-bezel screen-body", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "oled-hud-top", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { id: "telemetry-root", children: "SAMPLE: GRAND PIANO \u2022 C4" }),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { id: "telemetry-dur", children: "3.50s" }),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { id: "telemetry-samples", className: "hud-dim", children: "154,350 smp" })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("canvas", { id: "oscilloscope", width: "310", height: "82" }),
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "oled-hud-bottom", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { id: "telemetry-region", children: "TRIM: 0%-100%" }),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "keyzone-bar", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("button", { id: "btn-zone-low", className: "zone-btn", type: "button", children: "Z-LOW" }),
-              /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("button", { id: "btn-zone-mid", className: "zone-btn", type: "button", children: "Z-MID" }),
-              /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("button", { id: "btn-zone-high", className: "zone-btn", type: "button", children: "Z-HIGH" }),
-              /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("button", { id: "btn-zone-clear", className: "zone-btn zone-clr", type: "button", children: "1-Z" })
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("canvas", { id: "oscilloscope", width: "310", height: "82" }),
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "oled-hud-bottom", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { id: "telemetry-region", children: "TRIM: 0%-100%" }),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "keyzone-bar", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("button", { id: "btn-zone-low", className: "zone-btn", type: "button", children: "Z-LOW" }),
+              /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("button", { id: "btn-zone-mid", className: "zone-btn", type: "button", children: "Z-MID" }),
+              /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("button", { id: "btn-zone-high", className: "zone-btn", type: "button", children: "Z-HIGH" }),
+              /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("button", { id: "btn-zone-clear", className: "zone-btn zone-clr", type: "button", children: "1-Z" })
             ] })
           ] })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "mod-controls-row vital-osc-row", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "hw-btn-stack", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "mod-controls-row vital-osc-row", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "hw-btn-stack", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               "button",
               {
                 id: "btn-root-down",
@@ -22255,8 +22971,8 @@
                 children: "ROOT -"
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { id: "t-root-val", className: "hw-readout", children: "C4 (60)" }),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { id: "t-root-val", className: "hw-readout", children: "C4 (60)" }),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               "button",
               {
                 id: "btn-root-up",
@@ -22267,8 +22983,8 @@
               }
             )
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "vital-osc-knobs", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "vital-osc-knobs", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               TepuiKnob,
               {
                 param: "wt_pos",
@@ -22281,7 +22997,7 @@
                 className: "mini-vital-knob"
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               TepuiKnob,
               {
                 param: "wt_warp",
@@ -22294,7 +23010,7 @@
                 className: "mini-vital-knob"
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               TepuiKnob,
               {
                 param: "unison_detune",
@@ -22307,7 +23023,7 @@
                 className: "mini-vital-knob"
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               TepuiKnob,
               {
                 param: "sub_level",
@@ -22321,36 +23037,36 @@
               }
             )
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "encoder-pair hidden-encoders", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)(
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "encoder-pair hidden-encoders", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)(
               "div",
               {
                 className: "mini-encoder",
                 id: "enc-trim-start",
                 title: "Arrastra verticalmente para ajustar Trim Start",
                 children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("div", { className: "brushed-cap", children: /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("div", { className: "cap-line" }) }),
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { className: "enc-label", children: "TRIM S" })
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("div", { className: "brushed-cap", children: /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("div", { className: "cap-line" }) }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "enc-label", children: "TRIM S" })
                 ]
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)(
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)(
               "div",
               {
                 className: "mini-encoder",
                 id: "enc-trim-end",
                 title: "Arrastra verticalmente para ajustar Trim End",
                 children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("div", { className: "brushed-cap", children: /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("div", { className: "cap-line" }) }),
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { className: "enc-label", children: "TRIM E" })
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("div", { className: "brushed-cap", children: /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("div", { className: "cap-line" }) }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "enc-label", children: "TRIM E" })
                 ]
               }
             )
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "hw-btn-stack", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { className: "hw-tiny-lbl", children: "ZONES" }),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { id: "t-zones-val", className: "hw-readout cyan", children: "GLOBAL" }),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "hw-btn-stack", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "hw-tiny-lbl", children: "ZONES" }),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { id: "t-zones-val", className: "hw-readout cyan", children: "GLOBAL" }),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               "button",
               {
                 id: "btn-fm-b-toggle",
@@ -22363,15 +23079,15 @@
           ] })
         ] })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "eurorack-module mod-filter", id: "mod-filter", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { className: "hex-screw tl" }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { className: "hex-screw tr" }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { className: "hex-screw bl" }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { className: "hex-screw br" }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "mod-header", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { className: "mod-title", children: "SVF & LADDER FILTER" }),
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "mod-header-pills", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "eurorack-module mod-filter", id: "mod-filter", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { className: "hex-screw tl" }),
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { className: "hex-screw tr" }),
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { className: "hex-screw bl" }),
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { className: "hex-screw br" }),
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "mod-header", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "mod-title", children: "SVF & LADDER FILTER" }),
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "mod-header-pills", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               "button",
               {
                 id: "btn-svf-model",
@@ -22381,7 +23097,7 @@
                 children: "MODEL:SVF"
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               "button",
               {
                 id: "btn-svf-fft-toggle",
@@ -22393,19 +23109,19 @@
             )
           ] })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "oled-bezel cyan-bezel oled-plot-bezel", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("canvas", { id: "oled-svf", width: "290", height: "94" }),
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(TepuiFilterPlot, {})
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "oled-bezel cyan-bezel oled-plot-bezel", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("canvas", { id: "oled-svf", width: "290", height: "94" }),
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(TepuiFilterPlot, {})
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "mod-controls-row filter-controls-row", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "mode-buttons-col", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("button", { className: "mode-btn active", "data-mode": "0", type: "button", children: "LOWPASS" }),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("button", { className: "mode-btn", "data-mode": "1", type: "button", children: "HIGHPASS" }),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("button", { className: "mode-btn", "data-mode": "2", type: "button", children: "BANDPASS" }),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("button", { className: "mode-btn", "data-mode": "3", type: "button", children: "BYPASS" })
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "mod-controls-row filter-controls-row", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "mode-buttons-col", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("button", { className: "mode-btn active", "data-mode": "0", type: "button", children: "LOWPASS" }),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("button", { className: "mode-btn", "data-mode": "1", type: "button", children: "HIGHPASS" }),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("button", { className: "mode-btn", "data-mode": "2", type: "button", children: "BANDPASS" }),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("button", { className: "mode-btn", "data-mode": "3", type: "button", children: "BYPASS" })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "knob-row", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "knob-row", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               TepuiKnob,
               {
                 param: "cutoff",
@@ -22417,7 +23133,7 @@
                 initialDisplay: "20.0 kHz"
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               TepuiKnob,
               {
                 param: "resonance",
@@ -22430,10 +23146,10 @@
               }
             )
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "hw-btn-stack svf-arch-stack", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { className: "hw-tiny-lbl", children: "SLOPE / KEY" }),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { id: "svf-slope-badge", className: "hw-readout cyan", children: "24 dB/OCT" }),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "hw-btn-stack svf-arch-stack", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "hw-tiny-lbl", children: "SLOPE / KEY" }),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { id: "svf-slope-badge", className: "hw-readout cyan", children: "24 dB/OCT" }),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               "button",
               {
                 id: "btn-svf-keytrack",
@@ -22446,15 +23162,15 @@
           ] })
         ] })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "eurorack-module mod-adsr", id: "mod-adsr", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { className: "hex-screw tl" }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { className: "hex-screw tr" }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { className: "hex-screw bl" }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { className: "hex-screw br" }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "mod-header", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { className: "mod-title", children: "ADSR & MOD ENV 2" }),
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "mod-header-pills", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "eurorack-module mod-adsr", id: "mod-adsr", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { className: "hex-screw tl" }),
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { className: "hex-screw tr" }),
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { className: "hex-screw bl" }),
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { className: "hex-screw br" }),
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "mod-header", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "mod-title", children: "ADSR & MOD ENV 2" }),
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "mod-header-pills", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               "button",
               {
                 id: "btn-env2-target",
@@ -22464,7 +23180,7 @@
                 children: "ENV2\u2192CUT"
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               "button",
               {
                 id: "btn-env-curve",
@@ -22476,12 +23192,12 @@
             )
           ] })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "oled-bezel amber-bezel oled-envelope-bezel", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("canvas", { id: "oled-adsr", width: "290", height: "94" }),
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(TepuiAdsrEnvelope, {})
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "oled-bezel amber-bezel oled-envelope-bezel", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("canvas", { id: "oled-adsr", width: "290", height: "94" }),
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(TepuiAdsrEnvelope, {})
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "fader-bank-row", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "fader-bank-row", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
             TepuiFader,
             {
               param: "attack",
@@ -22493,7 +23209,7 @@
               initialDisplay: "10 ms"
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
             TepuiFader,
             {
               param: "decay",
@@ -22505,7 +23221,7 @@
               initialDisplay: "200 ms"
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
             TepuiFader,
             {
               param: "sustain",
@@ -22517,7 +23233,7 @@
               initialDisplay: "80 %"
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
             TepuiFader,
             {
               param: "release",
@@ -22531,15 +23247,15 @@
           )
         ] })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "eurorack-module mod-lfo", id: "mod-lfo", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { className: "hex-screw tl" }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { className: "hex-screw tr" }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { className: "hex-screw bl" }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { className: "hex-screw br" }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "mod-header", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { className: "mod-title", children: "LFO & MOD MATRIX" }),
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "mod-header-pills", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "eurorack-module mod-lfo", id: "mod-lfo", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { className: "hex-screw tl" }),
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { className: "hex-screw tr" }),
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { className: "hex-screw bl" }),
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { className: "hex-screw br" }),
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "mod-header", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "mod-title", children: "LFO & MOD MATRIX" }),
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "mod-header-pills", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               "button",
               {
                 id: "btn-lfo-shape",
@@ -22549,7 +23265,7 @@
                 children: "SINE"
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               "button",
               {
                 id: "btn-lfo-target",
@@ -22561,68 +23277,68 @@
             )
           ] })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("div", { className: "oled-bezel green-bezel", children: /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("canvas", { id: "oled-lfo", width: "290", height: "72" }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "mod-controls-row lfo-matrix-row", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)(
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("div", { className: "oled-bezel green-bezel", children: /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("canvas", { id: "oled-lfo", width: "290", height: "72" }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "mod-controls-row lfo-matrix-row", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)(
             "div",
             {
               className: "mod-matrix-mini",
               id: "mod-matrix-grid",
               title: "Haz clic en cualquier pin para enrutar la matriz de modulaci\xF3n 5\xD75 en vivo",
               children: [
-                /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "matrix-header-row", "aria-hidden": "true", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { className: "m-src-hdr", children: "SRC" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { className: "m-dst-hdr", title: "Filter Cutoff", children: "CUT" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { className: "m-dst-hdr", title: "Filter Resonance", children: "RES" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { className: "m-dst-hdr", title: "Wavetable Position", children: "WT" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { className: "m-dst-hdr", title: "Oscillator Pitch / Vibrato", children: "PIT" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { className: "m-dst-hdr", title: "OTT / Spatial FX Mix", children: "FX" })
+                /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "matrix-header-row", "aria-hidden": "true", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "m-src-hdr", children: "SRC" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "m-dst-hdr", title: "Filter Cutoff", children: "CUT" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "m-dst-hdr", title: "Filter Resonance", children: "RES" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "m-dst-hdr", title: "Wavetable Position", children: "WT" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "m-dst-hdr", title: "Oscillator Pitch / Vibrato", children: "PIT" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "m-dst-hdr", title: "OTT / Spatial FX Mix", children: "FX" })
                 ] }),
-                /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "matrix-row", "data-row": "0", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { className: "m-lbl", children: "LFO 1" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { "data-col": "0" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { className: "on", "data-col": "1" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { "data-col": "2" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { "data-col": "3" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { "data-col": "4" })
+                /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "matrix-row", "data-row": "0", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "m-lbl", children: "LFO 1" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "0" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { className: "on", "data-col": "1" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "2" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "3" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "4" })
                 ] }),
-                /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "matrix-row", "data-row": "1", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { className: "m-lbl", children: "LFO 2" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { "data-col": "0" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { "data-col": "1" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { "data-col": "2" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { className: "on", "data-col": "3" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { "data-col": "4" })
+                /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "matrix-row", "data-row": "1", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "m-lbl", children: "LFO 2" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "0" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "1" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "2" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { className: "on", "data-col": "3" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "4" })
                 ] }),
-                /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "matrix-row", "data-row": "2", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { className: "m-lbl", children: "ENV 2" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { "data-col": "0" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { "data-col": "1" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { className: "on", "data-col": "2" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { "data-col": "3" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { "data-col": "4" })
+                /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "matrix-row", "data-row": "2", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "m-lbl", children: "ENV 2" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "0" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "1" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { className: "on", "data-col": "2" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "3" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "4" })
                 ] }),
-                /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "matrix-row", "data-row": "3", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { className: "m-lbl", children: "VEL" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { "data-col": "0" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { className: "on", "data-col": "1" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { "data-col": "2" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { "data-col": "3" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { "data-col": "4" })
+                /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "matrix-row", "data-row": "3", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "m-lbl", children: "VEL" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "0" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { className: "on", "data-col": "1" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "2" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "3" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "4" })
                 ] }),
-                /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "matrix-row", "data-row": "4", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { className: "m-lbl", children: "MOD W" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { "data-col": "0" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { "data-col": "1" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { "data-col": "2" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { "data-col": "3" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { className: "on", "data-col": "4" })
+                /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "matrix-row", "data-row": "4", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "m-lbl", children: "MOD W" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "0" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "1" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "2" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { "data-col": "3" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { className: "on", "data-col": "4" })
                 ] })
               ]
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "knob-row", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "knob-row", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               TepuiKnob,
               {
                 param: "lfo_rate",
@@ -22634,7 +23350,7 @@
                 initialDisplay: "3.5 Hz"
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               TepuiKnob,
               {
                 param: "lfo_depth",
@@ -22649,15 +23365,15 @@
           ] })
         ] })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "eurorack-module mod-arp", id: "mod-arp", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { className: "hex-screw tl" }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { className: "hex-screw tr" }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { className: "hex-screw bl" }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { className: "hex-screw br" }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "mod-header", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { className: "mod-title", children: "ARP & 16-STEP SEQ" }),
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "mod-header-pills", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "eurorack-module mod-arp", id: "mod-arp", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { className: "hex-screw tl" }),
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { className: "hex-screw tr" }),
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { className: "hex-screw bl" }),
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { className: "hex-screw br" }),
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "mod-header", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "mod-title", children: "ARP & 16-STEP SEQ" }),
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "mod-header-pills", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               "button",
               {
                 id: "btn-arp-rate",
@@ -22667,7 +23383,7 @@
                 children: "RATE:1/16"
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               "button",
               {
                 id: "btn-arp-steps",
@@ -22677,7 +23393,17 @@
                 children: "16 STEPS"
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+              "button",
+              {
+                id: "btn-arp-lane",
+                className: "oled-pill-btn cyan",
+                title: "Alternar Carril del Secuenciador por Paso (LANE:VEL / LANE:RATCH 1x..4x / LANE:OCT \xB11)",
+                type: "button",
+                children: "LANE:VEL"
+              }
+            ),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               "button",
               {
                 id: "btn-arp-mode",
@@ -22689,16 +23415,16 @@
             )
           ] })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "oled-bezel amber-bezel oled-arp-bezel", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("canvas", { id: "oled-arp", width: "290", height: "72" }),
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(TepuiArpSequencer, {})
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "oled-bezel amber-bezel oled-arp-bezel", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("canvas", { id: "oled-arp", width: "290", height: "72" }),
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(TepuiArpSequencer, {})
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "arp-controls-row", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "arp-mode-buttons", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("button", { className: "arp-mode-btn active", "data-arp": "0", type: "button", children: "OFF" }),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("button", { className: "arp-mode-btn", "data-arp": "1", type: "button", children: "UP" }),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("button", { className: "arp-mode-btn", "data-arp": "2", type: "button", children: "DOWN" }),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "arp-controls-row", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "arp-mode-buttons", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("button", { className: "arp-mode-btn active", "data-arp": "0", type: "button", children: "OFF" }),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("button", { className: "arp-mode-btn", "data-arp": "1", type: "button", children: "UP" }),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("button", { className: "arp-mode-btn", "data-arp": "2", type: "button", children: "DOWN" }),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               "button",
               {
                 className: "arp-mode-btn joropo-btn",
@@ -22708,7 +23434,7 @@
                 children: "6/8 SYNC"
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               "button",
               {
                 className: "arp-mode-btn merengue-btn",
@@ -22719,34 +23445,46 @@
               }
             )
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "arp-status-strip", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("span", { className: "arp-stat", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "arp-status-strip", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("span", { className: "arp-stat", children: [
               "COMP\xC1S: ",
-              /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("strong", { id: "arp-meter-label", children: "4/4 FREE" })
+              /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("strong", { id: "arp-meter-label", children: "4/4 FREE" })
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("span", { className: "arp-stat", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("span", { className: "arp-stat", children: [
               "STEPS: ",
-              /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("strong", { id: "arp-steps-count", children: "0" })
+              /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("strong", { id: "arp-steps-count", children: "0" })
             ] })
           ] })
         ] })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "eurorack-module mod-reverb", id: "mod-reverb", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { className: "hex-screw tl" }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { className: "hex-screw tr" }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { className: "hex-screw bl" }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("i", { className: "hex-screw br" }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "mod-header", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { className: "mod-title", children: "OTT, DRIVE & CANYON" }),
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("span", { className: "mod-sub-tag cyan", children: "MASTER FX BUS" })
+      /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "eurorack-module mod-reverb", id: "mod-reverb", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { className: "hex-screw tl" }),
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { className: "hex-screw tr" }),
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { className: "hex-screw bl" }),
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { className: "hex-screw br" }),
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "mod-header", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "mod-title", children: "OTT, DRIVE & CANYON" }),
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "mod-header-pills", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+              "button",
+              {
+                id: "btn-fx-bus-mode",
+                className: "oled-pill-btn cyan",
+                title: "Ciclar Modo del Bus Espacial FX (CANYON / PHASER 6-STG / TAPE WOW)",
+                type: "button",
+                children: "FX:CANYON"
+              }
+            ),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "mod-sub-tag cyan", children: "MASTER FX BUS" })
+          ] })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "reverb-oled-and-vu", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("div", { className: "oled-bezel cyan-bezel reverb-bezel", children: /* @__PURE__ */ (0, import_jsx_runtime32.jsx)("canvas", { id: "oled-reverb", width: "230", height: "72" }) }),
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(TepuiMeter, {})
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "reverb-oled-and-vu", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("div", { className: "oled-bezel cyan-bezel reverb-bezel", children: /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("canvas", { id: "oled-reverb", width: "230", height: "72" }) }),
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(TepuiMeter, {})
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "mod-controls-row reverb-controls-row", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "knob-row vital-fx-knobs", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "mod-controls-row reverb-controls-row", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "knob-row vital-fx-knobs", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               TepuiKnob,
               {
                 param: "drive",
@@ -22759,7 +23497,7 @@
                 className: "mini-vital-knob"
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               TepuiKnob,
               {
                 param: "ott",
@@ -22772,7 +23510,7 @@
                 className: "mini-vital-knob"
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               TepuiKnob,
               {
                 param: "space_mix",
@@ -22785,7 +23523,7 @@
                 className: "mini-vital-knob"
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               TepuiKnob,
               {
                 param: "gain",
@@ -22799,8 +23537,8 @@
               }
             )
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)("div", { className: "master-hw-btns", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "master-hw-btns", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               "button",
               {
                 id: "btn-live-rec",
@@ -22810,7 +23548,7 @@
                 children: "\u25CF REC LIVE"
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
               "button",
               {
                 id: "btn-panic",
@@ -22827,11 +23565,13 @@
   };
 
   // src/components/TepuiPadsDeck.tsx
-  var import_jsx_runtime33 = __toESM(require_jsx_runtime(), 1);
+  var import_jsx_runtime35 = __toESM(require_jsx_runtime(), 1);
   var TepuiPadsDeck = () => {
     const snap = useSynthSnapshot();
-    return /* @__PURE__ */ (0, import_jsx_runtime33.jsxs)("section", { className: "pads-and-chips-deck", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
+    const macro1 = useSynthParam("macro1");
+    const macro2 = useSynthParam("macro2");
+    return /* @__PURE__ */ (0, import_jsx_runtime35.jsxs)("section", { className: "pads-and-chips-deck", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime35.jsx)(
         pad_exports.Root,
         {
           className: "pads folklore-pads-bay",
@@ -22847,7 +23587,7 @@
           },
           children: FOLKLORE_PADS.map((pad) => {
             const isActive = snap.activePadId === pad.id;
-            return /* @__PURE__ */ (0, import_jsx_runtime33.jsxs)(
+            return /* @__PURE__ */ (0, import_jsx_runtime35.jsxs)(
               pad_exports.Item,
               {
                 id: pad.id,
@@ -22863,8 +23603,8 @@
                 "data-drive": pad.drive.toFixed(2),
                 "data-ott": pad.ott.toFixed(2),
                 children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("span", { className: "pad-led" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("span", { className: "pad-name pad-label", children: pad.label })
+                  /* @__PURE__ */ (0, import_jsx_runtime35.jsx)("span", { className: "pad-led" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime35.jsx)("span", { className: "pad-name pad-label", children: pad.label })
                 ]
               },
               pad.id
@@ -22872,13 +23612,13 @@
           })
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime33.jsxs)(
+      /* @__PURE__ */ (0, import_jsx_runtime35.jsxs)(
         "div",
         {
           className: "vital-macros-bay",
           title: "4 Macros estilo Vital / Serum (M1: Timbre/WT, M2: Warp/Reso, M3: Unison/Sub, M4: OTT/Drive/Space)",
           children: [
-            /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime35.jsx)(
               TepuiKnob,
               {
                 param: "macro1",
@@ -22891,7 +23631,7 @@
                 className: "macro-knob"
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime35.jsx)(
               TepuiKnob,
               {
                 param: "macro2",
@@ -22904,7 +23644,7 @@
                 className: "macro-knob"
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime35.jsx)(
               TepuiKnob,
               {
                 param: "macro3",
@@ -22917,7 +23657,7 @@
                 className: "macro-knob"
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime35.jsx)(
               TepuiKnob,
               {
                 param: "macro4",
@@ -22933,9 +23673,65 @@
           ]
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("div", { className: "studio-chips-bay", children: STUDIO_CHIPS.map((chip) => {
+      /* @__PURE__ */ (0, import_jsx_runtime35.jsx)(
+        "div",
+        {
+          className: "tepui-xy-pad-shell",
+          title: "Pad Vectorial 2D (@audio-ui/react/xypad) \u2014 Eje X: M1 TIMBRE \u2022 Eje Y: M2 WARP",
+          children: /* @__PURE__ */ (0, import_jsx_runtime35.jsxs)(
+            xypad_exports.Root,
+            {
+              id: "xy-macro-pad",
+              className: "xy-pad tepui-xy-pad",
+              minX: 0,
+              maxX: 1,
+              stepX: 0.01,
+              minY: 0,
+              maxY: 1,
+              stepY: 0.01,
+              value: { x: macro1, y: macro2 },
+              defaultValue: { x: 0, y: 0 },
+              "aria-label": "Vector XY Morph Pad (Timbre X / Warp Y)",
+              format: { maximumFractionDigits: 2 },
+              onValueChange: ({ x, y }) => {
+                const nx = Math.max(0, Math.min(1, Number(x) || 0));
+                const ny = Math.max(0, Math.min(1, Number(y) || 0));
+                synthStore.setParamNormalized("macro1", nx);
+                synthStore.setParamNormalized("macro2", ny);
+                window.__tepuiOnParamChange?.("macro1", nx, null);
+                window.__tepuiOnParamChange?.("macro2", ny, null);
+              },
+              onValueCommitted: ({ x, y }) => {
+                const nx = Math.max(0, Math.min(1, Number(x) || 0));
+                const ny = Math.max(0, Math.min(1, Number(y) || 0));
+                window.__tepuiOnParamCommit?.("macro1", nx);
+                window.__tepuiOnParamCommit?.("macro2", ny);
+              },
+              children: [
+                /* @__PURE__ */ (0, import_jsx_runtime35.jsxs)(xypad_exports.Control, { className: "xy-pad-control", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime35.jsx)("span", { className: "xy-pad-crosshair-x", "aria-hidden": "true" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime35.jsx)("span", { className: "xy-pad-crosshair-y", "aria-hidden": "true" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime35.jsx)(
+                    xypad_exports.Thumb,
+                    {
+                      className: "xy-pad-thumb",
+                      "aria-label": "Vector Morph Cursor",
+                      getAriaLabel: (axis) => axis === "x" ? "M1 Timbre" : "M2 Warp"
+                    }
+                  )
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime35.jsxs)("div", { className: "xy-pad-footer", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime35.jsx)(xypad_exports.Label, { className: "xy-pad-label", children: "XY MORPH" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime35.jsx)(xypad_exports.Value, { className: "xy-pad-value", children: (_fx, _fy, pt) => `${Math.round(pt.x * 100)}/${Math.round(pt.y * 100)}%` })
+                ] })
+              ]
+            }
+          )
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime35.jsx)("div", { className: "studio-chips-bay", children: STUDIO_CHIPS.map((chip) => {
         const isActive = snap.activeChipId === chip.id;
-        return /* @__PURE__ */ (0, import_jsx_runtime33.jsxs)(
+        return /* @__PURE__ */ (0, import_jsx_runtime35.jsxs)(
           "button",
           {
             id: chip.id,
@@ -22947,7 +23743,7 @@
               synthStore.setActivePadId("");
             },
             children: [
-              /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("span", { className: "chip-dot" }),
+              /* @__PURE__ */ (0, import_jsx_runtime35.jsx)("span", { className: "chip-dot" }),
               chip.label
             ]
           },
@@ -22958,17 +23754,17 @@
   };
 
   // src/components/TepuiKeyboardDeck.tsx
-  var import_jsx_runtime34 = __toESM(require_jsx_runtime(), 1);
+  var import_jsx_runtime36 = __toESM(require_jsx_runtime(), 1);
   var WHITE_SEMIS = [0, 2, 4, 5, 7, 9, 11, 12, 14, 16, 17, 19, 21, 23, 24];
   var TepuiKeyboardDeck = () => {
     const snap = useSynthSnapshot();
     const baseMidi = (snap.currentOctave + 1) * 12;
     const maxMidi = baseMidi + 24;
-    return /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("section", { className: "studio-card keyboard-card", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "keyboard-toolbar", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "octave-controls", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "tb-label", children: "OCTAVE:" }),
-          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+    return /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("section", { className: "studio-card keyboard-card", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "keyboard-toolbar", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "octave-controls", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "tb-label", children: "OCTAVE:" }),
+          /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
             "button",
             {
               id: "btn-oct-down",
@@ -22978,8 +23774,8 @@
               children: "\u25C4 [Z]"
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { id: "octave-badge", className: "tb-badge", children: `OCT ${snap.currentOctave} (C${snap.currentOctave} - C${snap.currentOctave + 2})` }),
-          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { id: "octave-badge", className: "tb-badge", children: `OCT ${snap.currentOctave} (C${snap.currentOctave} - C${snap.currentOctave + 2})` }),
+          /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
             "button",
             {
               id: "btn-oct-up",
@@ -22990,24 +23786,24 @@
             }
           )
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "tri-zone-legend", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "tz-dot cyan" }),
-          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "tz-txt", children: "LOW ZONE" }),
-          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "tz-dot green" }),
-          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "tz-txt", children: "MID ZONE" }),
-          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "tz-dot amber" }),
-          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "tz-txt", children: "HIGH ZONE" }),
-          /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("span", { className: "typing-text", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "tri-zone-legend", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "tz-dot cyan" }),
+          /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "tz-txt", children: "LOW ZONE" }),
+          /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "tz-dot green" }),
+          /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "tz-txt", children: "MID ZONE" }),
+          /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "tz-dot amber" }),
+          /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "tz-txt", children: "HIGH ZONE" }),
+          /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("span", { className: "typing-text", children: [
             "\u2502 QWERTY: ",
-            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("strong", { className: "hl", children: "A-K" }),
+            /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("strong", { className: "hl", children: "A-K" }),
             " /",
             " ",
-            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("strong", { className: "hl", children: "W-U" })
+            /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("strong", { className: "hl", children: "W-U" })
           ] })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "velocity-controls", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "tb-label", children: "VEL:" }),
-          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "velocity-controls", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "tb-label", children: "VEL:" }),
+          /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
             "button",
             {
               id: "btn-vel-down",
@@ -23017,7 +23813,7 @@
               children: "- [C]"
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
             "span",
             {
               id: "vel-badge",
@@ -23026,7 +23822,7 @@
               children: "95%"
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
             "button",
             {
               id: "btn-vel-up",
@@ -23036,7 +23832,7 @@
               children: "+ [V]"
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
             "button",
             {
               id: "btn-sustain-pedal",
@@ -23046,7 +23842,7 @@
               children: "SUS"
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
             "button",
             {
               id: "btn-glide-legato",
@@ -23056,7 +23852,7 @@
               children: "GLIDE:OFF"
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
             "button",
             {
               id: "btn-midi-learn",
@@ -23068,40 +23864,40 @@
           )
         ] })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "keybed-assembly", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "wheel-cheek", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)(
+      /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "keybed-assembly", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "wheel-cheek", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)(
             "div",
             {
               id: "wheel-pitch",
               className: "hw-wheel",
               title: "Pitch Bend (-2..+2 semitonos)",
               children: [
-                /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("div", { id: "wheel-pitch-cap", className: "wheel-cap center" }),
-                /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { children: "PITCH" })
+                /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("div", { id: "wheel-pitch-cap", className: "wheel-cap center" }),
+                /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { children: "PITCH" })
               ]
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)(
+          /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)(
             "div",
             {
               id: "wheel-mod",
               className: "hw-wheel",
               title: "Modulation CC#1 (0..100%)",
               children: [
-                /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("div", { id: "wheel-mod-cap", className: "wheel-cap low" }),
-                /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { children: "MOD" })
+                /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("div", { id: "wheel-mod-cap", className: "wheel-cap low" }),
+                /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { children: "MOD" })
               ]
             }
           )
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "keybed-main", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("div", { id: "keyzone-led-strip", className: "keyzone-led-strip", children: WHITE_SEMIS.map((semi, idx) => {
+        /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "keybed-main", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("div", { id: "keyzone-led-strip", className: "keyzone-led-strip", children: WHITE_SEMIS.map((semi, idx) => {
             const midi = baseMidi + semi;
             const kzClass = midi <= 55 || idx < 5 ? "kz-low" : midi >= 77 || idx >= 10 ? "kz-high" : "kz-mid";
-            return /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("i", { className: kzClass }, semi);
+            return /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("i", { className: kzClass }, semi);
           }) }),
-          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
             piano_exports.Root,
             {
               id: "piano-keyboard",
@@ -23119,24 +23915,24 @@
                   window.__tepuiReleaseNote?.(pitch);
                 }
               },
-              children: /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(piano_exports.Keys, { children: (pitch) => {
+              children: /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(piano_exports.Keys, { children: (pitch) => {
                 const semi = pitch - baseMidi;
                 const shortcut = SEMI_TO_SHORTCUT[semi] || "";
                 const isBlack = [1, 3, 6, 8, 10].includes((semi % 12 + 12) % 12);
-                return /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)(
+                return /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)(
                   piano_exports.Key,
                   {
                     pitch,
                     "data-midi": pitch,
                     className: (state2) => `piano-key key ${state2.color}-key ${state2.active ? "active" : ""}`.trim(),
                     children: [
-                      /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+                      /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
                         piano_exports.KeyLabel,
                         {
                           className: `key-note key-label ${isBlack ? "sr-only-key-label" : ""}`.trim()
                         }
                       ),
-                      isBlack ? shortcut ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "key-shortcut", children: shortcut }) : null : /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "key-shortcut", children: shortcut || "\xA0" })
+                      isBlack ? shortcut ? /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "key-shortcut", children: shortcut }) : null : /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "key-shortcut", children: shortcut || "\xA0" })
                     ]
                   },
                   pitch
@@ -23150,20 +23946,20 @@
   };
 
   // src/components/StudioFooter.tsx
-  var import_jsx_runtime35 = __toESM(require_jsx_runtime(), 1);
+  var import_jsx_runtime37 = __toESM(require_jsx_runtime(), 1);
   var StudioFooter = () => {
-    return /* @__PURE__ */ (0, import_jsx_runtime35.jsxs)("footer", { className: "studio-footer", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime35.jsxs)("div", { className: "footer-status", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime35.jsx)("span", { className: "status-indicator" }),
-        /* @__PURE__ */ (0, import_jsx_runtime35.jsx)("span", { id: "footer-text", children: "ENGINE: HYBRID-PHYSICAL \u2022 ROOT: C4 (261.6 Hz) \u2022 VEL: 95% \u2022 MOD ROUTES: 5 ACTIVE \u2022 48.0 kHz / 32-BIT FLOAT" })
+    return /* @__PURE__ */ (0, import_jsx_runtime37.jsxs)("footer", { className: "studio-footer", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime37.jsxs)("div", { className: "footer-status", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime37.jsx)("span", { className: "status-indicator" }),
+        /* @__PURE__ */ (0, import_jsx_runtime37.jsx)("span", { id: "footer-text", children: "ENGINE: HYBRID-PHYSICAL \u2022 ROOT: C4 (261.6 Hz) \u2022 VEL: 95% \u2022 MOD ROUTES: 5 ACTIVE \u2022 48.0 kHz / 32-BIT FLOAT" })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime35.jsxs)("div", { className: "footer-actions", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime35.jsxs)("span", { className: "shortcut-tip", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime35.jsx)("kbd", { children: "Shift" }),
+      /* @__PURE__ */ (0, import_jsx_runtime37.jsxs)("div", { className: "footer-actions", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime37.jsxs)("span", { className: "shortcut-tip", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime37.jsx)("kbd", { children: "Shift" }),
           " + Arrastre fino"
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime35.jsxs)("span", { className: "shortcut-tip", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime35.jsx)("kbd", { children: "Doble Clic" }),
+        /* @__PURE__ */ (0, import_jsx_runtime37.jsxs)("span", { className: "shortcut-tip", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime37.jsx)("kbd", { children: "Doble Clic" }),
           " reset"
         ] })
       ] })
@@ -23171,27 +23967,27 @@
   };
 
   // src/components/SettingsModal.tsx
-  var import_jsx_runtime36 = __toESM(require_jsx_runtime(), 1);
+  var import_jsx_runtime38 = __toESM(require_jsx_runtime(), 1);
   var SettingsModal = () => {
     const snap = useSynthSnapshot();
     const activeSkinObj = UI_SKINS.find((sk) => sk.id === snap.uiSkin) || UI_SKINS[0];
-    return /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("div", { id: "settings-modal", className: "modal-backdrop hidden", children: /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "modal-card", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "modal-header", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "modal-title-group", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "modal-glyph", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("svg", { className: "hw-svg cyan-svg", viewBox: "0 0 16 16", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("path", { d: "M2 4h12M2 8h12M2 12h12" }),
-            /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("circle", { cx: "5", cy: "4", r: "1.6" }),
-            /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("circle", { cx: "11", cy: "8", r: "1.6" }),
-            /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("circle", { cx: "7", cy: "12", r: "1.6" })
+    return /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("div", { id: "settings-modal", className: "modal-backdrop hidden", children: /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "modal-card", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "modal-header", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "modal-title-group", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "modal-glyph", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("svg", { className: "hw-svg cyan-svg", viewBox: "0 0 16 16", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("path", { d: "M2 4h12M2 8h12M2 12h12" }),
+            /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("circle", { cx: "5", cy: "4", r: "1.6" }),
+            /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("circle", { cx: "11", cy: "8", r: "1.6" }),
+            /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("circle", { cx: "7", cy: "12", r: "1.6" })
           ] }) }),
-          /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "modal-titles", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("h2", { className: "modal-title", children: "AUDIO, MIDI & AI ENGINE ROUTING" }),
-            /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "modal-subtitle", children: "CONFIGURACI\xD3N DE HARDWARE STANDALONE Y MOTOR NEURONAL" })
+          /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "modal-titles", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("h2", { className: "modal-title", children: "AUDIO, MIDI & AI ENGINE ROUTING" }),
+            /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "modal-subtitle", children: "CONFIGURACI\xD3N DE HARDWARE STANDALONE Y MOTOR NEURONAL" })
           ] })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "modal-header-right", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { id: "settings-latency-badge", className: "settings-latency-badge", children: "48.0 kHz \u2022 1056 smp (~22.0 ms)" }),
-          /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "modal-header-right", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { id: "settings-latency-badge", className: "settings-latency-badge", children: "48.0 kHz \u2022 1056 smp (~22.0 ms)" }),
+          /* @__PURE__ */ (0, import_jsx_runtime38.jsx)(
             "button",
             {
               id: "btn-close-settings",
@@ -23203,14 +23999,14 @@
           )
         ] })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)(
+      /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)(
         "div",
         {
           className: "modal-tabs-bar",
           role: "tablist",
           "aria-label": "Secciones de Configuraci\xF3n",
           children: [
-            /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime38.jsx)(
               "button",
               {
                 id: "settings-tab-audio",
@@ -23219,10 +24015,10 @@
                 role: "tab",
                 "aria-selected": "true",
                 type: "button",
-                children: /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { children: "1. AUDIO & MIDI HARDWARE" })
+                children: /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { children: "1. AUDIO & MIDI HARDWARE" })
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime38.jsx)(
               "button",
               {
                 id: "settings-tab-ai",
@@ -23231,10 +24027,10 @@
                 role: "tab",
                 "aria-selected": "false",
                 type: "button",
-                children: /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { children: "2. MOTOR IA, NPU & CLOUD" })
+                children: /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { children: "2. MOTOR IA, NPU & CLOUD" })
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime38.jsx)(
               "button",
               {
                 id: "settings-tab-skin",
@@ -23243,10 +24039,10 @@
                 role: "tab",
                 "aria-selected": "false",
                 type: "button",
-                children: /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { children: "3. APARIENCIA & SKINS" })
+                children: /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { children: "3. APARIENCIA & SKINS" })
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime38.jsx)(
               "button",
               {
                 id: "settings-tab-all",
@@ -23255,140 +24051,140 @@
                 role: "tab",
                 "aria-selected": "false",
                 type: "button",
-                children: /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { children: "VISTA COMPLETA" })
+                children: /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { children: "VISTA COMPLETA" })
               }
             )
           ]
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { id: "daw-mode-banner", className: "mode-banner hidden", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "banner-icon", children: "[i]" }),
-        /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "banner-text", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("strong", { children: "Modo DAW / VST3 Activo" }),
-          /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { children: "La tarjeta de sonido, latencia y sample rate son gestionados directamente por tu DAW (Ableton, FL Studio, Reaper, etc.). Esta configuraci\xF3n aplica al ejecutar TEPUI como aplicaci\xF3n independiente (Standalone)." })
+      /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { id: "daw-mode-banner", className: "mode-banner hidden", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "banner-icon", children: "[i]" }),
+        /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "banner-text", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("strong", { children: "Modo DAW / VST3 Activo" }),
+          /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { children: "La tarjeta de sonido, latencia y sample rate son gestionados directamente por tu DAW (Ableton, FL Studio, Reaper, etc.). Esta configuraci\xF3n aplica al ejecutar TEPUI como aplicaci\xF3n independiente (Standalone)." })
         ] })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "modal-body", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { id: "settings-pane-audio", className: "settings-tab-pane", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "setting-grid-2", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "setting-field", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "field-label-group", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("label", { htmlFor: "select-output-device", children: "DISPOSITIVO DE SALIDA (AUDIO OUTPUT):" }),
-                /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "field-desc", children: "Altavoces f\xEDsicos, auriculares o interfaz USB" })
+      /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "modal-body", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { id: "settings-pane-audio", className: "settings-tab-pane", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "setting-grid-2", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "setting-field", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "field-label-group", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("label", { htmlFor: "select-output-device", children: "DISPOSITIVO DE SALIDA (AUDIO OUTPUT):" }),
+                /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "field-desc", children: "Altavoces f\xEDsicos, auriculares o interfaz USB" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("select", { id: "select-output-device", className: "studio-select", children: /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("option", { value: "", children: "Cargando dispositivos de audio..." }) })
+              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("select", { id: "select-output-device", className: "studio-select", children: /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("option", { value: "", children: "Cargando dispositivos de audio..." }) })
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "setting-field", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "field-label-group", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("label", { htmlFor: "select-input-device", children: "DISPOSITIVO DE ENTRADA (AUDIO INPUT):" }),
-                /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "field-desc", children: "Micr\xF3fono o entrada de l\xEDnea para res\xEDntesis WAV\u2192WT" })
+            /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "setting-field", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "field-label-group", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("label", { htmlFor: "select-input-device", children: "DISPOSITIVO DE ENTRADA (AUDIO INPUT):" }),
+                /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "field-desc", children: "Micr\xF3fono o entrada de l\xEDnea para res\xEDntesis WAV\u2192WT" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("select", { id: "select-input-device", className: "studio-select", children: /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("option", { value: "", children: "Desactivado (Recomendado)" }) })
+              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("select", { id: "select-input-device", className: "studio-select", children: /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("option", { value: "", children: "Desactivado (Recomendado)" }) })
             ] })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "setting-grid-2", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "setting-field", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "field-label-group", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("label", { htmlFor: "select-sample-rate", children: "SAMPLE RATE:" }),
-                /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "field-desc", children: "Frecuencia de muestreo del motor DSP" })
+          /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "setting-grid-2", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "setting-field", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "field-label-group", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("label", { htmlFor: "select-sample-rate", children: "SAMPLE RATE:" }),
+                /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "field-desc", children: "Frecuencia de muestreo del motor DSP" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)(
+              /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)(
                 "select",
                 {
                   id: "select-sample-rate",
                   className: "studio-select",
                   defaultValue: "48000",
                   children: [
-                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("option", { value: "44100", children: "44.1 kHz (44,100 Hz)" }),
-                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("option", { value: "48000", children: "48.0 kHz (48,000 Hz) [Nativo]" }),
-                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("option", { value: "88200", children: "88.2 kHz (88,200 Hz)" }),
-                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("option", { value: "96000", children: "96.0 kHz (96,000 Hz)" })
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("option", { value: "44100", children: "44.1 kHz (44,100 Hz)" }),
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("option", { value: "48000", children: "48.0 kHz (48,000 Hz) [Nativo]" }),
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("option", { value: "88200", children: "88.2 kHz (88,200 Hz)" }),
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("option", { value: "96000", children: "96.0 kHz (96,000 Hz)" })
                   ]
                 }
               )
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "setting-field", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "field-label-group", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("label", { htmlFor: "select-buffer-size", children: "BUFFER / LATENCIA:" }),
-                /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "field-desc", children: "Tama\xF1o de bloque en muestras (menor = menos latencia)" })
+            /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "setting-field", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "field-label-group", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("label", { htmlFor: "select-buffer-size", children: "BUFFER / LATENCIA:" }),
+                /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "field-desc", children: "Tama\xF1o de bloque en muestras (menor = menos latencia)" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)(
+              /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)(
                 "select",
                 {
                   id: "select-buffer-size",
                   className: "studio-select",
                   defaultValue: "1056",
                   children: [
-                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("option", { value: "128", children: "128 samples (~2.7 ms)" }),
-                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("option", { value: "256", children: "256 samples (~5.3 ms)" }),
-                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("option", { value: "512", children: "512 samples (~10.6 ms)" }),
-                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("option", { value: "1056", children: "1056 samples (~22 ms - Windows WASAPI \xD3ptimo)" }),
-                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("option", { value: "2048", children: "2048 samples (~42.6 ms - Seguro)" })
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("option", { value: "128", children: "128 samples (~2.7 ms)" }),
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("option", { value: "256", children: "256 samples (~5.3 ms)" }),
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("option", { value: "512", children: "512 samples (~10.6 ms)" }),
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("option", { value: "1056", children: "1056 samples (~22 ms - Windows WASAPI \xD3ptimo)" }),
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("option", { value: "2048", children: "2048 samples (~42.6 ms - Seguro)" })
                   ]
                 }
               )
             ] })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "setting-field", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "field-label-group", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("label", { htmlFor: "select-midi-device", children: "TECLADO / CONTROLADOR MIDI USB (HOT-PLUG):" }),
-              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "field-desc", children: "Conexi\xF3n en caliente con soporte de Velocity, Pitch Bend y Mod Wheel" })
+          /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "setting-field", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "field-label-group", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("label", { htmlFor: "select-midi-device", children: "TECLADO / CONTROLADOR MIDI USB (HOT-PLUG):" }),
+              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "field-desc", children: "Conexi\xF3n en caliente con soporte de Velocity, Pitch Bend y Mod Wheel" })
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("select", { id: "select-midi-device", className: "studio-select", children: /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("option", { value: "", children: "Cargando puertos MIDI..." }) })
+            /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("select", { id: "select-midi-device", className: "studio-select", children: /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("option", { value: "", children: "Cargando puertos MIDI..." }) })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "test-tone-box", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "test-tone-info", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "test-tone-title", children: "VERIFICADOR DE REPRODUCCI\xD3N EN VIVO" }),
-              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "test-tone-desc", children: "Dispara un acorde C4-E4-G4 para verificar salida de audio en el dispositivo activo" })
+          /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "test-tone-box", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "test-tone-info", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "test-tone-title", children: "VERIFICADOR DE REPRODUCCI\xD3N EN VIVO" }),
+              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "test-tone-desc", children: "Dispara un acorde C4-E4-G4 para verificar salida de audio en el dispositivo activo" })
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("button", { id: "btn-test-tone", className: "btn-test-tone", type: "button", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "tone-icon", children: "\u25B6" }),
-              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { id: "test-tone-text", children: "PROBAR SONIDO (TEST CHORD)" })
+            /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("button", { id: "btn-test-tone", className: "btn-test-tone", type: "button", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "tone-icon", children: "\u25B6" }),
+              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { id: "test-tone-text", children: "PROBAR SONIDO (TEST CHORD)" })
             ] })
           ] })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime38.jsx)(
           "div",
           {
             id: "settings-pane-ai",
             className: "settings-tab-pane hidden-pane",
-            children: /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "cloud-license-box", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "cloud-license-header", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "field-label-group", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("label", { htmlFor: "select-ai-provider", children: "PROVEEDOR DE IA ABIERTO (OPEN SOURCE MULTI-LLM & NPU):" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "field-desc", children: "Pool Comunitario KV gratuito, Ollama GPU local, Gemini, Groq, OpenAI o 100% Intel NPU" })
+            children: /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "cloud-license-box", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "cloud-license-header", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "field-label-group", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("label", { htmlFor: "select-ai-provider", children: "PROVEEDOR DE IA ABIERTO (OPEN SOURCE MULTI-LLM & NPU):" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "field-desc", children: "Pool Comunitario KV gratuito, Ollama GPU local, Gemini, Groq, OpenAI o 100% Intel NPU" })
                 ] }),
-                /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { id: "cloud-modal-tier-badge", className: "cloud-tier-pill", children: "COMMUNITY KV \u2022 20 CR" })
+                /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { id: "cloud-modal-tier-badge", className: "cloud-tier-pill", children: "COMMUNITY KV \u2022 20 CR" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "setting-grid-2", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "setting-field", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "field-label-group", children: [
-                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("label", { htmlFor: "select-ai-provider", children: "MOTOR / PROVEEDOR DE S\xCDNTESIS IA:" }),
-                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "field-desc", children: "Conecta cualquier LLM o sintetiza 100% offline" })
+              /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "setting-grid-2", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "setting-field", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "field-label-group", children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("label", { htmlFor: "select-ai-provider", children: "MOTOR / PROVEEDOR DE S\xCDNTESIS IA:" }),
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "field-desc", children: "Conecta cualquier LLM o sintetiza 100% offline" })
                   ] }),
-                  /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)(
+                  /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)(
                     "select",
                     {
                       id: "select-ai-provider",
                       className: "studio-select",
                       defaultValue: "community_edge",
                       children: [
-                        /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("option", { value: "community_edge", children: "TEPUI Community Edge (Gratis \u2022 KV Cache + 20/d\xEDa)" }),
-                        /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("option", { value: "ollama_local", children: "Ollama Local (100% Offline en tu PC \u2022 http://127.0.0.1:11434)" }),
-                        /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("option", { value: "gemini", children: "Google Gemini API (BYOK \u2022 Tier Gratuito en AI Studio)" }),
-                        /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("option", { value: "groq", children: "Groq Cloud LPU (BYOK \u2022 Ultra-R\xE1pido ~150ms)" }),
-                        /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("option", { value: "openai_compatible", children: "OpenAI / OpenRouter / Compatible (BYOK)" }),
-                        /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("option", { value: "local_npu", children: "100% Local Intel NPU + DSP F\xEDsico (Offline Instant\xE1neo)" })
+                        /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("option", { value: "community_edge", children: "TEPUI Community Edge (Gratis \u2022 KV Cache + 20/d\xEDa)" }),
+                        /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("option", { value: "ollama_local", children: "Ollama Local (100% Offline en tu PC \u2022 http://127.0.0.1:11434)" }),
+                        /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("option", { value: "gemini", children: "Google Gemini API (BYOK \u2022 Tier Gratuito en AI Studio)" }),
+                        /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("option", { value: "groq", children: "Groq Cloud LPU (BYOK \u2022 Ultra-R\xE1pido ~150ms)" }),
+                        /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("option", { value: "openai_compatible", children: "OpenAI / OpenRouter / Compatible (BYOK)" }),
+                        /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("option", { value: "local_npu", children: "100% Local Intel NPU + DSP F\xEDsico (Offline Instant\xE1neo)" })
                       ]
                     }
                   )
                 ] }),
-                /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "setting-field", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "field-label-group", children: [
-                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("label", { htmlFor: "input-ai-model", children: "MODELO IA (OPCIONAL):" }),
-                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "field-desc", children: "Ej: llama3.2, gemini-2.5-flash, llama-3.3-70b-versatile" })
+                /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "setting-field", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "field-label-group", children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("label", { htmlFor: "input-ai-model", children: "MODELO IA (OPCIONAL):" }),
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "field-desc", children: "Ej: llama3.2, gemini-2.5-flash, llama-3.3-70b-versatile" })
                   ] }),
-                  /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
+                  /* @__PURE__ */ (0, import_jsx_runtime38.jsx)(
                     "input",
                     {
                       type: "text",
@@ -23400,13 +24196,13 @@
                   )
                 ] })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "setting-grid-2", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "setting-field", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "field-label-group", children: [
-                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("label", { htmlFor: "input-ai-api-key", children: "API KEY (GEMINI / GROQ / OPENAI / OPENROUTER):" }),
-                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "field-desc", children: "Almacenada localmente (no requerida para KV, Ollama o NPU)" })
+              /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "setting-grid-2", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "setting-field", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "field-label-group", children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("label", { htmlFor: "input-ai-api-key", children: "API KEY (GEMINI / GROQ / OPENAI / OPENROUTER):" }),
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "field-desc", children: "Almacenada localmente (no requerida para KV, Ollama o NPU)" })
                   ] }),
-                  /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
+                  /* @__PURE__ */ (0, import_jsx_runtime38.jsx)(
                     "input",
                     {
                       type: "password",
@@ -23417,12 +24213,12 @@
                     }
                   )
                 ] }),
-                /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "setting-field", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "field-label-group", children: [
-                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("label", { htmlFor: "input-ai-endpoint", children: "TEPUI_AI_GATEWAY_URL (SAMPLES .WAV IA):" }),
-                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "field-desc", children: "Endpoint para generaci\xF3n de samples .WAV one-shot (5 CR / WAV)" })
+                /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "setting-field", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "field-label-group", children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("label", { htmlFor: "input-ai-endpoint", children: "TEPUI_AI_GATEWAY_URL (SAMPLES .WAV IA):" }),
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "field-desc", children: "Endpoint para generaci\xF3n de samples .WAV one-shot (5 CR / WAV)" })
                   ] }),
-                  /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
+                  /* @__PURE__ */ (0, import_jsx_runtime38.jsx)(
                     "input",
                     {
                       type: "text",
@@ -23435,13 +24231,13 @@
                   )
                 ] })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "setting-grid-2", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "setting-field", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "field-label-group", children: [
-                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("label", { htmlFor: "input-cloud-redeem-code", children: "C\xD3DIGO DE RECARGA / LICENCIA CLOUD:" }),
-                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "field-desc", children: "Canjea un voucher de cr\xE9ditos o licencia Pro (ej. TEPUI-PRO-2026)" })
+              /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "setting-grid-2", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "setting-field", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "field-label-group", children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("label", { htmlFor: "input-cloud-redeem-code", children: "C\xD3DIGO DE RECARGA / LICENCIA CLOUD:" }),
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "field-desc", children: "Canjea un voucher de cr\xE9ditos o licencia Pro (ej. TEPUI-PRO-2026)" })
                   ] }),
-                  /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
+                  /* @__PURE__ */ (0, import_jsx_runtime38.jsx)(
                     "input",
                     {
                       type: "text",
@@ -23452,46 +24248,46 @@
                     }
                   )
                 ] }),
-                /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "setting-field", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "field-label-group", children: [
-                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("label", { htmlFor: "btn-redeem-cloud-code", children: "ACTIVACI\xD3N INSTANT\xC1NEA EN EDGE KV:" }),
-                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "field-desc", children: "Acredita saldo en TEPUI_CREDITS_KV sin reiniciar el DAW" })
+                /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "setting-field", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "field-label-group", children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("label", { htmlFor: "btn-redeem-cloud-code", children: "ACTIVACI\xD3N INSTANT\xC1NEA EN EDGE KV:" }),
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "field-desc", children: "Acredita saldo en TEPUI_CREDITS_KV sin reiniciar el DAW" })
                   ] }),
-                  /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
+                  /* @__PURE__ */ (0, import_jsx_runtime38.jsx)(
                     "button",
                     {
                       id: "btn-redeem-cloud-code",
                       className: "btn-test-tone",
                       type: "button",
-                      children: /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { children: "+ CANJEAR C\xD3DIGO / RECARGAR CR\xC9DITOS" })
+                      children: /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { children: "+ CANJEAR C\xD3DIGO / RECARGAR CR\xC9DITOS" })
                     }
                   )
                 ] })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "cloud-license-actions", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { id: "cloud-quota-summary", className: "field-desc", children: "Pool Comunitario KV: 0 / 9,500 Neurons hoy (Cach\xE9 KV global = 0 Neurons en hits)" }),
-                /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)(
+              /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "cloud-license-actions", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { id: "cloud-quota-summary", className: "field-desc", children: "Pool Comunitario KV: 0 / 9,500 Neurons hoy (Cach\xE9 KV global = 0 Neurons en hits)" }),
+                /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)(
                   "div",
                   {
                     style: { display: "flex", gap: "8px", alignItems: "center" },
                     children: [
-                      /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
+                      /* @__PURE__ */ (0, import_jsx_runtime38.jsx)(
                         "button",
                         {
                           id: "btn-buy-cloud-credits",
                           className: "btn-test-tone",
                           type: "button",
                           title: "Abrir Checkout seguro con tu ID de dispositivo para recarga autom\xE1tica por Webhook",
-                          children: /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { children: "COMPRAR CR\xC9DITOS PRO" })
+                          children: /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { children: "COMPRAR CR\xC9DITOS PRO" })
                         }
                       ),
-                      /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
+                      /* @__PURE__ */ (0, import_jsx_runtime38.jsx)(
                         "button",
                         {
                           id: "btn-verify-cloud-license",
                           className: "btn-test-tone",
                           type: "button",
-                          children: /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { children: "GUARDAR PROVEEDOR DE IA" })
+                          children: /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { children: "GUARDAR PROVEEDOR DE IA" })
                         }
                       )
                     ]
@@ -23501,34 +24297,34 @@
             ] })
           }
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)(
+        /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)(
           "div",
           {
             id: "settings-pane-skin",
             className: "settings-tab-pane hidden-pane",
             children: [
-              /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "skin-pane-header", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "field-label-group", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("label", { children: "MOTOR DE APARIENCIA & HARDWARE SKINS (AUDIO/UI DESIGN ENGINE):" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("span", { className: "field-desc", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "skin-pane-header", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "field-label-group", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("label", { children: "MOTOR DE APARIENCIA & HARDWARE SKINS (AUDIO/UI DESIGN ENGINE):" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("span", { className: "field-desc", children: [
                     "Selecciona la direcci\xF3n industrial del chasis Eurorack, pantallas de telemetr\xEDa y diales rotativos. Tambi\xE9n puedes ciclar con clic en el bot\xF3n superior ",
-                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("strong", { children: "SKIN" }),
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("strong", { children: "SKIN" }),
                     " (o Shift+Clic para abrir este panel)."
                   ] })
                 ] }),
-                /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("span", { id: "active-skin-pill", className: "skin-status-pill", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("span", { id: "active-skin-pill", className: "skin-status-pill", children: [
                   "ACTIVO: ",
                   activeSkinObj.label.toUpperCase()
                 ] })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)(
+              /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)(
                 "div",
                 {
                   className: "skin-selector-grid",
                   role: "radiogroup",
                   "aria-label": "Selector de Skin Visual de Hardware",
                   children: [
-                    /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)(
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)(
                       "button",
                       {
                         id: "btn-skin-minimal",
@@ -23538,20 +24334,20 @@
                         "aria-pressed": snap.uiSkin === "minimal",
                         onClick: () => synthStore.setSkin("minimal"),
                         children: [
-                          /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "skin-swatch-preview swatch-minimal", children: [
-                            /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "swatch-top-bar", children: [
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "swatch-mod-tag", children: "01 // SWISS LAB" }),
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "swatch-accent-pill", children: "BRAUN #E03C1F" })
+                          /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "skin-swatch-preview swatch-minimal", children: [
+                            /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "swatch-top-bar", children: [
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "swatch-mod-tag", children: "01 // SWISS LAB" }),
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "swatch-accent-pill", children: "BRAUN #E03C1F" })
                             ] }),
-                            /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "swatch-body-row", children: [
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("div", { className: "swatch-oled-box", children: /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)(
+                            /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "swatch-body-row", children: [
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("div", { className: "swatch-oled-box", children: /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)(
                                 "svg",
                                 {
                                   className: "swatch-wave-svg",
                                   viewBox: "0 0 120 42",
                                   "aria-hidden": "true",
                                   children: [
-                                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
+                                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)(
                                       "path",
                                       {
                                         className: "swatch-wave-fill",
@@ -23559,7 +24355,7 @@
                                         fill: "rgba(224,60,31,0.16)"
                                       }
                                     ),
-                                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
+                                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)(
                                       "path",
                                       {
                                         className: "swatch-wave-line",
@@ -23569,32 +24365,32 @@
                                         strokeWidth: "2"
                                       }
                                     ),
-                                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("circle", { cx: "54", cy: "12", r: "2.8", fill: "#17181a" })
+                                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("circle", { cx: "54", cy: "12", r: "2.8", fill: "#17181a" })
                                   ]
                                 }
                               ) }),
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("div", { className: "skin-preview-dial", children: /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "skin-preview-needle" }) })
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("div", { className: "skin-preview-dial", children: /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "skin-preview-needle" }) })
                             ] })
                           ] }),
-                          /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "skin-card-meta", children: [
-                            /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "skin-card-title-row", children: [
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "skin-card-title", children: "SWISS DAYLIGHT LAB" }),
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "skin-card-code", children: "skin-minimal \u2022 DEFAULT" })
+                          /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "skin-card-meta", children: [
+                            /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "skin-card-title-row", children: [
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "skin-card-title", children: "SWISS DAYLIGHT LAB" }),
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "skin-card-code", children: "skin-minimal \u2022 DEFAULT" })
                             ] }),
-                            /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("p", { className: "skin-card-desc", children: [
+                            /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("p", { className: "skin-card-desc", children: [
                               "Dieter Rams / Teenage Engineering \u2022 Papel c\xE1lido (",
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("code", { children: "#f6f4ef" }),
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("code", { children: "#f6f4ef" }),
                               "), trazos 1px en tinta (",
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("code", { children: "#17181a" }),
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("code", { children: "#17181a" }),
                               ") y acento Braun (",
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("code", { children: "#e03c1f" }),
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("code", { children: "#e03c1f" }),
                               ")."
                             ] })
                           ] })
                         ]
                       }
                     ),
-                    /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)(
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)(
                       "button",
                       {
                         id: "btn-skin-dark",
@@ -23604,20 +24400,20 @@
                         "aria-pressed": snap.uiSkin === "dark",
                         onClick: () => synthStore.setSkin("dark"),
                         children: [
-                          /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "skin-swatch-preview swatch-dark", children: [
-                            /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "swatch-top-bar", children: [
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "swatch-mod-tag", children: "02 // DARK STUDIO" }),
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "swatch-accent-pill", children: "CYAN #00F2FE" })
+                          /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "skin-swatch-preview swatch-dark", children: [
+                            /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "swatch-top-bar", children: [
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "swatch-mod-tag", children: "02 // DARK STUDIO" }),
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "swatch-accent-pill", children: "CYAN #00F2FE" })
                             ] }),
-                            /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "swatch-body-row", children: [
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("div", { className: "swatch-oled-box", children: /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)(
+                            /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "swatch-body-row", children: [
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("div", { className: "swatch-oled-box", children: /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)(
                                 "svg",
                                 {
                                   className: "swatch-wave-svg",
                                   viewBox: "0 0 120 42",
                                   "aria-hidden": "true",
                                   children: [
-                                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
+                                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)(
                                       "path",
                                       {
                                         className: "swatch-wave-fill",
@@ -23625,7 +24421,7 @@
                                         fill: "rgba(0,242,254,0.18)"
                                       }
                                     ),
-                                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
+                                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)(
                                       "path",
                                       {
                                         className: "swatch-wave-line",
@@ -23635,28 +24431,28 @@
                                         strokeWidth: "2"
                                       }
                                     ),
-                                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("circle", { cx: "60", cy: "14", r: "2.8", fill: "#ffaa00" })
+                                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("circle", { cx: "60", cy: "14", r: "2.8", fill: "#ffaa00" })
                                   ]
                                 }
                               ) }),
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("div", { className: "skin-preview-dial", children: /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "skin-preview-needle" }) })
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("div", { className: "skin-preview-dial", children: /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "skin-preview-needle" }) })
                             ] })
                           ] }),
-                          /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "skin-card-meta", children: [
-                            /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "skin-card-title-row", children: [
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "skin-card-title", children: "TEPUI DARK STUDIO" }),
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "skin-card-code", children: "skin-dark" })
+                          /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "skin-card-meta", children: [
+                            /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "skin-card-title-row", children: [
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "skin-card-title", children: "TEPUI DARK STUDIO" }),
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "skin-card-code", children: "skin-dark" })
                             ] }),
-                            /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("p", { className: "skin-card-desc", children: [
+                            /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("p", { className: "skin-card-desc", children: [
                               "Chasis t\xE1ctico oscuro original (",
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("code", { children: "#0b0e13" }),
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("code", { children: "#0b0e13" }),
                               ") con pantallas OLED de alto contraste en cian y \xE1mbar."
                             ] })
                           ] })
                         ]
                       }
                     ),
-                    /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)(
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)(
                       "button",
                       {
                         id: "btn-skin-retro",
@@ -23666,20 +24462,20 @@
                         "aria-pressed": snap.uiSkin === "retro",
                         onClick: () => synthStore.setSkin("retro"),
                         children: [
-                          /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "skin-swatch-preview swatch-retro", children: [
-                            /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "swatch-top-bar", children: [
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "swatch-mod-tag", children: "03 // CREAM CONSOLE" }),
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "swatch-accent-pill", children: "TERRA #C84B31" })
+                          /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "skin-swatch-preview swatch-retro", children: [
+                            /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "swatch-top-bar", children: [
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "swatch-mod-tag", children: "03 // CREAM CONSOLE" }),
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "swatch-accent-pill", children: "TERRA #C84B31" })
                             ] }),
-                            /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "swatch-body-row", children: [
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("div", { className: "swatch-oled-box", children: /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)(
+                            /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "swatch-body-row", children: [
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("div", { className: "swatch-oled-box", children: /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)(
                                 "svg",
                                 {
                                   className: "swatch-wave-svg",
                                   viewBox: "0 0 120 42",
                                   "aria-hidden": "true",
                                   children: [
-                                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
+                                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)(
                                       "path",
                                       {
                                         className: "swatch-wave-fill",
@@ -23687,7 +24483,7 @@
                                         fill: "rgba(200,75,49,0.18)"
                                       }
                                     ),
-                                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
+                                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)(
                                       "path",
                                       {
                                         className: "swatch-wave-line",
@@ -23697,30 +24493,30 @@
                                         strokeWidth: "2"
                                       }
                                     ),
-                                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("circle", { cx: "64", cy: "16", r: "2.8", fill: "#231f1c" })
+                                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("circle", { cx: "64", cy: "16", r: "2.8", fill: "#231f1c" })
                                   ]
                                 }
                               ) }),
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("div", { className: "skin-preview-dial", children: /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "skin-preview-needle" }) })
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("div", { className: "skin-preview-dial", children: /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "skin-preview-needle" }) })
                             ] })
                           ] }),
-                          /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "skin-card-meta", children: [
-                            /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "skin-card-title-row", children: [
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "skin-card-title", children: "CREAM CONSOLE" }),
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "skin-card-code", children: "skin-retro" })
+                          /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "skin-card-meta", children: [
+                            /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "skin-card-title-row", children: [
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "skin-card-title", children: "CREAM CONSOLE" }),
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "skin-card-code", children: "skin-retro" })
                             ] }),
-                            /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("p", { className: "skin-card-desc", children: [
+                            /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("p", { className: "skin-card-desc", children: [
                               "Consola anal\xF3gica cl\xE1sica en esmalte crema (",
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("code", { children: "#ece5d5" }),
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("code", { children: "#ece5d5" }),
                               "), diales marfil y terracota (",
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("code", { children: "#c84b31" }),
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("code", { children: "#c84b31" }),
                               ")."
                             ] })
                           ] })
                         ]
                       }
                     ),
-                    /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)(
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)(
                       "button",
                       {
                         id: "btn-skin-synth70",
@@ -23730,20 +24526,20 @@
                         "aria-pressed": snap.uiSkin === "synth70",
                         onClick: () => synthStore.setSkin("synth70"),
                         children: [
-                          /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "skin-swatch-preview swatch-synth70", children: [
-                            /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "swatch-top-bar", children: [
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "swatch-mod-tag", children: "04 // SYNTH '70S" }),
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "swatch-accent-pill", children: "ANALOG #E06D53" })
+                          /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "skin-swatch-preview swatch-synth70", children: [
+                            /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "swatch-top-bar", children: [
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "swatch-mod-tag", children: "04 // SYNTH '70S" }),
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "swatch-accent-pill", children: "ANALOG #E06D53" })
                             ] }),
-                            /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "swatch-body-row", children: [
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("div", { className: "swatch-oled-box", children: /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)(
+                            /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "swatch-body-row", children: [
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("div", { className: "swatch-oled-box", children: /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)(
                                 "svg",
                                 {
                                   className: "swatch-wave-svg",
                                   viewBox: "0 0 120 42",
                                   "aria-hidden": "true",
                                   children: [
-                                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
+                                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)(
                                       "path",
                                       {
                                         className: "swatch-wave-fill",
@@ -23751,7 +24547,7 @@
                                         fill: "rgba(224,109,83,0.18)"
                                       }
                                     ),
-                                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
+                                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)(
                                       "path",
                                       {
                                         className: "swatch-wave-line",
@@ -23761,30 +24557,30 @@
                                         strokeWidth: "2"
                                       }
                                     ),
-                                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("circle", { cx: "58", cy: "10", r: "2.8", fill: "#eab308" })
+                                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("circle", { cx: "58", cy: "10", r: "2.8", fill: "#eab308" })
                                   ]
                                 }
                               ) }),
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("div", { className: "skin-preview-dial", children: /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "skin-preview-needle" }) })
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("div", { className: "skin-preview-dial", children: /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "skin-preview-needle" }) })
                             ] })
                           ] }),
-                          /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "skin-card-meta", children: [
-                            /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "skin-card-title-row", children: [
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "skin-card-title", children: "SYNTH '70S" }),
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "skin-card-code", children: "skin-synth70" })
+                          /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "skin-card-meta", children: [
+                            /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "skin-card-title-row", children: [
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "skin-card-title", children: "SYNTH '70S" }),
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "skin-card-code", children: "skin-synth70" })
                             ] }),
-                            /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("p", { className: "skin-card-desc", children: [
+                            /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("p", { className: "skin-card-desc", children: [
                               "Gabinete c\xE1lido a\xF1os 70 con paneles en grafito, crema c\xE1lido (",
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("code", { children: "#f4e8c1" }),
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("code", { children: "#f4e8c1" }),
                               ") y naranja anal\xF3gico (",
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("code", { children: "#e06d53" }),
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("code", { children: "#e06d53" }),
                               ")."
                             ] })
                           ] })
                         ]
                       }
                     ),
-                    /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)(
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)(
                       "button",
                       {
                         id: "btn-skin-gunmetal",
@@ -23794,20 +24590,20 @@
                         "aria-pressed": snap.uiSkin === "gunmetal",
                         onClick: () => synthStore.setSkin("gunmetal"),
                         children: [
-                          /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "skin-swatch-preview swatch-gunmetal", children: [
-                            /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "swatch-top-bar", children: [
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "swatch-mod-tag", children: "05 // GUNMETAL RACK" }),
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "swatch-accent-pill", children: "AMBER #F59E0B" })
+                          /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "skin-swatch-preview swatch-gunmetal", children: [
+                            /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "swatch-top-bar", children: [
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "swatch-mod-tag", children: "05 // GUNMETAL RACK" }),
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "swatch-accent-pill", children: "AMBER #F59E0B" })
                             ] }),
-                            /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "swatch-body-row", children: [
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("div", { className: "swatch-oled-box", children: /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)(
+                            /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "swatch-body-row", children: [
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("div", { className: "swatch-oled-box", children: /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)(
                                 "svg",
                                 {
                                   className: "swatch-wave-svg",
                                   viewBox: "0 0 120 42",
                                   "aria-hidden": "true",
                                   children: [
-                                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
+                                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)(
                                       "path",
                                       {
                                         className: "swatch-wave-fill",
@@ -23815,7 +24611,7 @@
                                         fill: "rgba(245,158,11,0.18)"
                                       }
                                     ),
-                                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
+                                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)(
                                       "path",
                                       {
                                         className: "swatch-wave-line",
@@ -23825,30 +24621,30 @@
                                         strokeWidth: "2"
                                       }
                                     ),
-                                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("circle", { cx: "48", cy: "14", r: "2.8", fill: "#38bdf8" })
+                                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("circle", { cx: "48", cy: "14", r: "2.8", fill: "#38bdf8" })
                                   ]
                                 }
                               ) }),
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("div", { className: "skin-preview-dial", children: /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "skin-preview-needle" }) })
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("div", { className: "skin-preview-dial", children: /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "skin-preview-needle" }) })
                             ] })
                           ] }),
-                          /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "skin-card-meta", children: [
-                            /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "skin-card-title-row", children: [
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "skin-card-title", children: "GUNMETAL RACK" }),
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "skin-card-code", children: "skin-gunmetal" })
+                          /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "skin-card-meta", children: [
+                            /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "skin-card-title-row", children: [
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "skin-card-title", children: "GUNMETAL RACK" }),
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "skin-card-code", children: "skin-gunmetal" })
                             ] }),
-                            /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("p", { className: "skin-card-desc", children: [
+                            /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("p", { className: "skin-card-desc", children: [
                               "Aluminio anodizado gris acero (",
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("code", { children: "#1e2229" }),
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("code", { children: "#1e2229" }),
                               "), biseles mecanizados y \xE1mbar de estudio (",
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("code", { children: "#f59e0b" }),
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("code", { children: "#f59e0b" }),
                               ")."
                             ] })
                           ] })
                         ]
                       }
                     ),
-                    /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)(
+                    /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)(
                       "button",
                       {
                         id: "btn-skin-phosphor",
@@ -23858,20 +24654,20 @@
                         "aria-pressed": snap.uiSkin === "phosphor",
                         onClick: () => synthStore.setSkin("phosphor"),
                         children: [
-                          /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "skin-swatch-preview swatch-phosphor", children: [
-                            /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "swatch-top-bar", children: [
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "swatch-mod-tag", children: "06 // CRT PHOSPHOR" }),
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "swatch-accent-pill", children: "P1 #39FF88" })
+                          /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "skin-swatch-preview swatch-phosphor", children: [
+                            /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "swatch-top-bar", children: [
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "swatch-mod-tag", children: "06 // CRT PHOSPHOR" }),
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "swatch-accent-pill", children: "P1 #39FF88" })
                             ] }),
-                            /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "swatch-body-row", children: [
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("div", { className: "swatch-oled-box", children: /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)(
+                            /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "swatch-body-row", children: [
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("div", { className: "swatch-oled-box", children: /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)(
                                 "svg",
                                 {
                                   className: "swatch-wave-svg",
                                   viewBox: "0 0 120 42",
                                   "aria-hidden": "true",
                                   children: [
-                                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
+                                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)(
                                       "path",
                                       {
                                         className: "swatch-wave-fill",
@@ -23879,7 +24675,7 @@
                                         fill: "rgba(57,255,136,0.16)"
                                       }
                                     ),
-                                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
+                                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)(
                                       "path",
                                       {
                                         className: "swatch-wave-line",
@@ -23889,21 +24685,21 @@
                                         strokeWidth: "2"
                                       }
                                     ),
-                                    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("circle", { cx: "75", cy: "15", r: "2.8", fill: "#39ff88" })
+                                    /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("circle", { cx: "75", cy: "15", r: "2.8", fill: "#39ff88" })
                                   ]
                                 }
                               ) }),
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("div", { className: "skin-preview-dial", children: /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "skin-preview-needle" }) })
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("div", { className: "skin-preview-dial", children: /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "skin-preview-needle" }) })
                             ] })
                           ] }),
-                          /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "skin-card-meta", children: [
-                            /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "skin-card-title-row", children: [
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "skin-card-title", children: "CRT PHOSPHOR" }),
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "skin-card-code", children: "skin-phosphor" })
+                          /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "skin-card-meta", children: [
+                            /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "skin-card-title-row", children: [
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "skin-card-title", children: "CRT PHOSPHOR" }),
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { className: "skin-card-code", children: "skin-phosphor" })
                             ] }),
-                            /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("p", { className: "skin-card-desc", children: [
+                            /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("p", { className: "skin-card-desc", children: [
                               "Instrumento de laboratorio con ret\xEDcula verde f\xF3sforo P1 (",
-                              /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("code", { children: "#39ff88" }),
+                              /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("code", { children: "#39ff88" }),
                               ") sobre negro profundo."
                             ] })
                           ] })
@@ -23916,7 +24712,7 @@
             ]
           }
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime38.jsx)(
           "div",
           {
             id: "settings-status-msg",
@@ -23924,8 +24720,8 @@
           }
         )
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "modal-footer", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)("div", { className: "modal-footer", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime38.jsx)(
           "button",
           {
             id: "btn-cancel-settings",
@@ -23934,7 +24730,7 @@
             children: "CANCELAR"
           }
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("button", { id: "btn-save-settings", className: "btn-primary", type: "button", children: /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { children: "GUARDAR Y REINICIAR MOTOR" }) })
+        /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("button", { id: "btn-save-settings", className: "btn-primary", type: "button", children: /* @__PURE__ */ (0, import_jsx_runtime38.jsx)("span", { children: "GUARDAR Y REINICIAR MOTOR" }) })
       ] })
     ] }) });
   };
@@ -24036,8 +24832,13 @@
       arp_rate_div: 1,
       arp_step_count: 16,
       granular_mode: 0,
+      wt_warp_mode: 0,
+      fx_mode: 0,
+      arp_step_ratchets: [1, 1, 1, 2, 1, 1, 1, 2, 1, 1, 1, 2, 1, 1, 2, 3],
+      arp_step_octaves: [0, 0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 1, 0, 0, 1, 1],
       macros: [0, 0, 0, 0]
     },
+    arpLaneMode: "vel",
     normalized: {
       attack: 0.2702,
       decay: 0.622,
@@ -24438,11 +25239,31 @@
       state.normalized.macro2 = p.macros[1] || 0;
       state.normalized.macro3 = p.macros[2] || 0;
       state.normalized.macro4 = p.macros[3] || 0;
+    } else {
+      if (typeof p.macro1 === "number") state.normalized.macro1 = p.macro1;
+      if (typeof p.macro2 === "number") state.normalized.macro2 = p.macro2;
+      if (typeof p.macro3 === "number") state.normalized.macro3 = p.macro3;
+      if (typeof p.macro4 === "number") state.normalized.macro4 = p.macro4;
     }
+    ["macro1", "macro2", "macro3", "macro4"].forEach((mKey) => {
+      if (typeof state.normalized[mKey] === "number") {
+        synthStore.setParam(mKey, Math.round(state.normalized[mKey] * 100));
+      }
+    });
     if (typeof p.unison_voices === "number") updateUnisonVoicesUI(p.unison_voices);
     if (typeof p.fm_from_b === "number") updateFmFromBUI(p.fm_from_b);
     if (typeof p.lfo_shape === "number") updateLfoShapeUI(p.lfo_shape);
     if (typeof p.granular_mode === "number") updateGranularModeUI(p.granular_mode);
+    if (typeof p.wt_warp_mode === "number") updateWtWarpModeUI(p.wt_warp_mode);
+    if (typeof p.fx_mode === "number") updateFxModeUI(p.fx_mode);
+    if (Array.isArray(p.arp_step_ratchets) && p.arp_step_ratchets.length >= 12) {
+      state.params.arp_step_ratchets = p.arp_step_ratchets.map((v) => Math.max(1, Math.min(4, Math.round(Number(v) || 1))));
+      synthStore.setArpStepRatchets(state.params.arp_step_ratchets);
+    }
+    if (Array.isArray(p.arp_step_octaves) && p.arp_step_octaves.length >= 12) {
+      state.params.arp_step_octaves = p.arp_step_octaves.map((v) => Math.max(-2, Math.min(2, Math.round(Number(v) || 0))));
+      synthStore.setArpStepOctaves(state.params.arp_step_octaves);
+    }
     if (typeof p.env2_target === "number" || typeof p.env2_depth === "number") {
       updateEnv2UI(p.env2_target !== void 0 ? p.env2_target : state.params.env2_target, p.env2_depth !== void 0 ? p.env2_depth : state.params.env2_depth);
     }
@@ -24763,7 +25584,40 @@
   var LFO_TARGET_LABELS = ["LFO \u2192 CUTOFF", "LFO \u2192 VIBRATO", "LFO \u2192 TREMOLO", "LFO \u2192 OFF"];
   var LFO_SHAPE_LABELS = ["SINE", "TRI", "SAW", "RAMP", "SQR", "S&H"];
   var GRANULAR_MODE_LABELS = ["GRAN:OFF", "GRAN:CLOUD", "GRAN:FREEZE"];
+  var WT_WARP_MODE_LABELS = ["WARP:FOLD", "WARP:ASYM", "WARP:SYNC", "WARP:QUANT"];
+  var FX_BUS_MODE_LABELS = ["FX:CANYON", "FX:PHASER", "FX:TAPE"];
   var ARP_RATE_LABELS = ["1/4", "1/8", "1/16", "1/8T", "1/16D"];
+  function updateWtWarpModeUI(warpMode) {
+    const wm = Math.max(0, Math.min(3, Math.round(Number(warpMode) || 0)));
+    state.params.wt_warp_mode = wm;
+    synthStore.setWtWarpMode(wm);
+    const btn = document.getElementById("btn-wt-warp-mode");
+    if (btn) {
+      btn.innerText = WT_WARP_MODE_LABELS[wm] || "WARP:FOLD";
+      btn.classList.toggle("active", wm > 0);
+    }
+  }
+  function updateFxModeUI(fxMode) {
+    const fm = Math.max(0, Math.min(2, Math.round(Number(fxMode) || 0)));
+    state.params.fx_mode = fm;
+    synthStore.setFxMode(fm);
+    const btn = document.getElementById("btn-fx-bus-mode");
+    if (btn) {
+      btn.innerText = FX_BUS_MODE_LABELS[fm] || "FX:CANYON";
+      btn.classList.toggle("active", fm > 0);
+    }
+  }
+  function updateArpLaneModeUI(laneMode) {
+    const valid = laneMode === "ratchet" || laneMode === "oct" ? laneMode : "vel";
+    state.arpLaneMode = valid;
+    synthStore.setArpLaneMode(valid);
+    const btn = document.getElementById("btn-arp-lane");
+    if (btn) {
+      const labels = { vel: "LANE:VEL", ratchet: "LANE:RATCH", oct: "LANE:OCT" };
+      btn.innerText = labels[valid] || "LANE:VEL";
+      btn.classList.toggle("active", valid !== "vel");
+    }
+  }
   function updateGranularModeUI(granMode) {
     const g = Math.max(0, Math.min(2, Math.round(Number(granMode) || 0)));
     state.params.granular_mode = g;
@@ -24904,25 +25758,107 @@
     });
   }
   function updateLiveKnobModulationRings() {
-    const depth = state.normalized.lfo_depth !== void 0 ? state.normalized.lfo_depth : state.params.lfo_depth || 0;
-    const target = state.params.lfo_target !== void 0 ? state.params.lfo_target : 0;
-    const lfoWave = state.oddMetrics && typeof state.oddMetrics.lfo_mod_value === "number" && Math.abs(state.oddMetrics.lfo_mod_value) > 1e-3 ? state.oddMetrics.lfo_mod_value : Math.sin(animPhase) * depth;
-    const targetParamMap = { 0: "cutoff", 1: "lfo_rate", 2: "gain" };
-    const activeModParam = target !== 3 ? targetParamMap[target] : null;
+    const lfoDepth = state.normalized.lfo_depth !== void 0 ? state.normalized.lfo_depth : state.params.lfo_depth || 0;
+    const lfoTarget = state.params.lfo_target !== void 0 ? state.params.lfo_target : 0;
+    const env2Target = state.params.env2_target !== void 0 ? state.params.env2_target : 0;
+    const env2Depth = state.params.env2_depth !== void 0 ? state.params.env2_depth : 0;
+    const mask = state.params.mod_matrix_mask >>> 0 & 33554431;
+    const m1 = state.normalized.macro1 || 0;
+    const m2 = state.normalized.macro2 || 0;
+    const m3 = state.normalized.macro3 || 0;
+    const m4 = state.normalized.macro4 || 0;
+    const modWheel = state.modWheelNorm || 0;
+    const liveVel = state.lastPlayedVelocity || state.currentVelocity || 0.95;
+    const lfoWave1 = state.oddMetrics && typeof state.oddMetrics.lfo_mod_value === "number" && Math.abs(state.oddMetrics.lfo_mod_value) > 1e-3 ? state.oddMetrics.lfo_mod_value : Math.sin(animPhase * 1.15);
+    const lfoWave2 = Math.cos(animPhase * 0.72);
+    const env2Pulse = state.activeNotes.size > 0 || (state.dspActiveVoices || 0) > 0 ? 0.5 + 0.5 * Math.sin(animPhase * 1.8) : 0.45;
+    const modSpans = {};
+    const modOffsets = {};
+    const addMod = (pid, spanAmt, instAmt) => {
+      if (Math.abs(spanAmt) < 5e-3) return;
+      modSpans[pid] = Math.min(0.65, (modSpans[pid] || 0) + Math.abs(spanAmt));
+      modOffsets[pid] = Math.max(-0.55, Math.min(0.55, (modOffsets[pid] || 0) + instAmt));
+    };
+    if (lfoDepth > 0.01 && lfoTarget !== 3) {
+      const lfoTargetParam = lfoTarget === 0 ? "cutoff" : lfoTarget === 1 ? "lfo_rate" : "gain";
+      addMod(lfoTargetParam, lfoDepth * 0.36, lfoWave1 * lfoDepth * 0.32);
+    }
+    if (Math.abs(env2Depth) > 0.02 && env2Target !== 3) {
+      const env2Param = env2Target === 0 ? "cutoff" : env2Target === 1 ? "wt_warp" : "wt_pos";
+      addMod(env2Param, Math.abs(env2Depth) * 0.34, env2Depth * env2Pulse * 0.3);
+    }
+    const colToParam = ["cutoff", "resonance", "wt_pos", "unison_detune", "space_mix"];
+    const rowLiveSig = [
+      lfoWave1 * Math.max(0.28, lfoDepth),
+      lfoWave2 * 0.32,
+      env2Pulse * 0.35,
+      (liveVel - 0.5) * 0.55,
+      Math.max(0.18, modWheel) * 0.45
+    ];
+    const rowSpanAmt = [
+      Math.max(0.22, lfoDepth * 0.38),
+      0.24,
+      0.26,
+      0.22,
+      Math.max(0.18, modWheel * 0.38)
+    ];
+    for (let r = 0; r < 5; r++) {
+      for (let c = 0; c < 5; c++) {
+        if ((mask & 1 << r * 5 + c) !== 0) {
+          addMod(colToParam[c], rowSpanAmt[r], rowLiveSig[r]);
+        }
+      }
+    }
+    if (m1 > 0.01) {
+      addMod("wt_pos", m1 * 0.45, m1 * 0.45);
+      addMod("cutoff", m1 * 0.35, m1 * 0.35);
+    }
+    if (m2 > 0.01) {
+      addMod("wt_warp", m2 * 0.55, m2 * 0.55);
+      addMod("resonance", m2 * 0.3, m2 * 0.3);
+    }
+    if (m3 > 0.01) {
+      addMod("unison_detune", m3 * 0.45, m3 * 0.45);
+      addMod("sub_level", m3 * 0.5, m3 * 0.5);
+    }
+    if (m4 > 0.01) {
+      addMod("drive", m4 * 0.45, m4 * 0.45);
+      addMod("ott", m4 * 0.45, m4 * 0.45);
+      addMod("space_mix", m4 * 0.35, m4 * 0.35);
+    }
     const modCircum = 2 * Math.PI * 20.6;
     const maxModArc = 270 / 360 * modCircum;
     document.querySelectorAll(".knob-container").forEach((container) => {
       const pid = container.dataset.param;
       const modCircle = container.querySelector(".knob-mod-track");
+      const spanCircle = container.querySelector(".knob-mod-span");
       if (!modCircle) return;
-      if (pid === activeModParam && depth > 0.01) {
+      const spanVal = modSpans[pid] || 0;
+      if (spanVal > 0.01) {
         const baseNorm = state.normalized[pid] !== void 0 ? state.normalized[pid] : 0.5;
-        const modNorm = Math.max(0, Math.min(1, baseNorm + lfoWave * 0.28));
-        const arcLen = modNorm * maxModArc;
-        modCircle.setAttribute("stroke-dasharray", `${arcLen.toFixed(1)} ${modCircum.toFixed(1)}`);
-        modCircle.setAttribute("opacity", "0.9");
+        const offsetVal = modOffsets[pid] || 0;
+        const liveNorm = Math.max(0, Math.min(1, baseNorm + offsetVal));
+        const spanStart = Math.max(0, Math.min(1, baseNorm - spanVal * 0.45));
+        const spanEnd = Math.max(0, Math.min(1, baseNorm + spanVal * 0.75));
+        const spanArc = Math.max(3.5, (spanEnd - spanStart) * maxModArc);
+        const spanOffset = -(spanStart * maxModArc);
+        if (spanCircle) {
+          spanCircle.setAttribute("stroke-dasharray", `${spanArc.toFixed(1)} ${modCircum.toFixed(1)}`);
+          spanCircle.setAttribute("stroke-dashoffset", spanOffset.toFixed(1));
+          spanCircle.setAttribute("opacity", "0.38");
+        }
+        const arcStart = Math.min(baseNorm, liveNorm);
+        const arcEnd = Math.max(baseNorm, liveNorm);
+        const liveArc = Math.max(4.5, (arcEnd - arcStart) * maxModArc);
+        const liveOffset = -(arcStart * maxModArc);
+        modCircle.setAttribute("stroke-dasharray", `${liveArc.toFixed(1)} ${modCircum.toFixed(1)}`);
+        modCircle.setAttribute("stroke-dashoffset", liveOffset.toFixed(1));
+        modCircle.setAttribute("opacity", "0.92");
+        container.dataset.modulated = "true";
       } else {
+        if (spanCircle) spanCircle.setAttribute("opacity", "0");
         modCircle.setAttribute("opacity", "0");
+        delete container.dataset.modulated;
       }
     });
   }
@@ -25011,6 +25947,31 @@
         updateGranularModeUI(nextGran);
         sendIpc(`gran,${nextGran}`);
         showParamHudTooltip(granBtn, "GRANULAR ENGINE", GRANULAR_MODE_LABELS[nextGran]);
+        setTimeout(hideParamHudTooltip, 950);
+      });
+    }
+    const warpModeBtn = document.getElementById("btn-wt-warp-mode");
+    if (warpModeBtn) {
+      warpModeBtn.addEventListener("click", () => {
+        const nextWarp = ((state.params.wt_warp_mode || 0) + 1) % 4;
+        updateWtWarpModeUI(nextWarp);
+        sendIpc(`wtwarpmode,${nextWarp}`);
+        if ((state.normalized.wt_warp || 0) < 0.12 && nextWarp > 0) {
+          state.normalized.wt_warp = 0.42;
+          state.params.wt_warp = 0.42;
+          updateKnobUI("wt_warp", 0.42);
+        }
+        showParamHudTooltip(warpModeBtn, "SPECTRAL WARP DSP", WT_WARP_MODE_LABELS[nextWarp]);
+        setTimeout(hideParamHudTooltip, 950);
+      });
+    }
+    const fxModeBtn = document.getElementById("btn-fx-bus-mode");
+    if (fxModeBtn) {
+      fxModeBtn.addEventListener("click", () => {
+        const nextFx = ((state.params.fx_mode || 0) + 1) % 3;
+        updateFxModeUI(nextFx);
+        sendIpc(`fxmode,${nextFx}`);
+        showParamHudTooltip(fxModeBtn, "MASTER FX BUS", FX_BUS_MODE_LABELS[nextFx]);
         setTimeout(hideParamHudTooltip, 950);
       });
     }
@@ -25352,7 +26313,9 @@
       drawLfoOled();
       const arpMode = state.params.arp_mode || 0;
       const arpBars = getArpBarsForMode(arpMode);
-      const arpSig = `${currentUiSkin}|${state.oledTheme}|${layoutResizeGeneration}|${arpMode}|${state.params.arp_step_count || 12}|${state.params.arp_rate_div || 2}|${state.lastEditedArpStep}|${arpBars.join(",")}`;
+      const arpRatchStr = Array.isArray(state.params.arp_step_ratchets) ? state.params.arp_step_ratchets.join(",") : "";
+      const arpOctStr = Array.isArray(state.params.arp_step_octaves) ? state.params.arp_step_octaves.join(",") : "";
+      const arpSig = `${currentUiSkin}|${state.oledTheme}|${layoutResizeGeneration}|${arpMode}|${state.arpLaneMode || "vel"}|${state.params.arp_step_count || 12}|${state.params.arp_rate_div || 2}|${state.lastEditedArpStep}|${arpBars.join(",")}|${arpRatchStr}|${arpOctStr}`;
       if (isPlaying || arpMode > 0 || arpSig !== oledDirtyCache.arpSig || oledDirtyCache.frameTick % 4 === 0) {
         oledDirtyCache.arpSig = arpSig;
         drawArpOled();
@@ -26153,7 +27116,9 @@
       const by = botY - bh;
       const isHit = i === activeStep || i === state.lastEditedArpStep;
       const isAccentBeat = i % groupSize === 0;
-      const hasRatchet = numBars === 16 && (i === 3 || i === 7 || i === 11 || i === 15);
+      const stepRatchet = Array.isArray(state.params.arp_step_ratchets) && state.params.arp_step_ratchets[i] !== void 0 ? Math.max(1, Math.min(4, state.params.arp_step_ratchets[i])) : numBars === 16 && (i === 3 || i === 7 || i === 11 || i === 15) ? 2 : 1;
+      const stepOct = Array.isArray(state.params.arp_step_octaves) && state.params.arp_step_octaves[i] !== void 0 ? Math.max(-2, Math.min(2, state.params.arp_step_octaves[i])) : 0;
+      const hasRatchet = stepRatchet >= 2;
       if (isHit) {
         ctx.fillStyle = pal.primaryRgba(0.14);
         ctx.fillRect(padX + i * slotW, topPlotY - 2 * dpr, slotW, maxBarH + 4 * dpr);
@@ -26177,20 +27142,25 @@
         ctx.fillRect(bx, sy, barW, sh);
       }
       ctx.fillStyle = pal.isDaylight ? pal.secondaryHex : isHit ? "#ffffff" : hasRatchet ? arpCyanHex : arpAccHex;
-      if (hasRatchet) {
-        const subW = Math.max(1 * dpr, (barW - 1.2 * dpr) * 0.5);
-        ctx.fillRect(bx, by, subW, Math.max(1.8 * dpr, 2.2 * dpr));
-        ctx.fillRect(bx + subW + 1.2 * dpr, by, subW, Math.max(1.8 * dpr, 2.2 * dpr));
+      if (stepRatchet >= 2) {
+        const gap = 1 * dpr;
+        const subW = Math.max(0.8 * dpr, (barW - gap * (stepRatchet - 1)) / stepRatchet);
+        for (let r = 0; r < stepRatchet; r++) {
+          ctx.fillRect(bx + r * (subW + gap), by, subW, Math.max(1.8 * dpr, 2.2 * dpr));
+        }
       } else {
         ctx.fillRect(bx, by, barW, Math.max(1.6 * dpr, 2 * dpr));
       }
       const gateW = barW * (isAccentBeat ? 0.92 : 0.68);
       ctx.fillStyle = isHit ? arpCyanHex : pal.secondaryRgba(0.55);
       ctx.fillRect(bx, botY + 1.2 * dpr, gateW, 1.5 * dpr);
+      const octShiftY = -stepOct * 4.5 * dpr;
       pitchPts.push({
         x: bx + barW * 0.5,
-        y: Math.max(topPlotY + 3 * dpr, by - 3 * dpr),
-        semi: ARP_PITCH_OFFSETS[i % ARP_PITCH_OFFSETS.length],
+        y: Math.max(topPlotY + 2.5 * dpr, Math.min(botY - 3 * dpr, by - 3 * dpr + octShiftY)),
+        semi: ARP_PITCH_OFFSETS[i % ARP_PITCH_OFFSETS.length] + stepOct * 12,
+        oct: stepOct,
+        ratchet: stepRatchet,
         isHit
       });
     }
@@ -26216,13 +27186,17 @@
     ctx.lineTo(w, h - rulerH);
     ctx.stroke();
     const rateLbl = ARP_RATE_LABELS[state.params.arp_rate_div || 1] || "1/8";
+    const laneTag = state.arpLaneMode === "ratchet" ? "RATCH" : state.arpLaneMode === "oct" ? "OCT" : "VEL";
     const titleMap = ["4/4 MANUAL", `ARP UP \u2022 ${numBars}ST`, `ARP DOWN \u2022 ${numBars}ST`, "JOROPO 6/8 SYNC", "MERENGUE 5/8 SYNC"];
     ctx.fillStyle = arpHex;
     ctx.font = `bold ${Math.round(6.6 * dpr)}px monospace`;
-    ctx.fillText(`${titleMap[mode] || "JOROPO 6/8"} (${rateLbl})`, 6 * dpr, 10 * dpr);
+    ctx.fillText(`${titleMap[mode] || "JOROPO 6/8"} (${rateLbl}\u2022${laneTag})`, 6 * dpr, 10 * dpr);
     ctx.fillStyle = pal.isDaylight ? pal.secondaryHex : arpCyanHex;
     const stepVelPct = Math.round((bars[activeStep] !== void 0 ? bars[activeStep] : 0.85) * 100);
-    ctx.fillText(`STEP ${activeStep + 1 < 10 ? "0" + (activeStep + 1) : activeStep + 1}/${numBars} \u2022 VEL ${stepVelPct}%`, w - 92 * dpr, 10 * dpr);
+    const actRatch = state.params.arp_step_ratchets && state.params.arp_step_ratchets[activeStep] || 1;
+    const actOct = state.params.arp_step_octaves && state.params.arp_step_octaves[activeStep] || 0;
+    const octTxt = actOct > 0 ? `+${actOct}O` : actOct < 0 ? `${actOct}O` : "0O";
+    ctx.fillText(`S${activeStep + 1 < 10 ? "0" + (activeStep + 1) : activeStep + 1} \u2022 ${stepVelPct}% \u2022 ${actRatch}x \u2022 ${octTxt}`, w - 98 * dpr, 10 * dpr);
   }
   function drawReverbOled() {
     const canvas = document.getElementById("oled-reverb");
@@ -26360,11 +27334,13 @@
     ctx.fillText("350ms", irStartX + irW * 0.36, h - 2.6 * dpr);
     ctx.fillText("1.2s", irStartX + irW * 0.68, h - 2.6 * dpr);
     ctx.fillText("2.8s", w - 18 * dpr, h - 2.6 * dpr);
+    const fxModeNames = ["CANYON", "PHASER", "TAPE"];
+    const fxModeName = fxModeNames[state.params.fx_mode || 0] || "CANYON";
     ctx.fillStyle = primaryHex;
     ctx.font = `bold ${Math.round(6.6 * dpr)}px monospace`;
     ctx.fillText(`3B-OTT ${Math.round(ottNorm * 100)}% \u2022 DRV ${Math.round(driveNorm * 100)}%`, 6 * dpr, 9.8 * dpr);
     ctx.fillStyle = secondaryHex;
-    ctx.fillText(`CANYON ${Math.round(mix * 100)}%`, w - 52 * dpr, 9.8 * dpr);
+    ctx.fillText(`${fxModeName} ${Math.round(mix * 100)}%`, w - 56 * dpr, 9.8 * dpr);
   }
   function drawOscilloscope() {
     const canvas = document.getElementById("oscilloscope");
@@ -26568,7 +27544,9 @@
       ctx.fillStyle = secondaryHex;
       ctx.font = `bold ${Math.round(6.4 * dpr)}px monospace`;
       const granTag = granMode === 2 ? " \u2022 FREEZE" : granMode === 1 ? " \u2022 4-GRAIN" : "";
-      ctx.fillText(`3D TEPUI MESA \u2022 FRM ${activeFrameNum}/16${granTag}`, w - 126 * dpr, 20 * dpr);
+      const warpNames = ["FOLD", "ASYM", "SYNC", "QUANT"];
+      const warpTag = (state.params.wt_warp_mode || 0) > 0 ? ` \u2022 ${warpNames[state.params.wt_warp_mode]}` : "";
+      ctx.fillText(`3D TEPUI MESA \u2022 FRM ${activeFrameNum}/16${warpTag}${granTag}`, w - 134 * dpr, 20 * dpr);
       ctx.restore();
       return;
     }
@@ -26812,6 +27790,19 @@
         drawArpOled();
       });
     }
+    const btnArpLane = document.getElementById("btn-arp-lane");
+    if (btnArpLane) {
+      const LANE_CYCLE = ["vel", "ratchet", "oct"];
+      btnArpLane.addEventListener("click", () => {
+        const curIdx = LANE_CYCLE.indexOf(state.arpLaneMode || "vel");
+        const nextLane = LANE_CYCLE[(curIdx + 1) % LANE_CYCLE.length];
+        updateArpLaneModeUI(nextLane);
+        oledDirtyCache.arpSig = "";
+        drawArpOled();
+        showParamHudTooltip(btnArpLane, "ARP SEQ LANE", btnArpLane.innerText);
+        setTimeout(hideParamHudTooltip, 900);
+      });
+    }
     const lfoCanvas = document.getElementById("oled-lfo");
     if (lfoCanvas) {
       lfoCanvas.style.cursor = "pointer";
@@ -26957,6 +27948,31 @@
         const mode = state.params.arp_mode || 0;
         const bars = getArpBarsForMode(mode);
         const stepIdx = Math.max(0, Math.min(bars.length - 1, Math.floor(normX * bars.length)));
+        const lane = state.arpLaneMode || "vel";
+        if (lane === "ratchet") {
+          const rep = Math.max(1, Math.min(4, Math.round(1 + (1 - normY) * 3)));
+          if (!Array.isArray(state.params.arp_step_ratchets)) {
+            state.params.arp_step_ratchets = Array.from({ length: 16 }, () => 1);
+          }
+          state.params.arp_step_ratchets[stepIdx] = rep;
+          synthStore.setArpStepRatchets(state.params.arp_step_ratchets);
+          state.lastEditedArpStep = stepIdx;
+          sendIpc("arpratchet," + stepIdx + "," + rep);
+          showParamHudTooltip(arpCanvas, `STEP ${stepIdx + 1} RATCHET`, `${rep}x SUB-REPEATS`);
+          return;
+        }
+        if (lane === "oct") {
+          const oct = normY < 0.35 ? 1 : normY > 0.65 ? -1 : 0;
+          if (!Array.isArray(state.params.arp_step_octaves)) {
+            state.params.arp_step_octaves = Array.from({ length: 16 }, () => 0);
+          }
+          state.params.arp_step_octaves[stepIdx] = oct;
+          synthStore.setArpStepOctaves(state.params.arp_step_octaves);
+          state.lastEditedArpStep = stepIdx;
+          sendIpc("arpoct," + stepIdx + "," + oct);
+          showParamHudTooltip(arpCanvas, `STEP ${stepIdx + 1} OCTAVE`, `${oct >= 0 ? "+" + oct : oct} OCT`);
+          return;
+        }
         const accent = Math.max(0.05, Math.min(1, 1 - (normY - 0.12) / 0.76));
         bars[stepIdx] = accent;
         if (mode === 0) {
@@ -27014,6 +28030,32 @@
       state.lastPlayedVelocity = v;
       sendIpc("arpstep," + s + "," + v.toFixed(3));
       syncArpPatternToDsp(mode);
+      oledDirtyCache.arpSig = "";
+      drawArpOled();
+    };
+    window.__tepuiOnArpRatchetChange = (stepIdx, repeats) => {
+      const s = Math.max(0, Math.min(15, Number(stepIdx) || 0));
+      const r = Math.max(1, Math.min(4, Math.round(Number(repeats) || 1)));
+      if (!Array.isArray(state.params.arp_step_ratchets)) {
+        state.params.arp_step_ratchets = Array.from({ length: 16 }, () => 1);
+      }
+      state.params.arp_step_ratchets[s] = r;
+      synthStore.setArpStepRatchets(state.params.arp_step_ratchets);
+      state.lastEditedArpStep = s;
+      sendIpc("arpratchet," + s + "," + r);
+      oledDirtyCache.arpSig = "";
+      drawArpOled();
+    };
+    window.__tepuiOnArpOctaveChange = (stepIdx, octave) => {
+      const s = Math.max(0, Math.min(15, Number(stepIdx) || 0));
+      const o = Math.max(-2, Math.min(2, Math.round(Number(octave) || 0)));
+      if (!Array.isArray(state.params.arp_step_octaves)) {
+        state.params.arp_step_octaves = Array.from({ length: 16 }, () => 0);
+      }
+      state.params.arp_step_octaves[s] = o;
+      synthStore.setArpStepOctaves(state.params.arp_step_octaves);
+      state.lastEditedArpStep = s;
+      sendIpc("arpoct," + s + "," + o);
       oledDirtyCache.arpSig = "";
       drawArpOled();
     };
@@ -29066,19 +30108,19 @@
   }
 
   // src/App.tsx
-  var import_jsx_runtime37 = __toESM(require_jsx_runtime(), 1);
+  var import_jsx_runtime39 = __toESM(require_jsx_runtime(), 1);
   function App() {
     (0, import_react6.useLayoutEffect)(() => {
       initApp();
     }, []);
-    return /* @__PURE__ */ (0, import_jsx_runtime37.jsxs)(import_jsx_runtime37.Fragment, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime37.jsx)(StudioHeader, {}),
-      /* @__PURE__ */ (0, import_jsx_runtime37.jsx)(CommandDock, {}),
-      /* @__PURE__ */ (0, import_jsx_runtime37.jsx)(EurorackMatrix, {}),
-      /* @__PURE__ */ (0, import_jsx_runtime37.jsx)(TepuiPadsDeck, {}),
-      /* @__PURE__ */ (0, import_jsx_runtime37.jsx)(TepuiKeyboardDeck, {}),
-      /* @__PURE__ */ (0, import_jsx_runtime37.jsx)(StudioFooter, {}),
-      /* @__PURE__ */ (0, import_jsx_runtime37.jsx)(
+    return /* @__PURE__ */ (0, import_jsx_runtime39.jsxs)(import_jsx_runtime39.Fragment, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime39.jsx)(StudioHeader, {}),
+      /* @__PURE__ */ (0, import_jsx_runtime39.jsx)(CommandDock, {}),
+      /* @__PURE__ */ (0, import_jsx_runtime39.jsx)(EurorackMatrix, {}),
+      /* @__PURE__ */ (0, import_jsx_runtime39.jsx)(TepuiPadsDeck, {}),
+      /* @__PURE__ */ (0, import_jsx_runtime39.jsx)(TepuiKeyboardDeck, {}),
+      /* @__PURE__ */ (0, import_jsx_runtime39.jsx)(StudioFooter, {}),
+      /* @__PURE__ */ (0, import_jsx_runtime39.jsx)(
         "div",
         {
           id: "param-hud-tooltip",
@@ -29087,18 +30129,18 @@
           "aria-live": "polite"
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime37.jsx)(SettingsModal, {})
+      /* @__PURE__ */ (0, import_jsx_runtime39.jsx)(SettingsModal, {})
     ] });
   }
 
   // src/main.tsx
-  var import_jsx_runtime38 = __toESM(require_jsx_runtime(), 1);
+  var import_jsx_runtime40 = __toESM(require_jsx_runtime(), 1);
   function mountTepuiReactApp() {
     const shellEl = document.getElementById("plugin-shell");
     if (shellEl && !shellEl.__tepuiReactMounted) {
       shellEl.__tepuiReactMounted = true;
       const root = (0, import_client.createRoot)(shellEl);
-      root.render(/* @__PURE__ */ (0, import_jsx_runtime38.jsx)(App, {}));
+      root.render(/* @__PURE__ */ (0, import_jsx_runtime40.jsx)(App, {}));
     } else {
       initApp();
     }

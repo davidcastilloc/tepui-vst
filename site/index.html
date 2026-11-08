@@ -425,6 +425,7 @@
       <a href="#top" class="brand-mark">TEPUI AUDIO LABS</a>
       <nav class="nav-links" aria-label="Navegación principal">
         <a href="#audicion">Audición Web</a>
+        <a href="#skins">6 Skins</a>
         <a href="#arquitectura">Arquitectura DSP</a>
         <a href="#soundpacks">Sound Packs</a>
         <a href="#descargas">Instaladores</a>
@@ -440,7 +441,7 @@
         <div class="hero-grid">
           <div class="motion-item">
             <p class="hero-lead">
-              Sintetizador wavetable de 64 puntos con dibujo a mano alzada sobre pantalla OLED, resíntesis WAV → WT de ciclo único, guía de ondas Karplus-Strong y diseño de parches asistido por IA en Rust nativo (VST3, CLAP y Standalone v1.18.0).
+              Sintetizador wavetable de 64 puntos con dibujo a mano alzada sobre pantalla OLED, resíntesis WAV → WT de ciclo único, guía de ondas Karplus-Strong y diseño de parches asistido por IA en Rust nativo (VST3, CLAP y Standalone v1.19.0).
             </p>
 
             <div class="cta-cluster">
@@ -458,7 +459,7 @@
           </div>
 
           <div class="hero-visual-frame motion-item">
-            <img src="assets/tepui-workstation.jpg" width="1200" height="750" alt="Estación de síntesis modular TEPUI v1.18.0 mostrando los 6 módulos Eurorack, modo WT DRAW, resíntesis WAV a WT y los 7 timbres Pro Synth">
+            <img src="assets/tepui-workstation.jpg" width="1200" height="750" alt="Estación de síntesis modular TEPUI v1.19.0 mostrando los 6 módulos Eurorack, modo WT DRAW, resíntesis WAV a WT y los 7 timbres Pro Synth">
             <p class="hero-visual-caption">
               Chasis Eurorack de 6 módulos con modo WT DRAW, resíntesis WAV → WT, Reese Bass, Supersaw y Karplus-Strong.
             </p>
@@ -518,6 +519,35 @@
             Combina síntesis por tablas de onda 3D con Spectral Warp, filtros Cytomic TPT de topología preservadora de transientes, matriz de modulación 5x5 y compresión multibanda OTT de 3 bandas con saturación analógica.
           </p>
         </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- INTERACTIVE 6-SKIN HARDWARE SHOWCASE -->
+  <section id="skins" class="section-band">
+    <div class="page-shell">
+      <div class="section-header">
+        <h2 class="section-title motion-item">6 SKINS DE HARDWARE</h2>
+        <p class="motion-item">
+          Alterna en vivo entre los 6 acabados industriales calibrados sobre primitivas @audio-ui/react: desde el aluminio anodizado Swiss Daylight Lab hasta el osciloscopio monocromático CRT Phosphor P1.
+        </p>
+      </div>
+
+      <div class="surface-block motion-item">
+        <div class="preset-audition-row" role="tablist" aria-label="Selector de apariencia de hardware">
+          <button type="button" class="audition-btn skin-switch-btn active" data-skin="minimal" data-title="SWISS DAYLIGHT LAB (SKIN-MINIMAL)" data-desc="Aluminio anodizado cálido estilo Braun / Teenage Engineering TP-7 con acento bermellón internacional (#e03c1f) y alto contraste diurno.">SWISS DAYLIGHT</button>
+          <button type="button" class="audition-btn skin-switch-btn" data-skin="dark" data-title="TEPUI DARK STUDIO (SKIN-DARK)" data-desc="Chasis de estudio nocturno en grafito profundo con telemetría OLED cian (#00ebff), anillos de modulación luminosos y ámbar analógico.">DARK STUDIO</button>
+          <button type="button" class="audition-btn skin-switch-btn" data-skin="retro" data-title="CREAM CONSOLE (SKIN-RETRO)" data-desc="Consola analógica de pergamino cálido con serigrafía en tinta espresso y acentos terracota inspirados en sintetizadores de cinta clásicos.">CREAM CONSOLE</button>
+          <button type="button" class="audition-btn skin-switch-btn" data-skin="synth70" data-title="SYNTH '70S (SKIN-SYNTH70)" data-desc="Gabinete vintage de los años 70 con mejillas de nogal americano, paneles en negro mate e indicadores ámbar dorado (#ffb028).">SYNTH '70S</button>
+          <button type="button" class="audition-btn skin-switch-btn" data-skin="gunmetal" data-title="GUNMETAL RACK (SKIN-GUNMETAL)" data-desc="Unidad de rack maestro en acero pavonado cepillado con potenciómetros mecanizados CNC y medidores de precisión en azul hielo.">GUNMETAL RACK</button>
+          <button type="button" class="audition-btn skin-switch-btn" data-skin="phosphor" data-title="CRT PHOSPHOR P1 (SKIN-PHOSPHOR)" data-desc="Laboratorio de síntesis espectral con estética de tubo de rayos catódicos verde P1 (#6dff9c), retículas vectoriales y cero fatiga visual.">CRT PHOSPHOR</button>
+        </div>
+
+        <img id="skin-showcase-img" src="assets/skin-minimal.jpg" width="1280" height="820" style="width: 100%; height: auto; border: 1px solid var(--line-strong); margin-top: 14px; display: block;" alt="Vista en alta resolución del sintetizador TEPUI con el acabado Swiss Daylight Lab">
+        <h3 id="skin-showcase-title" class="block-heading" style="margin-top: 16px;">SWISS DAYLIGHT LAB (SKIN-MINIMAL)</h3>
+        <p id="skin-showcase-desc" class="block-copy">
+          Aluminio anodizado cálido estilo Braun / Teenage Engineering TP-7 con acento bermellón internacional (#e03c1f) y alto contraste diurno.
+        </p>
       </div>
     </div>
   </section>
@@ -660,7 +690,7 @@
   <div class="page-shell">
     <footer class="site-footer">
       <p><strong>TEPUI AUDIO LABS</strong> — Sintetizador Wavetable, Karplus-Strong y Estación Modular en Rust.</p>
-      <a href="https://github.com/davidcastilloc/tepui-vst/releases/latest">Release v1.18.0 en GitHub</a>
+      <a href="https://github.com/davidcastilloc/tepui-vst/releases/latest">Release v1.19.0 en GitHub</a>
     </footer>
   </div>
 
@@ -956,6 +986,22 @@
         btn.addEventListener('click', () => {
           const f = parseFloat(btn.dataset.freq || '130.81');
           playSynthNote(f);
+        });
+      });
+
+      document.querySelectorAll('.skin-switch-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const skin = btn.dataset.skin || 'minimal';
+          document.querySelectorAll('.skin-switch-btn').forEach((b) => b.classList.toggle('active', b === btn));
+          const img = document.getElementById('skin-showcase-img');
+          const title = document.getElementById('skin-showcase-title');
+          const desc = document.getElementById('skin-showcase-desc');
+          if (img) {
+            img.src = 'assets/skin-' + skin + '.jpg';
+            img.alt = 'Vista del sintetizador TEPUI con el acabado ' + (btn.dataset.title || skin);
+          }
+          if (title && btn.dataset.title) title.textContent = btn.dataset.title;
+          if (desc && btn.dataset.desc) desc.textContent = btn.dataset.desc;
         });
       });
     })();

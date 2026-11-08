@@ -23,6 +23,8 @@ export const svfSpectrumSource = createSource<number[]>(
 
 export const arpStepSource = createSource<number>(0);
 
+export type ArpLaneMode = "vel" | "ratchet" | "oct";
+
 export interface SynthUiSnapshot {
   normalized: Record<string, number>;
   activePadId: string;
@@ -31,7 +33,12 @@ export interface SynthUiSnapshot {
   activeNotes: number[];
   uiSkin: UiSkinId;
   filterMode: number;
+  wtWarpMode: number;
+  fxMode: number;
+  arpLaneMode: ArpLaneMode;
   arpSteps: number[];
+  arpStepRatchets: number[];
+  arpStepOctaves: number[];
 }
 
 let currentSnapshot: SynthUiSnapshot = {
@@ -42,7 +49,12 @@ let currentSnapshot: SynthUiSnapshot = {
   activeNotes: [],
   uiSkin: "minimal",
   filterMode: 0,
+  wtWarpMode: 0,
+  fxMode: 0,
+  arpLaneMode: "vel",
   arpSteps: [0.95, 0.48, 0.78, 0.92, 0.52, 0.86, 0.95, 0.48, 0.78, 0.92, 0.52, 0.86],
+  arpStepRatchets: [1, 1, 1, 2, 1, 1, 1, 2, 1, 1, 1, 2, 1, 1, 2, 3],
+  arpStepOctaves: [0, 0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 1, 0, 0, 1, 1],
 };
 
 const listeners = new Set<() => void>();
@@ -126,6 +138,23 @@ export const synthStore = {
     currentSnapshot = { ...currentSnapshot, filterMode: m };
     emitChange();
   },
+  setWtWarpMode(mode: number) {
+    const m = Math.max(0, Math.min(3, Math.round(Number(mode) || 0)));
+    if (currentSnapshot.wtWarpMode === m) return;
+    currentSnapshot = { ...currentSnapshot, wtWarpMode: m };
+    emitChange();
+  },
+  setFxMode(mode: number) {
+    const m = Math.max(0, Math.min(2, Math.round(Number(mode) || 0)));
+    if (currentSnapshot.fxMode === m) return;
+    currentSnapshot = { ...currentSnapshot, fxMode: m };
+    emitChange();
+  },
+  setArpLaneMode(lane: ArpLaneMode) {
+    if (currentSnapshot.arpLaneMode === lane) return;
+    currentSnapshot = { ...currentSnapshot, arpLaneMode: lane };
+    emitChange();
+  },
   setArpSteps(steps: number[]) {
     if (!Array.isArray(steps) || steps.length === 0) return;
     if (
@@ -135,6 +164,30 @@ export const synthStore = {
       return;
     }
     currentSnapshot = { ...currentSnapshot, arpSteps: [...steps] };
+    emitChange();
+  },
+  setArpStepRatchets(ratchets: number[]) {
+    if (!Array.isArray(ratchets) || ratchets.length === 0) return;
+    const cleaned = ratchets.map((v) => Math.max(1, Math.min(4, Math.round(Number(v) || 1))));
+    if (
+      cleaned.length === currentSnapshot.arpStepRatchets.length &&
+      cleaned.every((v, i) => v === currentSnapshot.arpStepRatchets[i])
+    ) {
+      return;
+    }
+    currentSnapshot = { ...currentSnapshot, arpStepRatchets: cleaned };
+    emitChange();
+  },
+  setArpStepOctaves(octaves: number[]) {
+    if (!Array.isArray(octaves) || octaves.length === 0) return;
+    const cleaned = octaves.map((v) => Math.max(-2, Math.min(2, Math.round(Number(v) || 0))));
+    if (
+      cleaned.length === currentSnapshot.arpStepOctaves.length &&
+      cleaned.every((v, i) => v === currentSnapshot.arpStepOctaves[i])
+    ) {
+      return;
+    }
+    currentSnapshot = { ...currentSnapshot, arpStepOctaves: cleaned };
     emitChange();
   },
 };

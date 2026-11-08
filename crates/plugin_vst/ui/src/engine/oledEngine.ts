@@ -97,8 +97,13 @@ const state = {
     arp_rate_div: 1,
     arp_step_count: 16,
     granular_mode: 0,
+    wt_warp_mode: 0,
+    fx_mode: 0,
+    arp_step_ratchets: [1, 1, 1, 2, 1, 1, 1, 2, 1, 1, 1, 2, 1, 1, 2, 3],
+    arp_step_octaves: [0, 0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 1, 0, 0, 1, 1],
     macros: [0.0, 0.0, 0.0, 0.0]
   },
+  arpLaneMode: 'vel',
   normalized: {
     attack: 0.2702,
     decay: 0.622,
@@ -555,11 +560,31 @@ function syncVitalSerumParamsToUI(p) {
     state.normalized.macro2 = p.macros[1] || 0;
     state.normalized.macro3 = p.macros[2] || 0;
     state.normalized.macro4 = p.macros[3] || 0;
+  } else {
+    if (typeof p.macro1 === 'number') state.normalized.macro1 = p.macro1;
+    if (typeof p.macro2 === 'number') state.normalized.macro2 = p.macro2;
+    if (typeof p.macro3 === 'number') state.normalized.macro3 = p.macro3;
+    if (typeof p.macro4 === 'number') state.normalized.macro4 = p.macro4;
   }
+  ['macro1', 'macro2', 'macro3', 'macro4'].forEach((mKey) => {
+    if (typeof state.normalized[mKey] === 'number') {
+      synthStore.setParam(mKey as any, Math.round(state.normalized[mKey] * 100));
+    }
+  });
   if (typeof p.unison_voices === 'number') updateUnisonVoicesUI(p.unison_voices);
   if (typeof p.fm_from_b === 'number') updateFmFromBUI(p.fm_from_b);
   if (typeof p.lfo_shape === 'number') updateLfoShapeUI(p.lfo_shape);
   if (typeof p.granular_mode === 'number') updateGranularModeUI(p.granular_mode);
+  if (typeof p.wt_warp_mode === 'number') updateWtWarpModeUI(p.wt_warp_mode);
+  if (typeof p.fx_mode === 'number') updateFxModeUI(p.fx_mode);
+  if (Array.isArray(p.arp_step_ratchets) && p.arp_step_ratchets.length >= 12) {
+    state.params.arp_step_ratchets = p.arp_step_ratchets.map((v) => Math.max(1, Math.min(4, Math.round(Number(v) || 1))));
+    synthStore.setArpStepRatchets(state.params.arp_step_ratchets);
+  }
+  if (Array.isArray(p.arp_step_octaves) && p.arp_step_octaves.length >= 12) {
+    state.params.arp_step_octaves = p.arp_step_octaves.map((v) => Math.max(-2, Math.min(2, Math.round(Number(v) || 0))));
+    synthStore.setArpStepOctaves(state.params.arp_step_octaves);
+  }
   if (typeof p.env2_target === 'number' || typeof p.env2_depth === 'number') {
     updateEnv2UI(p.env2_target !== undefined ? p.env2_target : state.params.env2_target, p.env2_depth !== undefined ? p.env2_depth : state.params.env2_depth);
   }
@@ -916,7 +941,43 @@ function formatKnobValue(id, norm) {
 const LFO_TARGET_LABELS = ['LFO → CUTOFF', 'LFO → VIBRATO', 'LFO → TREMOLO', 'LFO → OFF'];
 const LFO_SHAPE_LABELS = ['SINE', 'TRI', 'SAW', 'RAMP', 'SQR', 'S&H'];
 const GRANULAR_MODE_LABELS = ['GRAN:OFF', 'GRAN:CLOUD', 'GRAN:FREEZE'];
+const WT_WARP_MODE_LABELS = ['WARP:FOLD', 'WARP:ASYM', 'WARP:SYNC', 'WARP:QUANT'];
+const FX_BUS_MODE_LABELS = ['FX:CANYON', 'FX:PHASER', 'FX:TAPE'];
 const ARP_RATE_LABELS = ['1/4', '1/8', '1/16', '1/8T', '1/16D'];
+
+function updateWtWarpModeUI(warpMode) {
+  const wm = Math.max(0, Math.min(3, Math.round(Number(warpMode) || 0)));
+  state.params.wt_warp_mode = wm;
+  synthStore.setWtWarpMode(wm);
+  const btn = document.getElementById('btn-wt-warp-mode');
+  if (btn) {
+    btn.innerText = WT_WARP_MODE_LABELS[wm] || 'WARP:FOLD';
+    btn.classList.toggle('active', wm > 0);
+  }
+}
+
+function updateFxModeUI(fxMode) {
+  const fm = Math.max(0, Math.min(2, Math.round(Number(fxMode) || 0)));
+  state.params.fx_mode = fm;
+  synthStore.setFxMode(fm);
+  const btn = document.getElementById('btn-fx-bus-mode');
+  if (btn) {
+    btn.innerText = FX_BUS_MODE_LABELS[fm] || 'FX:CANYON';
+    btn.classList.toggle('active', fm > 0);
+  }
+}
+
+function updateArpLaneModeUI(laneMode) {
+  const valid = laneMode === 'ratchet' || laneMode === 'oct' ? laneMode : 'vel';
+  state.arpLaneMode = valid;
+  synthStore.setArpLaneMode(valid);
+  const btn = document.getElementById('btn-arp-lane');
+  if (btn) {
+    const labels = { vel: 'LANE:VEL', ratchet: 'LANE:RATCH', oct: 'LANE:OCT' };
+    btn.innerText = labels[valid] || 'LANE:VEL';
+    btn.classList.toggle('active', valid !== 'vel');
+  }
+}
 
 function updateGranularModeUI(granMode) {
   const g = Math.max(0, Math.min(2, Math.round(Number(granMode) || 0)));
@@ -1072,29 +1133,126 @@ function updateAllKnobsUI() {
 }
 
 function updateLiveKnobModulationRings() {
-  const depth = state.normalized.lfo_depth !== undefined ? state.normalized.lfo_depth : (state.params.lfo_depth || 0);
-  const target = state.params.lfo_target !== undefined ? state.params.lfo_target : 0;
-  const lfoWave = (state.oddMetrics && typeof state.oddMetrics.lfo_mod_value === 'number' && Math.abs(state.oddMetrics.lfo_mod_value) > 0.001)
-    ? state.oddMetrics.lfo_mod_value
-    : Math.sin(animPhase) * depth;
+  const lfoDepth = state.normalized.lfo_depth !== undefined ? state.normalized.lfo_depth : (state.params.lfo_depth || 0);
+  const lfoTarget = state.params.lfo_target !== undefined ? state.params.lfo_target : 0;
+  const env2Target = state.params.env2_target !== undefined ? state.params.env2_target : 0;
+  const env2Depth = state.params.env2_depth !== undefined ? state.params.env2_depth : 0;
+  const mask = (state.params.mod_matrix_mask >>> 0) & 0x01ffffff;
+  const m1 = state.normalized.macro1 || 0;
+  const m2 = state.normalized.macro2 || 0;
+  const m3 = state.normalized.macro3 || 0;
+  const m4 = state.normalized.macro4 || 0;
+  const modWheel = state.modWheelNorm || 0;
+  const liveVel = state.lastPlayedVelocity || state.currentVelocity || 0.95;
 
-  const targetParamMap = { 0: 'cutoff', 1: 'lfo_rate', 2: 'gain' };
-  const activeModParam = target !== 3 ? targetParamMap[target] : null;
+  const lfoWave1 = (state.oddMetrics && typeof state.oddMetrics.lfo_mod_value === 'number' && Math.abs(state.oddMetrics.lfo_mod_value) > 0.001)
+    ? state.oddMetrics.lfo_mod_value
+    : Math.sin(animPhase * 1.15);
+  const lfoWave2 = Math.cos(animPhase * 0.72);
+  const env2Pulse = (state.activeNotes.size > 0 || (state.dspActiveVoices || 0) > 0)
+    ? (0.5 + 0.5 * Math.sin(animPhase * 1.8))
+    : 0.45;
+
+  // Compute modulation span and instantaneous signal offset per parameter
+  const modSpans = {};
+  const modOffsets = {};
+  const addMod = (pid, spanAmt, instAmt) => {
+    if (Math.abs(spanAmt) < 0.005) return;
+    modSpans[pid] = Math.min(0.65, (modSpans[pid] || 0) + Math.abs(spanAmt));
+    modOffsets[pid] = Math.max(-0.55, Math.min(0.55, (modOffsets[pid] || 0) + instAmt));
+  };
+
+  // 1. Direct LFO 1 Target
+  if (lfoDepth > 0.01 && lfoTarget !== 3) {
+    const lfoTargetParam = lfoTarget === 0 ? 'cutoff' : (lfoTarget === 1 ? 'lfo_rate' : 'gain');
+    addMod(lfoTargetParam, lfoDepth * 0.36, lfoWave1 * lfoDepth * 0.32);
+  }
+
+  // 2. Direct ENV 2 Target
+  if (Math.abs(env2Depth) > 0.02 && env2Target !== 3) {
+    const env2Param = env2Target === 0 ? 'cutoff' : (env2Target === 1 ? 'wt_warp' : 'wt_pos');
+    addMod(env2Param, Math.abs(env2Depth) * 0.34, env2Depth * env2Pulse * 0.30);
+  }
+
+  // 3. 5x5 Modulation Matrix (Rows: LFO1, LFO2, ENV2, VEL, MODW -> Cols: CUT, RES, WT, PIT, FX)
+  const colToParam = ['cutoff', 'resonance', 'wt_pos', 'unison_detune', 'space_mix'];
+  const rowLiveSig = [
+    lfoWave1 * Math.max(0.28, lfoDepth),
+    lfoWave2 * 0.32,
+    env2Pulse * 0.35,
+    (liveVel - 0.5) * 0.55,
+    Math.max(0.18, modWheel) * 0.45
+  ];
+  const rowSpanAmt = [
+    Math.max(0.22, lfoDepth * 0.38),
+    0.24,
+    0.26,
+    0.22,
+    Math.max(0.18, modWheel * 0.38)
+  ];
+  for (let r = 0; r < 5; r++) {
+    for (let c = 0; c < 5; c++) {
+      if ((mask & (1 << (r * 5 + c))) !== 0) {
+        addMod(colToParam[c], rowSpanAmt[r], rowLiveSig[r]);
+      }
+    }
+  }
+
+  // 4. Vital/Serum Macros M1..M4
+  if (m1 > 0.01) {
+    addMod('wt_pos', m1 * 0.45, m1 * 0.45);
+    addMod('cutoff', m1 * 0.35, m1 * 0.35);
+  }
+  if (m2 > 0.01) {
+    addMod('wt_warp', m2 * 0.55, m2 * 0.55);
+    addMod('resonance', m2 * 0.30, m2 * 0.30);
+  }
+  if (m3 > 0.01) {
+    addMod('unison_detune', m3 * 0.45, m3 * 0.45);
+    addMod('sub_level', m3 * 0.50, m3 * 0.50);
+  }
+  if (m4 > 0.01) {
+    addMod('drive', m4 * 0.45, m4 * 0.45);
+    addMod('ott', m4 * 0.45, m4 * 0.45);
+    addMod('space_mix', m4 * 0.35, m4 * 0.35);
+  }
+
   const modCircum = 2 * Math.PI * 20.6;
   const maxModArc = (270 / 360) * modCircum;
 
   document.querySelectorAll('.knob-container').forEach((container) => {
     const pid = container.dataset.param;
     const modCircle = container.querySelector('.knob-mod-track');
+    const spanCircle = container.querySelector('.knob-mod-span');
     if (!modCircle) return;
-    if (pid === activeModParam && depth > 0.01) {
+    const spanVal = modSpans[pid] || 0;
+    if (spanVal > 0.01) {
       const baseNorm = state.normalized[pid] !== undefined ? state.normalized[pid] : 0.5;
-      const modNorm = Math.max(0.0, Math.min(1.0, baseNorm + lfoWave * 0.28));
-      const arcLen = modNorm * maxModArc;
-      modCircle.setAttribute('stroke-dasharray', `${arcLen.toFixed(1)} ${modCircum.toFixed(1)}`);
-      modCircle.setAttribute('opacity', '0.9');
+      const offsetVal = modOffsets[pid] || 0;
+      const liveNorm = Math.max(0.0, Math.min(1.0, baseNorm + offsetVal));
+      const spanStart = Math.max(0.0, Math.min(1.0, baseNorm - spanVal * 0.45));
+      const spanEnd = Math.max(0.0, Math.min(1.0, baseNorm + spanVal * 0.75));
+      const spanArc = Math.max(3.5, (spanEnd - spanStart) * maxModArc);
+      const spanOffset = -(spanStart * maxModArc);
+
+      if (spanCircle) {
+        spanCircle.setAttribute('stroke-dasharray', `${spanArc.toFixed(1)} ${modCircum.toFixed(1)}`);
+        spanCircle.setAttribute('stroke-dashoffset', spanOffset.toFixed(1));
+        spanCircle.setAttribute('opacity', '0.38');
+      }
+
+      const arcStart = Math.min(baseNorm, liveNorm);
+      const arcEnd = Math.max(baseNorm, liveNorm);
+      const liveArc = Math.max(4.5, (arcEnd - arcStart) * maxModArc);
+      const liveOffset = -(arcStart * maxModArc);
+      modCircle.setAttribute('stroke-dasharray', `${liveArc.toFixed(1)} ${modCircum.toFixed(1)}`);
+      modCircle.setAttribute('stroke-dashoffset', liveOffset.toFixed(1));
+      modCircle.setAttribute('opacity', '0.92');
+      container.dataset.modulated = 'true';
     } else {
+      if (spanCircle) spanCircle.setAttribute('opacity', '0');
       modCircle.setAttribute('opacity', '0');
+      delete container.dataset.modulated;
     }
   });
 }
@@ -1196,6 +1354,33 @@ function initOscilloscope() {
       updateGranularModeUI(nextGran);
       sendIpc(`gran,${nextGran}`);
       showParamHudTooltip(granBtn, 'GRANULAR ENGINE', GRANULAR_MODE_LABELS[nextGran]);
+      setTimeout(hideParamHudTooltip, 950);
+    });
+  }
+
+  const warpModeBtn = document.getElementById('btn-wt-warp-mode');
+  if (warpModeBtn) {
+    warpModeBtn.addEventListener('click', () => {
+      const nextWarp = ((state.params.wt_warp_mode || 0) + 1) % 4;
+      updateWtWarpModeUI(nextWarp);
+      sendIpc(`wtwarpmode,${nextWarp}`);
+      if ((state.normalized.wt_warp || 0) < 0.12 && nextWarp > 0) {
+        state.normalized.wt_warp = 0.42;
+        state.params.wt_warp = 0.42;
+        updateKnobUI('wt_warp', 0.42);
+      }
+      showParamHudTooltip(warpModeBtn, 'SPECTRAL WARP DSP', WT_WARP_MODE_LABELS[nextWarp]);
+      setTimeout(hideParamHudTooltip, 950);
+    });
+  }
+
+  const fxModeBtn = document.getElementById('btn-fx-bus-mode');
+  if (fxModeBtn) {
+    fxModeBtn.addEventListener('click', () => {
+      const nextFx = ((state.params.fx_mode || 0) + 1) % 3;
+      updateFxModeUI(nextFx);
+      sendIpc(`fxmode,${nextFx}`);
+      showParamHudTooltip(fxModeBtn, 'MASTER FX BUS', FX_BUS_MODE_LABELS[nextFx]);
       setTimeout(hideParamHudTooltip, 950);
     });
   }
@@ -1571,7 +1756,9 @@ function startVisualizationLoop() {
     drawLfoOled();
     const arpMode = state.params.arp_mode || 0;
     const arpBars = getArpBarsForMode(arpMode);
-    const arpSig = `${currentUiSkin}|${state.oledTheme}|${layoutResizeGeneration}|${arpMode}|${state.params.arp_step_count || 12}|${state.params.arp_rate_div || 2}|${state.lastEditedArpStep}|${arpBars.join(',')}`;
+    const arpRatchStr = Array.isArray(state.params.arp_step_ratchets) ? state.params.arp_step_ratchets.join(',') : '';
+    const arpOctStr = Array.isArray(state.params.arp_step_octaves) ? state.params.arp_step_octaves.join(',') : '';
+    const arpSig = `${currentUiSkin}|${state.oledTheme}|${layoutResizeGeneration}|${arpMode}|${state.arpLaneMode || 'vel'}|${state.params.arp_step_count || 12}|${state.params.arp_rate_div || 2}|${state.lastEditedArpStep}|${arpBars.join(',')}|${arpRatchStr}|${arpOctStr}`;
     if (isPlaying || arpMode > 0 || arpSig !== oledDirtyCache.arpSig || (oledDirtyCache.frameTick % 4) === 0) {
       oledDirtyCache.arpSig = arpSig;
       drawArpOled();
@@ -2476,7 +2663,13 @@ function drawArpOled() {
     const by = botY - bh;
     const isHit = i === activeStep || i === state.lastEditedArpStep;
     const isAccentBeat = (i % groupSize) === 0;
-    const hasRatchet = numBars === 16 && (i === 3 || i === 7 || i === 11 || i === 15);
+    const stepRatchet = (Array.isArray(state.params.arp_step_ratchets) && state.params.arp_step_ratchets[i] !== undefined)
+      ? Math.max(1, Math.min(4, state.params.arp_step_ratchets[i]))
+      : (numBars === 16 && (i === 3 || i === 7 || i === 11 || i === 15) ? 2 : 1);
+    const stepOct = (Array.isArray(state.params.arp_step_octaves) && state.params.arp_step_octaves[i] !== undefined)
+      ? Math.max(-2, Math.min(2, state.params.arp_step_octaves[i]))
+      : 0;
+    const hasRatchet = stepRatchet >= 2;
 
     // Halo de columna activa (Playhead Laser)
     if (isHit) {
@@ -2504,12 +2697,14 @@ function drawArpOled() {
       ctx.fillRect(bx, sy, barW, sh);
     }
 
-    // Tapa Peak-Hold luminosa en la cima del paso (dividida en 2 sub-pulsos si tiene Ratchet 2x)
+    // Tapa Peak-Hold luminosa en la cima del paso (dividida en N sub-pulsos si tiene Ratchet 2x..4x)
     ctx.fillStyle = pal.isDaylight ? pal.secondaryHex : (isHit ? '#ffffff' : (hasRatchet ? arpCyanHex : arpAccHex));
-    if (hasRatchet) {
-      const subW = Math.max(1 * dpr, (barW - 1.2 * dpr) * 0.5);
-      ctx.fillRect(bx, by, subW, Math.max(1.8 * dpr, 2.2 * dpr));
-      ctx.fillRect(bx + subW + 1.2 * dpr, by, subW, Math.max(1.8 * dpr, 2.2 * dpr));
+    if (stepRatchet >= 2) {
+      const gap = 1.0 * dpr;
+      const subW = Math.max(0.8 * dpr, (barW - gap * (stepRatchet - 1)) / stepRatchet);
+      for (let r = 0; r < stepRatchet; r++) {
+        ctx.fillRect(bx + r * (subW + gap), by, subW, Math.max(1.8 * dpr, 2.2 * dpr));
+      }
     } else {
       ctx.fillRect(bx, by, barW, Math.max(1.6 * dpr, 2.0 * dpr));
     }
@@ -2520,10 +2715,13 @@ function drawArpOled() {
     ctx.fillRect(bx, botY + 1.2 * dpr, gateW, 1.5 * dpr);
 
     // Coordenada del nodo de Pitch/Octava sobre la cima
+    const octShiftY = -stepOct * 4.5 * dpr;
     pitchPts.push({
       x: bx + barW * 0.5,
-      y: Math.max(topPlotY + 3 * dpr, by - 3 * dpr),
-      semi: ARP_PITCH_OFFSETS[i % ARP_PITCH_OFFSETS.length],
+      y: Math.max(topPlotY + 2.5 * dpr, Math.min(botY - 3 * dpr, by - 3 * dpr + octShiftY)),
+      semi: ARP_PITCH_OFFSETS[i % ARP_PITCH_OFFSETS.length] + stepOct * 12,
+      oct: stepOct,
+      ratchet: stepRatchet,
       isHit
     });
   }
@@ -2552,13 +2750,17 @@ function drawArpOled() {
   ctx.beginPath(); ctx.moveTo(0, h - rulerH); ctx.lineTo(w, h - rulerH); ctx.stroke();
 
   const rateLbl = ARP_RATE_LABELS[state.params.arp_rate_div || 1] || '1/8';
+  const laneTag = state.arpLaneMode === 'ratchet' ? 'RATCH' : (state.arpLaneMode === 'oct' ? 'OCT' : 'VEL');
   const titleMap = ['4/4 MANUAL', `ARP UP • ${numBars}ST`, `ARP DOWN • ${numBars}ST`, 'JOROPO 6/8 SYNC', 'MERENGUE 5/8 SYNC'];
   ctx.fillStyle = arpHex;
   ctx.font = `bold ${Math.round(6.6 * dpr)}px monospace`;
-  ctx.fillText(`${titleMap[mode] || 'JOROPO 6/8'} (${rateLbl})`, 6 * dpr, 10 * dpr);
+  ctx.fillText(`${titleMap[mode] || 'JOROPO 6/8'} (${rateLbl}•${laneTag})`, 6 * dpr, 10 * dpr);
   ctx.fillStyle = pal.isDaylight ? pal.secondaryHex : arpCyanHex;
   const stepVelPct = Math.round((bars[activeStep] !== undefined ? bars[activeStep] : 0.85) * 100);
-  ctx.fillText(`STEP ${activeStep + 1 < 10 ? '0' + (activeStep + 1) : activeStep + 1}/${numBars} • VEL ${stepVelPct}%`, w - 92 * dpr, 10 * dpr);
+  const actRatch = (state.params.arp_step_ratchets && state.params.arp_step_ratchets[activeStep]) || 1;
+  const actOct = (state.params.arp_step_octaves && state.params.arp_step_octaves[activeStep]) || 0;
+  const octTxt = actOct > 0 ? `+${actOct}O` : (actOct < 0 ? `${actOct}O` : '0O');
+  ctx.fillText(`S${activeStep + 1 < 10 ? '0' + (activeStep + 1) : activeStep + 1} • ${stepVelPct}% • ${actRatch}x • ${octTxt}`, w - 98 * dpr, 10 * dpr);
 }
 
 function drawReverbOled() {
@@ -2715,11 +2917,13 @@ function drawReverbOled() {
   ctx.fillText('1.2s', irStartX + irW * 0.68, h - 2.6 * dpr);
   ctx.fillText('2.8s', w - 18 * dpr, h - 2.6 * dpr);
 
+  const fxModeNames = ['CANYON', 'PHASER', 'TAPE'];
+  const fxModeName = fxModeNames[state.params.fx_mode || 0] || 'CANYON';
   ctx.fillStyle = primaryHex;
   ctx.font = `bold ${Math.round(6.6 * dpr)}px monospace`;
   ctx.fillText(`3B-OTT ${Math.round(ottNorm * 100)}% • DRV ${Math.round(driveNorm * 100)}%`, 6 * dpr, 9.8 * dpr);
   ctx.fillStyle = secondaryHex;
-  ctx.fillText(`CANYON ${Math.round(mix * 100)}%`, w - 52 * dpr, 9.8 * dpr);
+  ctx.fillText(`${fxModeName} ${Math.round(mix * 100)}%`, w - 56 * dpr, 9.8 * dpr);
 }
 
 function drawOscilloscope() {
@@ -2978,7 +3182,9 @@ function drawOscilloscope() {
     ctx.fillStyle = secondaryHex;
     ctx.font = `bold ${Math.round(6.4 * dpr)}px monospace`;
     const granTag = granMode === 2 ? ' • FREEZE' : (granMode === 1 ? ' • 4-GRAIN' : '');
-    ctx.fillText(`3D TEPUI MESA • FRM ${activeFrameNum}/16${granTag}`, w - 126 * dpr, 20 * dpr);
+    const warpNames = ['FOLD', 'ASYM', 'SYNC', 'QUANT'];
+    const warpTag = (state.params.wt_warp_mode || 0) > 0 ? ` • ${warpNames[state.params.wt_warp_mode]}` : '';
+    ctx.fillText(`3D TEPUI MESA • FRM ${activeFrameNum}/16${warpTag}${granTag}`, w - 134 * dpr, 20 * dpr);
     ctx.restore();
     return;
   }
@@ -3266,6 +3472,20 @@ function initInteractiveOleds() {
     });
   }
 
+  const btnArpLane = document.getElementById('btn-arp-lane');
+  if (btnArpLane) {
+    const LANE_CYCLE = ['vel', 'ratchet', 'oct'];
+    btnArpLane.addEventListener('click', () => {
+      const curIdx = LANE_CYCLE.indexOf(state.arpLaneMode || 'vel');
+      const nextLane = LANE_CYCLE[(curIdx + 1) % LANE_CYCLE.length];
+      updateArpLaneModeUI(nextLane);
+      oledDirtyCache.arpSig = '';
+      drawArpOled();
+      showParamHudTooltip(btnArpLane, 'ARP SEQ LANE', btnArpLane.innerText);
+      setTimeout(hideParamHudTooltip, 900);
+    });
+  }
+
   const lfoCanvas = document.getElementById('oled-lfo');
   if (lfoCanvas) {
     lfoCanvas.style.cursor = 'pointer';
@@ -3421,6 +3641,31 @@ function initInteractiveOleds() {
       const mode = state.params.arp_mode || 0;
       const bars = getArpBarsForMode(mode);
       const stepIdx = Math.max(0, Math.min(bars.length - 1, Math.floor(normX * bars.length)));
+      const lane = state.arpLaneMode || 'vel';
+      if (lane === 'ratchet') {
+        const rep = Math.max(1, Math.min(4, Math.round(1 + (1.0 - normY) * 3)));
+        if (!Array.isArray(state.params.arp_step_ratchets)) {
+          state.params.arp_step_ratchets = Array.from({ length: 16 }, () => 1);
+        }
+        state.params.arp_step_ratchets[stepIdx] = rep;
+        synthStore.setArpStepRatchets(state.params.arp_step_ratchets);
+        state.lastEditedArpStep = stepIdx;
+        sendIpc('arpratchet,' + stepIdx + ',' + rep);
+        showParamHudTooltip(arpCanvas, `STEP ${stepIdx + 1} RATCHET`, `${rep}x SUB-REPEATS`);
+        return;
+      }
+      if (lane === 'oct') {
+        const oct = normY < 0.35 ? 1 : (normY > 0.65 ? -1 : 0);
+        if (!Array.isArray(state.params.arp_step_octaves)) {
+          state.params.arp_step_octaves = Array.from({ length: 16 }, () => 0);
+        }
+        state.params.arp_step_octaves[stepIdx] = oct;
+        synthStore.setArpStepOctaves(state.params.arp_step_octaves);
+        state.lastEditedArpStep = stepIdx;
+        sendIpc('arpoct,' + stepIdx + ',' + oct);
+        showParamHudTooltip(arpCanvas, `STEP ${stepIdx + 1} OCTAVE`, `${oct >= 0 ? '+' + oct : oct} OCT`);
+        return;
+      }
       const accent = Math.max(0.05, Math.min(1.0, 1.0 - (normY - 0.12) / 0.76));
       bars[stepIdx] = accent;
       if (mode === 0) {
@@ -3481,6 +3726,34 @@ function initInteractiveOleds() {
     state.lastPlayedVelocity = v;
     sendIpc('arpstep,' + s + ',' + v.toFixed(3));
     syncArpPatternToDsp(mode);
+    oledDirtyCache.arpSig = '';
+    drawArpOled();
+  };
+
+  window.__tepuiOnArpRatchetChange = (stepIdx, repeats) => {
+    const s = Math.max(0, Math.min(15, Number(stepIdx) || 0));
+    const r = Math.max(1, Math.min(4, Math.round(Number(repeats) || 1)));
+    if (!Array.isArray(state.params.arp_step_ratchets)) {
+      state.params.arp_step_ratchets = Array.from({ length: 16 }, () => 1);
+    }
+    state.params.arp_step_ratchets[s] = r;
+    synthStore.setArpStepRatchets(state.params.arp_step_ratchets);
+    state.lastEditedArpStep = s;
+    sendIpc('arpratchet,' + s + ',' + r);
+    oledDirtyCache.arpSig = '';
+    drawArpOled();
+  };
+
+  window.__tepuiOnArpOctaveChange = (stepIdx, octave) => {
+    const s = Math.max(0, Math.min(15, Number(stepIdx) || 0));
+    const o = Math.max(-2, Math.min(2, Math.round(Number(octave) || 0)));
+    if (!Array.isArray(state.params.arp_step_octaves)) {
+      state.params.arp_step_octaves = Array.from({ length: 16 }, () => 0);
+    }
+    state.params.arp_step_octaves[s] = o;
+    synthStore.setArpStepOctaves(state.params.arp_step_octaves);
+    state.lastEditedArpStep = s;
+    sendIpc('arpoct,' + s + ',' + o);
     oledDirtyCache.arpSig = '';
     drawArpOled();
   };

@@ -139,6 +139,9 @@ fn default_arp_rate_div() -> u8 {
 fn default_arp_step_count() -> u8 {
     12
 }
+fn default_arp_step_ratchets() -> [u8; 16] {
+    [1; 16]
+}
 
 /// Formato de archivo de Patch autocontenido `.tepui` para guardar y compartir instrumentos completos.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -221,6 +224,14 @@ pub struct TepuiPatch {
     #[serde(default)]
     pub granular_mode: u8,
     #[serde(default)]
+    pub wt_warp_mode: u8,
+    #[serde(default)]
+    pub fx_mode: u8,
+    #[serde(default = "default_arp_step_ratchets")]
+    pub arp_step_ratchets: [u8; 16],
+    #[serde(default)]
+    pub arp_step_octaves: [i8; 16],
+    #[serde(default)]
     pub midi_cc_map: Vec<(u8, i32)>,
 }
 
@@ -292,6 +303,10 @@ impl TepuiPatch {
             arp_rate_div: live_params.get_arp_rate_div(),
             arp_step_count: live_params.get_arp_step_count(),
             granular_mode: live_params.get_granular_mode(),
+            wt_warp_mode: live_params.get_wt_warp_mode(),
+            fx_mode: live_params.get_fx_mode(),
+            arp_step_ratchets: live_params.get_arp_step_ratchets(),
+            arp_step_octaves: live_params.get_arp_step_octaves(),
             midi_cc_map: live_params.export_midi_cc_map(),
         }
     }
@@ -366,6 +381,18 @@ impl TepuiPatch {
         live_params.set_arp_rate_div(self.arp_rate_div);
         live_params.set_arp_step_count(self.arp_step_count);
         live_params.set_granular_mode(self.granular_mode);
+        live_params.set_wt_warp_mode(self.wt_warp_mode);
+        live_params.set_fx_mode(self.fx_mode);
+        if self.arp_step_ratchets.iter().any(|&r| r > 1) {
+            live_params.set_arp_step_ratchets_slice(&self.arp_step_ratchets);
+        } else {
+            live_params.clear_arp_custom_ratchets();
+        }
+        if self.arp_step_octaves.iter().any(|&o| o != 0) {
+            live_params.set_arp_step_octaves_slice(&self.arp_step_octaves);
+        } else {
+            live_params.clear_arp_custom_octaves();
+        }
         live_params.restore_midi_cc_map(&self.midi_cc_map);
         live_params.bump_patch_io_count();
         live_params.bump_revision();
@@ -439,6 +466,14 @@ pub struct PersistedSamplerSession {
     #[serde(default)]
     pub granular_mode: u8,
     #[serde(default)]
+    pub wt_warp_mode: u8,
+    #[serde(default)]
+    pub fx_mode: u8,
+    #[serde(default = "default_arp_step_ratchets")]
+    pub arp_step_ratchets: [u8; 16],
+    #[serde(default)]
+    pub arp_step_octaves: [i8; 16],
+    #[serde(default)]
     pub midi_cc_map: Vec<(u8, i32)>,
 }
 
@@ -480,6 +515,10 @@ impl Default for PersistedSamplerSession {
             arp_rate_div: 2,
             arp_step_count: 12,
             granular_mode: 0,
+            wt_warp_mode: 0,
+            fx_mode: 0,
+            arp_step_ratchets: [1; 16],
+            arp_step_octaves: [0; 16],
             midi_cc_map: Vec::new(),
         }
     }
@@ -552,6 +591,10 @@ impl SessionPersistField {
             guard.arp_rate_div = self.live_params.get_arp_rate_div();
             guard.arp_step_count = self.live_params.get_arp_step_count();
             guard.granular_mode = self.live_params.get_granular_mode();
+            guard.wt_warp_mode = self.live_params.get_wt_warp_mode();
+            guard.fx_mode = self.live_params.get_fx_mode();
+            guard.arp_step_ratchets = self.live_params.get_arp_step_ratchets();
+            guard.arp_step_octaves = self.live_params.get_arp_step_octaves();
             guard.midi_cc_map = self.live_params.export_midi_cc_map();
         }
     }
@@ -607,6 +650,20 @@ impl<'a> PersistentField<'a, PersistedSamplerSession> for SessionPersistField {
         self.live_params
             .set_arp_step_count(new_value.arp_step_count);
         self.live_params.set_granular_mode(new_value.granular_mode);
+        self.live_params.set_wt_warp_mode(new_value.wt_warp_mode);
+        self.live_params.set_fx_mode(new_value.fx_mode);
+        if new_value.arp_step_ratchets.iter().any(|&r| r > 1) {
+            self.live_params
+                .set_arp_step_ratchets_slice(&new_value.arp_step_ratchets);
+        } else {
+            self.live_params.clear_arp_custom_ratchets();
+        }
+        if new_value.arp_step_octaves.iter().any(|&o| o != 0) {
+            self.live_params
+                .set_arp_step_octaves_slice(&new_value.arp_step_octaves);
+        } else {
+            self.live_params.clear_arp_custom_octaves();
+        }
         self.live_params.restore_midi_cc_map(&new_value.midi_cc_map);
         self.live_params.bump_persistence_restores();
         self.live_params.bump_revision();
@@ -1103,7 +1160,14 @@ pub struct LiveParamStore {
     pub granular_mode: AtomicU32,
     pub granular_dsp_frames: AtomicU32,
     pub advanced_filter_frames: AtomicU32,
-    // 5. MIDI Learn Directo (CC 0..127 -> Param 0..19) y Drag-and-Drop WAV Clip Export
+    // 5. Modos de Warp Espectral, Bus FX Multi-Modo y Edición por Paso (Ratchets & Octavas)
+    pub wt_warp_mode: AtomicU32,
+    pub fx_mode: AtomicU32,
+    pub arp_custom_ratchets_active: AtomicI32,
+    pub arp_step_ratchets: [AtomicU32; 16],
+    pub arp_custom_octaves_active: AtomicI32,
+    pub arp_step_octaves: [AtomicI32; 16],
+    // 6. MIDI Learn Directo (CC 0..127 -> Param 0..19) y Drag-and-Drop WAV Clip Export
     pub midi_learn_armed_param: AtomicI32,
     pub midi_cc_map: [AtomicI32; 128],
     pub midi_learn_bindings_count: AtomicU32,
@@ -1201,6 +1265,12 @@ impl Default for LiveParamStore {
             granular_mode: AtomicU32::new(0),
             granular_dsp_frames: AtomicU32::new(0),
             advanced_filter_frames: AtomicU32::new(0),
+            wt_warp_mode: AtomicU32::new(0),
+            fx_mode: AtomicU32::new(0),
+            arp_custom_ratchets_active: AtomicI32::new(0),
+            arp_step_ratchets: std::array::from_fn(|_| AtomicU32::new(1)),
+            arp_custom_octaves_active: AtomicI32::new(0),
+            arp_step_octaves: std::array::from_fn(|_| AtomicI32::new(0)),
             midi_learn_armed_param: AtomicI32::new(-1),
             midi_cc_map: std::array::from_fn(|_| AtomicI32::new(-1)),
             midi_learn_bindings_count: AtomicU32::new(0),
@@ -2174,6 +2244,103 @@ impl LiveParamStore {
     }
 
     #[inline]
+    pub fn set_wt_warp_mode(&self, mode: u8) {
+        self.wt_warp_mode
+            .store((mode.min(3)) as u32, Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_wt_warp_mode(&self) -> u8 {
+        (self.wt_warp_mode.load(Ordering::Relaxed).min(3)) as u8
+    }
+
+    #[inline]
+    pub fn set_fx_mode(&self, mode: u8) {
+        self.fx_mode.store((mode.min(2)) as u32, Ordering::Relaxed);
+    }
+    #[inline]
+    pub fn get_fx_mode(&self) -> u8 {
+        (self.fx_mode.load(Ordering::Relaxed).min(2)) as u8
+    }
+
+    #[inline]
+    pub fn set_arp_step_ratchet(&self, step_idx: usize, repeats: u8) {
+        if step_idx < 16 {
+            self.arp_step_ratchets[step_idx]
+                .store((repeats.clamp(1, 4)) as u32, Ordering::Relaxed);
+            self.arp_custom_ratchets_active.store(1, Ordering::Release);
+        }
+    }
+
+    #[inline]
+    pub fn set_arp_step_ratchets_slice(&self, ratchets: &[u8]) {
+        for (i, &r) in ratchets.iter().take(16).enumerate() {
+            self.arp_step_ratchets[i].store((r.clamp(1, 4)) as u32, Ordering::Relaxed);
+        }
+        self.arp_custom_ratchets_active.store(1, Ordering::Release);
+    }
+
+    #[inline]
+    pub fn clear_arp_custom_ratchets(&self) {
+        self.arp_custom_ratchets_active.store(0, Ordering::Release);
+        for slot in &self.arp_step_ratchets {
+            slot.store(1, Ordering::Relaxed);
+        }
+    }
+
+    #[inline]
+    pub fn is_arp_custom_ratchets_active(&self) -> bool {
+        self.arp_custom_ratchets_active.load(Ordering::Acquire) != 0
+    }
+
+    #[inline]
+    pub fn get_arp_step_ratchets(&self) -> [u8; 16] {
+        let mut out = [1u8; 16];
+        for (i, slot) in self.arp_step_ratchets.iter().enumerate() {
+            out[i] = (slot.load(Ordering::Relaxed).clamp(1, 4)) as u8;
+        }
+        out
+    }
+
+    #[inline]
+    pub fn set_arp_step_octave(&self, step_idx: usize, octave_offset: i8) {
+        if step_idx < 16 {
+            self.arp_step_octaves[step_idx]
+                .store((octave_offset.clamp(-2, 2)) as i32, Ordering::Relaxed);
+            self.arp_custom_octaves_active.store(1, Ordering::Release);
+        }
+    }
+
+    #[inline]
+    pub fn set_arp_step_octaves_slice(&self, octaves: &[i8]) {
+        for (i, &o) in octaves.iter().take(16).enumerate() {
+            self.arp_step_octaves[i].store((o.clamp(-2, 2)) as i32, Ordering::Relaxed);
+        }
+        self.arp_custom_octaves_active.store(1, Ordering::Release);
+    }
+
+    #[inline]
+    pub fn clear_arp_custom_octaves(&self) {
+        self.arp_custom_octaves_active.store(0, Ordering::Release);
+        for slot in &self.arp_step_octaves {
+            slot.store(0, Ordering::Relaxed);
+        }
+    }
+
+    #[inline]
+    pub fn is_arp_custom_octaves_active(&self) -> bool {
+        self.arp_custom_octaves_active.load(Ordering::Acquire) != 0
+    }
+
+    #[inline]
+    pub fn get_arp_step_octaves(&self) -> [i8; 16] {
+        let mut out = [0i8; 16];
+        for (i, slot) in self.arp_step_octaves.iter().enumerate() {
+            out[i] = (slot.load(Ordering::Relaxed).clamp(-2, 2)) as i8;
+        }
+        out
+    }
+
+    #[inline]
     pub fn set_granular_dsp_frames(&self, count: u32) {
         self.granular_dsp_frames.store(count, Ordering::Relaxed);
     }
@@ -2441,6 +2608,10 @@ impl LiveParamStore {
             arp_rate_div: self.get_arp_rate_div(),
             arp_step_count: self.get_arp_step_count(),
             granular_mode: self.get_granular_mode(),
+            wt_warp_mode: self.get_wt_warp_mode(),
+            fx_mode: self.get_fx_mode(),
+            arp_step_ratchets: self.get_arp_step_ratchets(),
+            arp_step_octaves: self.get_arp_step_octaves(),
             midi_cc_map: self.export_midi_cc_map(),
         }
     }
@@ -2498,6 +2669,18 @@ impl LiveParamStore {
         self.set_arp_rate_div(snap.arp_rate_div);
         self.set_arp_step_count(snap.arp_step_count);
         self.set_granular_mode(snap.granular_mode);
+        self.set_wt_warp_mode(snap.wt_warp_mode);
+        self.set_fx_mode(snap.fx_mode);
+        if snap.arp_step_ratchets.iter().any(|&r| r > 1) {
+            self.set_arp_step_ratchets_slice(&snap.arp_step_ratchets);
+        } else {
+            self.clear_arp_custom_ratchets();
+        }
+        if snap.arp_step_octaves.iter().any(|&o| o != 0) {
+            self.set_arp_step_octaves_slice(&snap.arp_step_octaves);
+        } else {
+            self.clear_arp_custom_octaves();
+        }
         self.restore_midi_cc_map(&snap.midi_cc_map);
         self.bump_revision();
     }
@@ -2547,11 +2730,16 @@ impl LiveParamStore {
         voice_manager.set_osc_b_fm_params(self.get_fm_from_b(), self.get_osc_b_level());
 
         // Proyectar Suite 5 Mejoras Pro hacia VoiceManager
+        voice_manager.set_wt_warp_mode(self.get_wt_warp_mode());
         voice_manager.set_glide_mode(self.get_glide_mode());
         voice_manager.set_env2_params(self.get_env2_target(), self.get_env2_depth());
         voice_manager.set_env_curve_tension(self.get_env_curve());
         voice_manager.set_arp_rate_division(ArpRateDivision::from_u8(self.get_arp_rate_div()));
         voice_manager.set_arp_step_count(self.get_arp_step_count() as usize);
+        let ratchets = self.get_arp_step_ratchets();
+        voice_manager.set_arp_step_ratchets(&ratchets, self.is_arp_custom_ratchets_active());
+        let octaves = self.get_arp_step_octaves();
+        voice_manager.set_arp_step_octaves(&octaves, self.is_arp_custom_octaves_active());
         voice_manager.set_granular_mode(self.get_granular_mode());
 
         if self.is_custom_wavetable_active() {
@@ -2578,6 +2766,7 @@ impl LiveParamStore {
 
         let m4_fx = self.get_macro(3);
         fx_rack.set_tempo_sync(eff_bpm, arp_mode);
+        fx_rack.set_fx_mode(self.get_fx_mode());
         fx_rack.set_drive((self.get_drive_amount() + m4_fx * 0.55).clamp(0.0, 1.0));
         fx_rack.set_ott((self.get_ott_amount() + m4_fx * 0.65).clamp(0.0, 1.0));
         fx_rack.set_mix((self.get_space_mix() + m4_fx * 0.35).clamp(0.0, 1.0));
@@ -2634,6 +2823,14 @@ pub struct SynthStateSnapshot {
     pub arp_rate_div: u8,
     pub arp_step_count: u8,
     pub granular_mode: u8,
+    #[serde(default)]
+    pub wt_warp_mode: u8,
+    #[serde(default)]
+    pub fx_mode: u8,
+    #[serde(default = "default_arp_step_ratchets")]
+    pub arp_step_ratchets: [u8; 16],
+    #[serde(default)]
+    pub arp_step_octaves: [i8; 16],
     #[serde(default)]
     pub midi_cc_map: Vec<(u8, i32)>,
 }
