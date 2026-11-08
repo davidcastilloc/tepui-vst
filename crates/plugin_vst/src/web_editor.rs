@@ -2938,7 +2938,7 @@ impl Editor for WebViewEditor {
                     .or_else(|_| std::env::var("APPDATA"))
                     .map(std::path::PathBuf::from)
                     .unwrap_or_else(|_| std::env::temp_dir());
-                base.join("Tepui").join("WebView2_Studio")
+                base.join("Tepui").join(format!("WebView2_{}", std::env::current_exe().ok().and_then(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned())).unwrap_or_else(|| "Studio".to_string())))
             });
         let _ = std::fs::create_dir_all(&webview_data_dir);
         let mut web_context = wry::WebContext::new(Some(webview_data_dir));

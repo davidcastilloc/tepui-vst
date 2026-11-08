@@ -111,10 +111,15 @@ pub fn resolve_isolated_webview_profile_dir(vendor_name: &str, plugin_name: &str
         .map(PathBuf::from)
         .unwrap_or_else(std::env::temp_dir);
 
+    let host_exe = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()))
+        .unwrap_or_else(|| "host".to_string());
+
     base.join("AudioPlugins")
         .join(sanitize(vendor_name))
         .join(sanitize(plugin_name))
-        .join("WebViewProfile")
+        .join(format!("WebViewProfile_{}", sanitize(&host_exe)))
 }
 
 /// Puente atómico libre de contrapresión (zero-backpressure) para empujar telemetría a 60 FPS hacia el WebView.
@@ -239,9 +244,96 @@ impl HasDisplayHandle for NativeParentWindow {
     }
 }
 
+#[cfg(windows)]
+#[allow(non_camel_case_types, clippy::upper_case_acronyms)]
+mod win32_pump {
+    use std::ffi::c_void;
+
+    pub type HWND = *mut c_void;
+    pub type UINT_PTR = usize;
+    pub type UINT = u32;
+    pub type DWORD = u32;
+    pub type BOOL = i32;
+
+    #[repr(C)]
+    pub struct POINT {
+        pub x: i32,
+        pub y: i32,
+    }
+
+    #[repr(C)]
+    pub struct MSG {
+        pub hwnd: HWND,
+        pub message: UINT,
+        pub wparam: usize,
+        pub lparam: isize,
+        pub time: DWORD,
+        pub pt: POINT,
+        pub lprivate: DWORD,
+    }
+
+    pub type TIMERPROC = Option<unsafe extern "system" fn(HWND, UINT, UINT_PTR, DWORD)>;
+
+    extern "system" {
+        pub fn SetTimer(
+            hwnd: HWND,
+            id_event: UINT_PTR,
+            elapse: UINT,
+            timer_func: TIMERPROC,
+        ) -> UINT_PTR;
+        pub fn KillTimer(hwnd: HWND, id_event: UINT_PTR) -> BOOL;
+        pub fn PeekMessageW(
+            msg: *mut MSG,
+            hwnd: HWND,
+            msg_filter_min: UINT,
+            msg_filter_max: UINT,
+            remove_msg: UINT,
+        ) -> BOOL;
+        pub fn TranslateMessage(msg: *const MSG) -> BOOL;
+        pub fn DispatchMessageW(msg: *const MSG) -> isize;
+    }
+
+    pub const PM_REMOVE: UINT = 0x0001;
+    pub const TIMER_ID: UINT_PTR = 0xB95C0;
+
+    pub unsafe extern "system" fn timer_pump_proc(
+        _hwnd: HWND,
+        _msg: UINT,
+        _id: UINT_PTR,
+        _time: DWORD,
+    ) {
+        let mut msg: MSG = std::mem::zeroed();
+        let mut count = 0;
+        // Drena mensajes COM/WebView2 dirigidos a HWND_MESSAGE que baseview omite en GetMessageW(hwnd)
+        while PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_REMOVE) != 0 {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+            count += 1;
+            if count > 64 {
+                break;
+            }
+        }
+    }
+}
+
 struct ActiveWebViewHandle {
     #[allow(dead_code)]
     webview: wry::WebView,
+    #[allow(dead_code)]
+    web_context: wry::WebContext,
+    #[cfg(windows)]
+    parent_hwnd: win32_pump::HWND,
+}
+
+impl Drop for ActiveWebViewHandle {
+    fn drop(&mut self) {
+        #[cfg(windows)]
+        if !self.parent_hwnd.is_null() {
+            unsafe {
+                win32_pump::KillTimer(self.parent_hwnd, win32_pump::TIMER_ID);
+            }
+        }
+    }
 }
 
 // Seguro en plugins VST3/CLAP donde el host gestiona el ciclo de vida del editor en el hilo GUI.
@@ -295,6 +387,12 @@ impl Editor for GenericWebViewEditor {
         context: Arc<dyn GuiContext>,
     ) -> Box<dyn Any + Send> {
         let native_parent = NativeParentWindow(parent);
+        #[cfg(windows)]
+        let win_hwnd: win32_pump::HWND = match parent {
+            ParentWindowHandle::Win32Hwnd(hwnd) => hwnd as win32_pump::HWND,
+            _ => std::ptr::null_mut(),
+        };
+
         let profile_dir = resolve_isolated_webview_profile_dir(self.vendor_name, self.plugin_name);
         let _ = std::fs::create_dir_all(&profile_dir);
         let mut web_context = wry::WebContext::new(Some(profile_dir));
@@ -318,7 +416,19 @@ impl Editor for GenericWebViewEditor {
                 DEFAULT_VIRTUAL_URI_SCHEME.into(),
                 move |_webview_id, req: Request<Vec<u8>>| {
                     let path = req.uri().path().trim_start_matches('/');
-                    if path == "api/telemetry" {
+                    let method = req.method().as_str();
+
+                    if method == "OPTIONS" {
+                        return Response::builder()
+                            .status(StatusCode::NO_CONTENT)
+                            .header("Access-Control-Allow-Origin", "*")
+                            .header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+                            .header("Access-Control-Allow-Headers", "Content-Type")
+                            .body(Cow::Borrowed(&[] as &'static [u8]))
+                            .unwrap();
+                    }
+
+                    if path.ends_with("api/telemetry") {
                         let (pk_l, pk_r, gr_db) = meter_proto.read_snapshot();
                         let mut norm_params = [0.0_f32; 16];
                         for (idx, slot) in norm_params.iter_mut().enumerate() {
@@ -334,11 +444,12 @@ impl Editor for GenericWebViewEditor {
                         return Response::builder()
                             .status(StatusCode::OK)
                             .header(CONTENT_TYPE, "application/json; charset=utf-8")
+                            .header("Cache-Control", "no-store, no-cache, must-revalidate")
                             .header("Access-Control-Allow-Origin", "*")
                             .body(Cow::Owned(body.into_bytes()))
                             .unwrap();
                     }
-                    if path == "api/cmd" {
+                    if path.ends_with("api/cmd") {
                         if let Ok(GuiToHostCommand::ParamSetValue { param_id, value }) =
                             dispatch_ipc_json(
                                 &String::from_utf8_lossy(req.body()),
@@ -353,6 +464,7 @@ impl Editor for GenericWebViewEditor {
                         return Response::builder()
                             .status(StatusCode::OK)
                             .header(CONTENT_TYPE, "application/json; charset=utf-8")
+                            .header("Cache-Control", "no-store, no-cache, must-revalidate")
                             .header("Access-Control-Allow-Origin", "*")
                             .body(Cow::Borrowed(b"{\"ok\":true}" as &[u8]))
                             .unwrap();
@@ -360,11 +472,19 @@ impl Editor for GenericWebViewEditor {
                     Response::builder()
                         .status(StatusCode::OK)
                         .header(CONTENT_TYPE, "text/html; charset=utf-8")
-                        .header("Content-Security-Policy", HARDENED_CSP_HEADER)
-                        .header("X-Content-Type-Options", "nosniff")
+                        .header("Cache-Control", "no-store, no-cache, must-revalidate")
+                        .header("Access-Control-Allow-Origin", "*")
                         .body(Cow::Owned(html_doc.as_bytes().to_vec()))
                         .unwrap()
                 },
+            )
+            .with_devtools(true)
+            .with_initialization_script(
+                r#"
+                if (typeof window.ipc === 'undefined' && window.chrome && window.chrome.webview) {
+                    window.ipc = { postMessage: function(msg) { window.chrome.webview.postMessage(msg); } };
+                }
+                "#,
             )
             .with_ipc_handler(move |req: Request<String>| {
                 if let Ok(GuiToHostCommand::ParamSetValue { param_id, value }) =
@@ -379,12 +499,65 @@ impl Editor for GenericWebViewEditor {
                 position: LogicalPosition::new(0.0, 0.0).into(),
                 size: LogicalSize::new(w as f64, h as f64).into(),
             })
+            .with_on_page_load_handler(|event, url| {
+                let ev_str = match event {
+                    wry::PageLoadEvent::Started => "Started",
+                    wry::PageLoadEvent::Finished => "Finished",
+                };
+                eprintln!("[BASE_PLUGIN_WEBVIEW LOAD] {} url: {}", ev_str, url);
+            })
             .with_url(DEFAULT_VIRTUAL_INDEX_URL);
 
         match builder.build_as_child(&native_parent) {
             Ok(webview) => {
+                #[cfg(windows)]
+                if !win_hwnd.is_null() {
+                    unsafe {
+                        win32_pump::SetTimer(
+                            win_hwnd,
+                            win32_pump::TIMER_ID,
+                            12,
+                            Some(win32_pump::timer_pump_proc),
+                        );
+                    }
+                }
+
+                let bounds = Rect {
+                    position: LogicalPosition::new(0.0, 0.0).into(),
+                    size: LogicalSize::new(w as f64, h as f64).into(),
+                };
+                let _ = webview.set_bounds(bounds);
                 let _ = webview.focus();
-                Box::new(ActiveWebViewHandle { webview })
+
+                #[cfg(windows)]
+                if !win_hwnd.is_null() {
+                    unsafe {
+                        let mut msg: win32_pump::MSG = std::mem::zeroed();
+                        let mut initial_drain = 0;
+                        while win32_pump::PeekMessageW(
+                            &mut msg,
+                            std::ptr::null_mut(),
+                            0,
+                            0,
+                            win32_pump::PM_REMOVE,
+                        ) != 0
+                        {
+                            win32_pump::TranslateMessage(&msg);
+                            win32_pump::DispatchMessageW(&msg);
+                            initial_drain += 1;
+                            if initial_drain >= 32 {
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                Box::new(ActiveWebViewHandle {
+                    webview,
+                    web_context,
+                    #[cfg(windows)]
+                    parent_hwnd: win_hwnd,
+                })
             }
             Err(err) => {
                 eprintln!("[BASE_PLUGIN_WEBVIEW] Error al crear WebView: {:?}", err);
