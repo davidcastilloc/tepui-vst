@@ -40,7 +40,7 @@ jobs:
           cargo update -w || true
 
       - name: Create Pull Request with SDK Improvements
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@v8
         with:
           commit-message: "chore(sdk): sync latest dsp_core, base_plugin_core, and base_plugin_webview"
           title: "chore(sdk): sincronización automática con mejoras del SDK central"
