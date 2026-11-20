@@ -1,0 +1,35 @@
+#!/usr/bin/env sh
+set -eu
+
+echo "[GITHOOK pre-push] 1/4 Running Clippy linter (-D warnings)..."
+cargo clippy --workspace --all-targets --no-deps -- -D warnings
+
+echo "[GITHOOK pre-push] 2/4 Running full workspace test suite..."
+cargo test --workspace
+
+if [ -f "scripts/audit_plugin_architecture.ps1" ]; then
+    echo "[GITHOOK pre-push] 3/4 Running plugin template architecture audit..."
+    if command -v pwsh >/dev/null 2>&1; then
+        pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/audit_plugin_architecture.ps1
+    elif command -v powershell >/dev/null 2>&1; then
+        powershell -NoProfile -ExecutionPolicy Bypass -File scripts/audit_plugin_architecture.ps1
+    fi
+fi
+
+if [ -f "bundler.toml" ]; then
+    PRIMARY_PKG=$(sed -n 's/^\[\([^].]*\)\][[:space:]]*$/\1/p' bundler.toml | head -n 1)
+    BUNDLE_NAME=$(sed -n 's/^name[[:space:]]*=[[:space:]]*"\([^"]*\)".*$/\1/p' bundler.toml | head -n 1)
+    if [ -n "${PRIMARY_PKG:-}" ]; then
+        if [ -z "${BUNDLE_NAME:-}" ]; then
+            BUNDLE_NAME="$PRIMARY_PKG"
+        fi
+        echo "[GITHOOK pre-push] 4/4 Verifying VST3/CLAP bundle output for '${PRIMARY_PKG}' -> '${BUNDLE_NAME}'..."
+        cargo run --package xtask -- bundle "$PRIMARY_PKG"
+        if [ ! -e "target/bundled/${BUNDLE_NAME}.clap" ] || [ ! -d "target/bundled/${BUNDLE_NAME}.vst3" ]; then
+            echo "[GITHOOK pre-push] ERROR: Expected bundles target/bundled/${BUNDLE_NAME}.clap and .vst3 were not produced!" >&2
+            exit 1
+        fi
+    fi
+fi
+
+echo "[GITHOOK pre-push] All checks passed."

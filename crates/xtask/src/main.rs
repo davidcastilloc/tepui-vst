@@ -849,6 +849,29 @@ fn run_set_version(args: &[String]) -> nih_plug_xtask::Result<()> {
     Ok(())
 }
 
+fn run_install_hooks() -> nih_plug_xtask::Result<()> {
+    let status = std::process::Command::new("git")
+        .args(["config", "core.hooksPath", ".githooks"])
+        .status()?;
+    if !status.success() {
+        return Err(std::io::Error::other("git config core.hooksPath .githooks failed").into());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        for hook in [".githooks/pre-commit", ".githooks/pre-push"] {
+            let p = Path::new(hook);
+            if p.exists() {
+                let mut perms = fs::metadata(p)?.permissions();
+                perms.set_mode(0o755);
+                fs::set_permissions(p, perms)?;
+            }
+        }
+    }
+    println!("[XTASK HOOKS] Configured git core.hooksPath -> .githooks");
+    Ok(())
+}
+
 fn main() -> nih_plug_xtask::Result<()> {
     if let Some(res) = try_run_self_extracting_mode() {
         return res;
@@ -856,6 +879,7 @@ fn main() -> nih_plug_xtask::Result<()> {
 
     let args: Vec<String> = env::args().skip(1).collect();
     match args.first().map(|s| s.as_str()) {
+        Some("install-hooks") => return run_install_hooks(),
         Some("install") => return run_install(&args[1..]),
         Some("installer") => {
             let pkg = args
@@ -995,5 +1019,28 @@ mod tests {
         assert_eq!(unpacked[0].1, b"VST3_PAYLOAD_DATA");
         assert_eq!(unpacked[1].0, "MySynth.clap");
         assert_eq!(unpacked[2].0, "my_synth_app.exe");
+    }
+
+    #[test]
+    fn test_repository_githooks_exist_and_enforce_compile_and_bundle_checks() {
+        let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let pre_commit = workspace_root.join(".githooks").join("pre-commit");
+        let pre_push = workspace_root.join(".githooks").join("pre-push");
+
+        assert!(pre_commit.is_file(), ".githooks/pre-commit must exist");
+        assert!(pre_push.is_file(), ".githooks/pre-push must exist");
+
+        let pre_commit_src = fs::read_to_string(&pre_commit).expect("read pre-commit");
+        assert!(pre_commit_src.starts_with("#!/usr/bin/env sh"));
+        assert!(pre_commit_src
+            .contains("cargo clippy --workspace --all-targets --no-deps -- -D warnings"));
+
+        let pre_push_src = fs::read_to_string(&pre_push).expect("read pre-push");
+        assert!(pre_push_src.starts_with("#!/usr/bin/env sh"));
+        assert!(pre_push_src.contains("cargo test --workspace"));
+        assert!(pre_push_src.contains("xtask -- bundle"));
     }
 }

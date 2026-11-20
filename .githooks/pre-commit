@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+set -eu
+
+echo "[GITHOOK pre-commit] Running workspace Clippy check (-D warnings) and xtask contract tests..."
+cargo clippy --workspace --all-targets --no-deps -- -D warnings
+cargo test -p xtask --quiet
+echo "[GITHOOK pre-commit] OK."
