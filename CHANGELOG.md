@@ -2,6 +2,28 @@
 
 Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
 
+## [1.26.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.25.0...v1.26.0) (2026-11-20)
+
+### Nuevas Funcionalidades (Features)
+
+* **plugin_vst:** unify TEPUI onto template SDK v1.0.0 DspEngine and declare_plugin_contract! ([abe30e0](https://github.com/davidcastilloc/tepui-vst/commit/abe30e05e99373016c9bbfc2c890dd3b0efb3c84))
+
+### Correcciones de Errores (Bug Fixes)
+
+* **xtask:** restore declarative bundle naming via bundler.toml and template-agnostic packaging ([05ad070](https://github.com/davidcastilloc/tepui-vst/commit/05ad070a73217a9face71c525a2398bc58c436e4))
+
+### Refactorizaciones Internas
+
+* **core:** unify TEPUI synth_core and plugin_vst onto dsp_core and base_plugin_webview ([a132042](https://github.com/davidcastilloc/tepui-vst/commit/a13204226e7c4a6d60db80e2329fc763d11d3daa))
+
+### Documentación
+
+* **readme:** actualizar galeria de capturas en las 6 skins y agregar captura de Studio VCA Bus Compressor ([631b074](https://github.com/davidcastilloc/tepui-vst/commit/631b0745a2eb351a547bee5f55dc7ea4ce513018))
+
+# Changelog
+
+Todos los cambios notables en **TEPUI // Gran Sabana Sonic Lab** se documentan automáticamente en este archivo siguiendo [Conventional Commits](https://www.conventionalcommits.org/) y [Semantic Versioning](https://semver.org/).
+
 ## [1.25.0](https://github.com/davidcastilloc/tepui-vst/compare/v1.24.1...v1.25.0) (2026-11-08)
 
 ### Nuevas Funcionalidades (Features)
